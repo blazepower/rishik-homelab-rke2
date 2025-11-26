@@ -7,10 +7,16 @@ Kubernetes homelab configuration managed with RKE2 and Flux GitOps.
 ```
 clusters/
 └── production/
-    └── kustomization.yaml  # Production cluster configuration
+    ├── flux-system/            # Flux GitOps components
+    └── kustomization.yaml      # Production cluster configuration
 infrastructure/
-├── namespaces/             # Namespace definitions
-└── storage/                # Storage configuration
-applications/
-└── plex/                   # Plex application
+├── crds/                       # Custom Resource Definitions
+├── namespaces/                 # Namespace definitions
+├── networking/                 # Network configuration
+├── node-config/                # Node labels and configuration
+├── rbac/                       # Role-based access control
+├── storage/                    # Storage configuration
+└── kustomization.yaml
+apps/
+└── plex/                       # Plex media server application
 ```
