@@ -4,3 +4,6 @@ resources:
   - ./flux-system
   - ../../infrastructure
   - ../../apps
+  - ../../infrastructure/rbac
+  - ../../infrastructure/node-config
+  - ../../infrastructure/crds
