@@ -3,4 +3,4 @@ kind: Kustomization
 resources:
   - ./flux-system
   - ../../infrastructure
-  - ../../applications
+  - ../../apps
