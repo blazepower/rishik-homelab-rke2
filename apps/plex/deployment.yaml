@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: plex
+  namespace: media
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: plex
+  template:
+    metadata:
+      labels:
+        app: plex
+    spec:
+      containers:
+        - name: plex
+          image: plexinc/pms-docker:1.41.0.8994-f2c27da23
+          ports:
+            - containerPort: 32400
+              name: plex
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "2000m"
