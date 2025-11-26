@@ -5,10 +5,12 @@ Kubernetes homelab configuration managed with RKE2 and Flux GitOps.
 ## Directory Structure
 
 ```
-cluster/
-├── flux/        # Flux GitOps configuration
-├── apps/        # Application manifests
-├── infra/       # Infrastructure components
-├── namespaces/  # Namespace definitions
-└── rke2/        # RKE2 specific configuration
+clusters/
+└── production/
+    └── kustomization.yaml  # Production cluster configuration
+infrastructure/
+├── namespaces/             # Namespace definitions
+└── storage/                # Storage configuration
+applications/
+└── plex/                   # Plex application
 ```
