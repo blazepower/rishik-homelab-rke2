@@ -43,10 +43,41 @@ infrastructure/
 ├── rbac/                       # Role-based access control
 ├── storage/                    # Storage configuration
 │   └── longhorn/               # Longhorn distributed storage
+├── monitoring/                 # Monitoring stack
+│   └── kube-prometheus-stack/  # Prometheus, Grafana, and Alertmanager
 └── kustomization.yaml
 apps/
 └── plex/                       # Plex media server application
 ```
+
+## Monitoring
+
+### kube-prometheus-stack
+
+[kube-prometheus-stack](https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack) is deployed to provide comprehensive cluster monitoring with Prometheus, Grafana, and Alertmanager.
+
+**Configuration:**
+- Deployed via Helm chart from `https://prometheus-community.github.io/helm-charts`
+- Installed in the `monitoring` namespace
+- Prometheus retention: 7 days
+- Scrape interval: 30 seconds
+- Grafana exposed via ClusterIP service (add Ingress separately for external access)
+- Alertmanager enabled
+
+**Files:**
+- `infrastructure/monitoring/helmrepository-prometheus-community.yaml` - Helm repository source
+- `infrastructure/monitoring/helmrelease-kube-prometheus-stack.yaml` - Helm release configuration
+- `infrastructure/monitoring/kustomization.yaml` - Kustomization for monitoring resources
+
+**Accessing Grafana:**
+To access Grafana locally, use port-forwarding:
+```bash
+kubectl port-forward -n monitoring svc/kube-prometheus-stack-grafana 3000:80
+```
+Then open http://localhost:3000 in your browser. Default credentials: admin/admin
+
+**Customization:**
+To pin a specific chart version, uncomment and set the `version` field in `helmrelease-kube-prometheus-stack.yaml`.
 
 ## Storage
 
