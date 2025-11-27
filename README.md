@@ -43,8 +43,7 @@ infrastructure/
 ├── rbac/                       # Role-based access control
 ├── storage/                    # Storage configuration
 │   └── longhorn/               # Longhorn distributed storage
-├── monitoring/                 # Monitoring stack
-│   └── kube-prometheus-stack/  # Prometheus, Grafana, and Alertmanager
+├── monitoring/                 # Monitoring stack (Prometheus, Grafana, Alertmanager)
 └── kustomization.yaml
 apps/
 └── plex/                       # Plex media server application
@@ -78,6 +77,12 @@ Then open http://localhost:3000 in your browser. Default credentials: admin/admi
 
 **Customization:**
 To pin a specific chart version, uncomment and set the `version` field in `helmrelease-kube-prometheus-stack.yaml`.
+
+**Security Note:**
+The default Grafana admin credentials (admin/admin) are configured for initial homelab setup. For production use, consider:
+- Using Kubernetes Secrets to store credentials
+- Configuring Grafana with a random password generator
+- Setting up proper authentication via OAuth/LDAP
 
 ## Storage
 
