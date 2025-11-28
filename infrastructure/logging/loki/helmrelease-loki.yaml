@@ -1,77 +1,135 @@
-values:
-  deploymentMode: SingleBinary
-
-  loki:
-    storage:
-      type: filesystem
-    auth_enabled: false
-
-    commonConfig:
-      replication_factor: 1
-
-    limits_config:
-      retention_period: 720h
-
-    compactor:
-      retention_enabled: true
-      retention_delete_delay: 2h
-      delete_request_store: filesystem
-
-    # Correct modern schema config block
-    schema_config:
-      configs:
-        - from: "2024-04-01"
-          store: boltdb-shipper
-          object_store: filesystem
-          schema: v11
-          index:
-            prefix: loki_index_
-            period: 24h
-
-  singleBinary:
-    replicas: 1
-    persistence:
-      enabled: true
-      size: 10Gi
-      storageClass: longhorn
-
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: 500m
-        memory: 512Mi
-
-    extraArgs:
-      - -config.expand-env=true
-
-    livenessProbe:
-      httpGet:
-        path: /ready
-        port: http-metrics
-      initialDelaySeconds: 45
-
-    readinessProbe:
-      httpGet:
-        path: /ready
-        port: http-metrics
-      initialDelaySeconds: 45
-
-  backend:
-    replicas: 0
-  read:
-    replicas: 0
-  write:
-    replicas: 0
-
-  gateway:
-    enabled: false
-  chunksCache:
-    enabled: false
-  resultsCache:
-    enabled: false
-  lokiCanary:
-    enabled: false
-  test:
-    enabled: false
+apiVersion: helm.toolkit.fluxcd.io/v2beta2
+kind: HelmRelease
+metadata:
+  name: loki
+  namespace: monitoring
+spec:
+  interval: 10m
+  chart:
+    spec:
+      chart: loki
+      sourceRef:
+        kind: HelmRepository
+        name: grafana-loki
+        namespace: flux-system
+  install:
+    createNamespace: true
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+  values:
+    # Single binary deployment mode for minimal homelab setup
+    deploymentMode: SingleBinary
+    loki:
+      storage:
+        type: filesystem
+      auth_enabled: false
+      commonConfig:
+        replication_factor: 1
+      # Log retention policy - 30 days
+      limits_config:
+        retention_period: 720h
+      compactor:
+        retention_enabled: true
+        retention_delete_delay: 2h
+        delete_request_store: filesystem
+      schemaConfig:
+        configs:
+          - from: "2024-04-01"
+            store: boltdb-shipper
+            object_store: filesystem
+            schema: v11
+            index:
+              prefix: loki_index_
+              period: 24h
+    # Single binary mode configuration
+    singleBinary:
+      replicas: 1
+      persistence:
+        enabled: true
+        size: 10Gi
+        storageClass: longhorn
+      # Resource limits and requests
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+      # Readiness and liveness probes
+      extraArgs:
+        - -config.expand-env=true
+      livenessProbe:
+        httpGet:
+          path: /ready
+          port: http-metrics
+        initialDelaySeconds: 45
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 3
+      readinessProbe:
+        httpGet:
+          path: /ready
+          port: http-metrics
+        initialDelaySeconds: 45
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 3
+    # Disable components not needed in single binary mode
+    backend:
+      replicas: 0
+    read:
+      replicas: 0
+    write:
+      replicas: 0
+    # Disable unused features
+    gateway:
+      enabled: false
+    chunksCache:
+      enabled: false
+    resultsCache:
+      enabled: false
+    lokiCanary:
+      enabled: false
+    test:
+      enabled: false
+    # Basic alerting rules
+    monitoring:
+      selfMonitoring:
+        enabled: false
+      rules:
+        enabled: true
+        alerting: true
+        labels:
+          release: kube-prometheus-stack
+      alerts:
+        enabled: true
+        labels:
+          release: kube-prometheus-stack
+    # Loki alerting rules
+    alerting_groups:
+      - name: loki-alerts
+        rules:
+          - alert: LokiHighLatencyQueries
+            expr: |
+              histogram_quantile(0.99, sum(rate(loki_request_duration_seconds_bucket{route=~"loki_api_v1_query.*"}[5m])) by (le)) > 10
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: Loki high latency queries
+              description: Loki queries are taking longer than 10 seconds at p99
+          - alert: LokiRequestErrors
+            expr: |
+              sum(rate(loki_request_duration_seconds_count{status_code=~"5.."}[5m])) by (route)
+                /
+              sum(rate(loki_request_duration_seconds_count[5m])) by (route) > 0.1
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: Loki request errors
+              description: Loki is experiencing more than 10% errors on route {{ $labels.route }}
