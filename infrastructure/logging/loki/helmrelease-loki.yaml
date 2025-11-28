@@ -41,7 +41,7 @@ spec:
           - from: "2024-04-01"
             store: boltdb-shipper
             object_store: filesystem
-            schema: v11
+            schema: v13
             index:
               prefix: loki_index_
               period: 24h
