@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  node-exporter.json: |
+    {{ .Files.Get "https://grafana.com/api/dashboards/1860/revisions/27/download" | indent 4 }}
+  k8s-cluster-monitoring.json: |
+    {{ .Files.Get "https://grafana.com/api/dashboards/315/revisions/3/download" | indent 4 }}
+  kubelet.json: |
+    {{ .Files.Get "https://grafana.com/api/dashboards/13332/revisions/1/download" | indent 4 }}
+  longhorn-overview.json: |
+    {{ .Files.Get "https://grafana.com/api/dashboards/13951/revisions/1/download" | indent 4 }}
+  longhorn-volume.json: |
+    {{ .Files.Get "https://grafana.com/api/dashboards/13952/revisions/1/download" | indent 4 }}
+  loki-details.json: |
+    {{ .Files.Get "https://grafana.com/api/dashboards/13186/revisions/1/download" | indent 4 }}
+  promtail.json: |
+    {{ .Files.Get "https://grafana.com/api/dashboards/12937/revisions/1/download" | indent 4 }}
