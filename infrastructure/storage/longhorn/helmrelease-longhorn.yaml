@@ -27,6 +27,7 @@ spec:
       defaultClassReplicaCount: 1
     defaultSettings:
       defaultDataPath: "/var/lib/longhorn"
+      # Minimum CPU percentage guaranteed for instance managers (5%)
       guaranteedInstanceManagerCPU: 5
     longhornManager:
       resources:
