@@ -73,16 +73,10 @@ To access Grafana locally, use port-forwarding:
 ```bash
 kubectl port-forward -n monitoring svc/kube-prometheus-stack-grafana 3000:80
 ```
-Then open http://localhost:3000 in your browser. Default credentials: admin/admin
+Then open http://localhost:3000 in your browser.
 
 **Customization:**
 To pin a specific chart version, uncomment and set the `version` field in `helmrelease-kube-prometheus-stack.yaml`.
-
-**Security Note:**
-The default Grafana admin credentials (admin/admin) are configured for initial homelab setup. For production use, consider:
-- Using Kubernetes Secrets to store credentials
-- Configuring Grafana with a random password generator
-- Setting up proper authentication via OAuth/LDAP
 
 ## Storage
 
