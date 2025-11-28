@@ -6,4 +6,5 @@ resources:
   - storage
   - node-bootstrap/iscsi
   - monitoring
+  - logging
   - cert-manager
