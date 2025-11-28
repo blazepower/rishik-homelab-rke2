@@ -25,7 +25,7 @@ spec:
     deployment:
       kind: DaemonSet
     ports:
-      web:
+      webSecure:
         port: 80
         expose: true
         hostPort: 8080
