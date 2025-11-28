@@ -38,6 +38,7 @@ spec:
       websecure:
         port: 443
         expose: true
+    hostNetwork: true
     service:
       enabled: true
       type: LoadBalancer
