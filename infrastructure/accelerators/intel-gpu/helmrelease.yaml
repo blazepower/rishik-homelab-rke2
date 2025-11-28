@@ -24,4 +24,4 @@ spec:
   values:
     sharedDevNum: 4
     nodeSelector:
-      intel.feature.node: "true"
+      intel.gpu: "true"
