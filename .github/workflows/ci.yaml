@@ -135,38 +135,56 @@ jobs:
       - name: Scan apps manifests with kubesec
         run: |
           echo "Scanning apps manifests..."
-          for file in $(find apps -name '*.yaml' -type f ! -name 'kustomization.yaml'); do
-            kind=$(grep -E "^kind:" "$file" | head -1 | awk '{print $2}')
-            if [[ "$kind" == "Deployment" || "$kind" == "DaemonSet" || "$kind" == "StatefulSet" || "$kind" == "Pod" ]]; then
-              echo "Scanning $file..."
-              result=$(kubesec scan "$file" 2>/dev/null || echo "[]")
-              score=$(echo "$result" | jq -r '.[0].score // 0')
-              if [[ "$score" -lt 0 ]]; then
-                echo "CRITICAL: $file has a negative security score: $score"
-                echo "$result" | jq '.[0].scoring.critical // []'
-                exit 1
-              fi
-              echo "Score: $score"
+          if [[ -d "apps" ]]; then
+            files=$(find apps -name '*.yaml' -type f ! -name 'kustomization.yaml' 2>/dev/null || true)
+            if [[ -n "$files" ]]; then
+              for file in $files; do
+                kind=$(grep -E "^kind:" "$file" | head -1 | awk '{print $2}')
+                if [[ "$kind" == "Deployment" || "$kind" == "DaemonSet" || "$kind" == "StatefulSet" || "$kind" == "Pod" ]]; then
+                  echo "Scanning $file..."
+                  result=$(kubesec scan "$file" 2>/dev/null || echo "[]")
+                  score=$(echo "$result" | jq -r '.[0].score // 0')
+                  if [[ "$score" -lt 0 ]]; then
+                    echo "CRITICAL: $file has a negative security score: $score"
+                    echo "$result" | jq '.[0].scoring.critical // []'
+                    exit 1
+                  fi
+                  echo "Score: $score"
+                fi
+              done
+            else
+              echo "No YAML files found in apps directory"
             fi
-          done
+          else
+            echo "apps directory does not exist, skipping"
+          fi
 
       - name: Scan infrastructure manifests with kubesec
         run: |
           echo "Scanning infrastructure manifests..."
-          for file in $(find infrastructure -name '*.yaml' -type f ! -name 'kustomization.yaml' ! -path '*/node-bootstrap/*'); do
-            kind=$(grep -E "^kind:" "$file" | head -1 | awk '{print $2}')
-            if [[ "$kind" == "Deployment" || "$kind" == "DaemonSet" || "$kind" == "StatefulSet" || "$kind" == "Pod" ]]; then
-              echo "Scanning $file..."
-              result=$(kubesec scan "$file" 2>/dev/null || echo "[]")
-              score=$(echo "$result" | jq -r '.[0].score // 0')
-              if [[ "$score" -lt 0 ]]; then
-                echo "CRITICAL: $file has a negative security score: $score"
-                echo "$result" | jq '.[0].scoring.critical // []'
-                exit 1
-              fi
-              echo "Score: $score"
+          if [[ -d "infrastructure" ]]; then
+            files=$(find infrastructure -name '*.yaml' -type f ! -name 'kustomization.yaml' ! -path '*/node-bootstrap/*' 2>/dev/null || true)
+            if [[ -n "$files" ]]; then
+              for file in $files; do
+                kind=$(grep -E "^kind:" "$file" | head -1 | awk '{print $2}')
+                if [[ "$kind" == "Deployment" || "$kind" == "DaemonSet" || "$kind" == "StatefulSet" || "$kind" == "Pod" ]]; then
+                  echo "Scanning $file..."
+                  result=$(kubesec scan "$file" 2>/dev/null || echo "[]")
+                  score=$(echo "$result" | jq -r '.[0].score // 0')
+                  if [[ "$score" -lt 0 ]]; then
+                    echo "CRITICAL: $file has a negative security score: $score"
+                    echo "$result" | jq '.[0].scoring.critical // []'
+                    exit 1
+                  fi
+                  echo "Score: $score"
+                fi
+              done
+            else
+              echo "No YAML files found in infrastructure directory"
             fi
-          done
+          else
+            echo "infrastructure directory does not exist, skipping"
+          fi
 
   trivy-scan:
     name: Trivy Security Scan
@@ -196,15 +214,25 @@ jobs:
         run: |
           curl -s https://fluxcd.io/install.sh | sudo bash
 
-      - name: Validate Flux resources
+      - name: Validate Flux prerequisites
         run: |
-          echo "Validating Flux resources..."
+          echo "Checking Flux prerequisites..."
+          flux check --pre 2>/dev/null || echo "Note: flux check --pre requires cluster access, skipping runtime checks"
+
+      - name: Validate Flux CRDs syntax
+        run: |
+          echo "Validating Flux resource syntax..."
           for file in $(find . -name '*.yaml' -type f ! -path './.git/*' ! -path './.github/agents/*'); do
             if grep -q "fluxcd.io" "$file" 2>/dev/null; then
-              echo "Validating Flux resource: $file"
-              flux check --pre 2>/dev/null || true
+              echo "Checking syntax of Flux resource: $file"
+              # Validate YAML syntax
+              if ! python3 -c "import yaml; yaml.safe_load(open('$file'))" 2>/dev/null; then
+                echo "ERROR: Invalid YAML syntax in $file"
+                exit 1
+              fi
             fi
           done
+          echo "All Flux resources have valid YAML syntax"
 
       - name: Check Kustomization files
         run: |
@@ -212,16 +240,10 @@ jobs:
           for kust in $(find . -name 'kustomization.yaml' -type f ! -path './.git/*' ! -path './.github/*'); do
             dir=$(dirname "$kust")
             echo "Checking $kust..."
-            if grep -q "resources:" "$kust"; then
-              while IFS= read -r resource; do
-                resource=$(echo "$resource" | sed 's/^[[:space:]]*-[[:space:]]*//' | tr -d '\r')
-                if [[ -n "$resource" && ! "$resource" =~ ^# ]]; then
-                  if [[ ! -e "$dir/$resource" && ! -e "$dir/$resource.yaml" && ! -e "$dir/$resource.yml" ]]; then
-                    if [[ ! "$resource" =~ ^https?:// && ! "$resource" =~ ^\.\. ]]; then
-                      echo "WARNING: Resource '$resource' referenced in $kust may not exist"
-                    fi
-                  fi
-                fi
-              done < <(grep -A 100 "resources:" "$kust" | grep "^[[:space:]]*-" | head -20)
+            # Validate YAML syntax
+            if ! python3 -c "import yaml; yaml.safe_load(open('$kust'))" 2>/dev/null; then
+              echo "ERROR: Invalid YAML syntax in $kust"
+              exit 1
             fi
           done
+          echo "All kustomization files have valid YAML syntax"

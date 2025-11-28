@@ -174,9 +174,14 @@ You can run the same checks locally before pushing:
 pip install yamllint
 yamllint -c .yamllint.yaml .
 
-# Kubernetes Validation
-kubeconform -strict -ignore-missing-schemas apps/
-kubeconform -strict -ignore-missing-schemas infrastructure/
+# Kubernetes Validation (with Flux schemas)
+mkdir -p /tmp/flux-schemas
+curl -sL https://github.com/fluxcd/flux2/releases/latest/download/crd-schemas.tar.gz | tar zxf - -C /tmp/flux-schemas
+find apps -name '*.yaml' -type f ! -name 'kustomization.yaml' -exec kubeconform \
+  -strict -ignore-missing-schemas \
+  -schema-location default \
+  -schema-location '/tmp/flux-schemas/{{ .ResourceKind }}{{ .KindSuffix }}.json' \
+  {} \;
 
 # Kustomize Build
 kustomize build apps --enable-helm > /dev/null
