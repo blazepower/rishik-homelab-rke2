@@ -41,7 +41,6 @@ spec:
         port: 443
         expose: true
     hostNetwork: false
-    # dnsPolicy: ClusterFirstWithHostNet
     service:
       enabled: true
       type: LoadBalancer
