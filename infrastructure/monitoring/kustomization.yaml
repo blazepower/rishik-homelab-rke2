@@ -6,3 +6,4 @@ resources:
   - helmrelease-kube-prometheus-stack.yaml
   - prometheusrules-alerts.yaml
   - ingress-grafana.yaml
+  - custom-dashboards
