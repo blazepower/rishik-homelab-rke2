@@ -31,6 +31,7 @@ spec:
       # Log retention policy - 30 days
       limits_config:
         retention_period: 720h
+        allow_structured_metadata: false
       compactor:
         retention_enabled: true
         retention_delete_delay: 2h
