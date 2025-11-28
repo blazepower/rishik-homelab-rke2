@@ -13,7 +13,7 @@ spec:
       chart: promtail
       sourceRef:
         kind: HelmRepository
-        name: grafana
+        name: grafana-promtail
         namespace: flux-system
   install:
     createNamespace: false
