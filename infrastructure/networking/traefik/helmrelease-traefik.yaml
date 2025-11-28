@@ -35,9 +35,11 @@ spec:
       web:
         port: 80
         expose: true
+        hostPort: 8080
       websecure:
         port: 443
         expose: true
+        hostPort: 8443
     service:
       enabled: true
       type: LoadBalancer
