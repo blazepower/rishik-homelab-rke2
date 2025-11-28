@@ -1,0 +1,182 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: homelab-alerts
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: node-health
+      rules:
+        - alert: NodeNotReady
+          expr: kube_node_status_condition{condition="Ready",status="true"} == 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Node {{ $labels.node }} is not ready"
+            description: "Node {{ $labels.node }} has been in a not ready state for more than 5 minutes."
+
+        - alert: NodeHighMemoryUsage
+          expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 85
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High memory usage on {{ $labels.instance }}"
+            description: "Memory usage is above 85% on node {{ $labels.instance }} (current value: {{ $value | printf \"%.1f\" }}%)."
+
+        - alert: NodeHighCPUUsage
+          expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 85
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High CPU usage on {{ $labels.instance }}"
+            description: "CPU usage is above 85% on node {{ $labels.instance }} (current value: {{ $value | printf \"%.1f\" }}%)."
+
+        - alert: NodeDiskPressure
+          expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100 < 15
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Low disk space on {{ $labels.instance }}"
+            description: "Disk space is below 15% on node {{ $labels.instance }} (available: {{ $value | printf \"%.1f\" }}%)."
+
+        - alert: NodeDiskCritical
+          expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100 < 5
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Critical disk space on {{ $labels.instance }}"
+            description: "Disk space is below 5% on node {{ $labels.instance }} (available: {{ $value | printf \"%.1f\" }}%)."
+
+    - name: pod-health
+      rules:
+        - alert: PodCrashLooping
+          expr: increase(kube_pod_container_status_restarts_total[1h]) > 5
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} is crash looping"
+            description: "Pod {{ $labels.namespace }}/{{ $labels.pod }} has restarted {{ $value | printf \"%.0f\" }} times in the last hour."
+
+        - alert: PodNotReady
+          expr: kube_pod_status_phase{phase=~"Pending|Unknown|Failed"} > 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} is not ready"
+            description: "Pod {{ $labels.namespace }}/{{ $labels.pod }} has been in {{ $labels.phase }} state for more than 15 minutes."
+
+        - alert: ContainerHighMemoryUsage
+          expr: (container_memory_working_set_bytes / container_spec_memory_limit_bytes) * 100 > 90 and container_spec_memory_limit_bytes > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Container {{ $labels.container }} memory usage high"
+            description: "Container {{ $labels.container }} in pod {{ $labels.namespace }}/{{ $labels.pod }} is using {{ $value | printf \"%.1f\" }}% of its memory limit."
+
+        - alert: ContainerHighCPUUsage
+          expr: (rate(container_cpu_usage_seconds_total[5m]) / container_spec_cpu_quota * container_spec_cpu_period) * 100 > 90 and container_spec_cpu_quota > 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Container {{ $labels.container }} CPU usage high"
+            description: "Container {{ $labels.container }} in pod {{ $labels.namespace }}/{{ $labels.pod }} is using {{ $value | printf \"%.1f\" }}% of its CPU limit."
+
+    - name: deployment-health
+      rules:
+        - alert: DeploymentReplicasMismatch
+          expr: kube_deployment_status_replicas_available != kube_deployment_spec_replicas
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Deployment {{ $labels.namespace }}/{{ $labels.deployment }} replicas mismatch"
+            description: "Deployment {{ $labels.namespace }}/{{ $labels.deployment }} has not matched the expected number of replicas for more than 10 minutes."
+
+        - alert: DaemonSetNotScheduled
+          expr: kube_daemonset_status_desired_number_scheduled - kube_daemonset_status_current_number_scheduled > 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "DaemonSet {{ $labels.namespace }}/{{ $labels.daemonset }} not fully scheduled"
+            description: "DaemonSet {{ $labels.namespace }}/{{ $labels.daemonset }} has {{ $value }} pods not scheduled."
+
+    - name: storage-health
+      rules:
+        - alert: PVCAlmostFull
+          expr: (kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes) * 100 > 85
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "PVC {{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }} almost full"
+            description: "PVC {{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }} is {{ $value | printf \"%.1f\" }}% full."
+
+        - alert: PVCCriticallyFull
+          expr: (kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes) * 100 > 95
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "PVC {{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }} critically full"
+            description: "PVC {{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }} is {{ $value | printf \"%.1f\" }}% full."
+
+        - alert: LonghornVolumeActualSpaceLow
+          expr: (longhorn_volume_actual_size_bytes / longhorn_volume_capacity_bytes) * 100 > 85
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Longhorn volume {{ $labels.volume }} running low on space"
+            description: "Longhorn volume {{ $labels.volume }} is using {{ $value | printf \"%.1f\" }}% of its capacity."
+
+    - name: flux-health
+      rules:
+        - alert: FluxReconciliationFailure
+          expr: gotk_reconcile_condition{status="False",type="Ready"} == 1
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Flux reconciliation failure for {{ $labels.kind }}/{{ $labels.name }}"
+            description: "Flux {{ $labels.kind }} {{ $labels.namespace }}/{{ $labels.name }} reconciliation has been failing for more than 10 minutes."
+
+    - name: monitoring-health
+      rules:
+        - alert: PrometheusTargetMissing
+          expr: up == 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Prometheus target {{ $labels.job }} is down"
+            description: "Prometheus cannot scrape target {{ $labels.instance }} for job {{ $labels.job }}."
+
+        - alert: LokiNotReceivingLogs
+          expr: sum(rate(loki_distributor_bytes_received_total[5m])) == 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Loki is not receiving logs"
+            description: "Loki has not received any logs in the last 15 minutes."
+
+        - alert: AlertmanagerNotReceivingAlerts
+          expr: rate(alertmanager_alerts_received_total[5m]) == 0
+          for: 30m
+          labels:
+            severity: info
+          annotations:
+            summary: "Alertmanager is not receiving alerts"
+            description: "Alertmanager has not received any alerts in the last 30 minutes. This may be normal if there are no issues."

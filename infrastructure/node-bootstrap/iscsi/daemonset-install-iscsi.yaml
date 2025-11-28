@@ -28,7 +28,32 @@ spec:
               cp /scripts/iscsi-bootstrap.sh /host/etc/rancher/rke2/pre-node.d/iscsi-bootstrap.sh
               chmod +x /host/etc/rancher/rke2/pre-node.d/iscsi-bootstrap.sh
               echo "[BOOTSTRAP] iscsi script written to host"
+              touch /tmp/healthy
               sleep infinity
+          resources:
+            requests:
+              cpu: "10m"
+              memory: "32Mi"
+            limits:
+              cpu: "50m"
+              memory: "64Mi"
+          livenessProbe:
+            exec:
+              command:
+                - cat
+                - /tmp/healthy
+            initialDelaySeconds: 30
+            periodSeconds: 60
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - test
+                - -f
+                - /host/etc/rancher/rke2/pre-node.d/iscsi-bootstrap.sh
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            failureThreshold: 3
           volumeMounts:
             - name: host-root
               mountPath: /host
