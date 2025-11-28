@@ -4,3 +4,4 @@ kind: Kustomization
 resources:
   - helmrepository-longhorn.yaml
   - helmrelease-longhorn.yaml
+  - ingress-longhorn.yaml
