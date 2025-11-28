@@ -80,6 +80,7 @@ The Loki data source enables log querying directly from Grafana's Explore interf
 - `infrastructure/monitoring/prometheusrules-alerts.yaml` - PrometheusRules for alerting
 - `infrastructure/monitoring/ingress-grafana.yaml` - Ingress for Grafana UI (HTTPS)
 - `infrastructure/monitoring/kustomization.yaml` - Kustomization for monitoring resources
+- `infrastructure/monitoring/custom-dashboards/` - Custom Grafana dashboards as ConfigMaps
 
 ### Accessing Grafana
 
@@ -103,3 +104,38 @@ Grafana admin credentials are stored in a Kubernetes secret:
 ### Customization
 
 To pin a specific chart version, uncomment and set the `version` field in `helmrelease-kube-prometheus-stack.yaml`.
+
+### Custom Dashboards
+
+Custom Grafana dashboards are stored as ConfigMaps in `infrastructure/monitoring/custom-dashboards/` with the label `grafana_dashboard: "1"` for automatic discovery by the Grafana sidecar.
+
+#### RKE2 Control Plane Dashboard
+File: `configmap-rke2-control-plane.yaml`
+
+Visualizes Kubernetes control plane components:
+- **API Server**: Request latency (P50/P90/P99), request rate by verb/code, open connections
+- **ETCD**: Database size, leader changes, defrag events, commit rate
+- **Controller Manager**: Work queue depth, reconciler duration P99
+- **Scheduler**: Scheduling latency, scheduling failures
+- **Kubelet**: Pod churn, container failures/restarts, eviction pressure
+
+#### Homelab Hardware Dashboard
+File: `configmap-homelab-hardware.yaml`
+
+Monitors node hardware using node-exporter and kubelet metrics:
+- **CPU**: Usage percentage, throttling events, thermal temperature
+- **GPU (Intel Iris Xe)**: Temperature, utilization
+- **Memory**: Working set usage, node allocatable vs used
+- **Disk (NVMe)**: IOPS, read/write latency, queue depth, SMART temperature
+- **Network**: Packet drops, errors, bandwidth per interface
+
+#### Error Funnel Dashboard
+File: `configmap-error-funnel.yaml`
+
+Tracks errors and issues across the cluster for debugging:
+- **API Server Errors**: 4xx and 5xx error rates
+- **Pod/Container Errors**: CrashLoopBackOff, image pull errors, restart rates
+- **Workload Errors**: Unavailable deployment replicas, failed jobs, DaemonSet issues
+- **Ingress/Network Errors**: Traefik error responses, endpoints not ready
+- **Storage Errors**: PVC pending/lost, Longhorn volume issues
+- **Flux GitOps Errors**: Reconciliation failures, stalled resources
