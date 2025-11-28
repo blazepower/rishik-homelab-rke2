@@ -11,6 +11,7 @@ spec:
       retries: 3
     crds: Create
   upgrade:
+    createNamespace: true
     crds: Create
     remediation:
       retries: 3
