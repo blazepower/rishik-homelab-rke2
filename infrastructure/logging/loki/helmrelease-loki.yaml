@@ -8,12 +8,13 @@ spec:
   chart:
     spec:
       chart: loki
+      version: 6.5.3
       sourceRef:
         kind: HelmRepository
         name: grafana
         namespace: flux-system
   install:
-    createNamespace: false
+    createNamespace: true
     remediation:
       retries: 3
   upgrade:
@@ -30,7 +31,7 @@ spec:
         type: filesystem
       schemaConfig:
         configs:
-          - from: "2024-01-01"
+          - from: "2024-04-01"
             store: tsdb
             object_store: filesystem
             schema: v13
@@ -40,9 +41,6 @@ spec:
     # Single binary mode configuration
     singleBinary:
       replicas: 1
-      persistence:
-        enabled: true
-        size: 10Gi
     # Disable components not needed in single binary mode
     backend:
       replicas: 0
