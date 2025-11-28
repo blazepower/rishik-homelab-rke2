@@ -7,3 +7,4 @@ resources:
   - node-bootstrap/iscsi
   - monitoring
   - logging
+  - cert-manager
