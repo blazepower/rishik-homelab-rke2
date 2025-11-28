@@ -24,6 +24,8 @@ spec:
   values:
     deployment:
       kind: DaemonSet
+      rollingUpdate:
+        maxUnavailable: 2
     resources:
       requests:
         cpu: "50m"
@@ -39,7 +41,6 @@ spec:
         port: 443
         expose: true
     hostNetwork: true
-    maxUnavailable: 2
     dnsPolicy: ClusterFirstWithHostNet
     service:
       enabled: true
