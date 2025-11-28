@@ -188,3 +188,26 @@ The cluster uses GitOps-managed node bootstrap automation to install open-iscsi 
 - `infrastructure/node-bootstrap/iscsi/kustomization.yaml` - Kustomization for iSCSI resources
 
 **Note:** The open-iscsi package is a prerequisite for Longhorn iSCSI-based storage. The bootstrap automation ensures all nodes have the required packages installed automatically when they join the cluster.
+
+## Dependency Management
+
+### Dependabot
+
+This repository uses [Dependabot](https://docs.github.com/en/code-security/dependabot) to automatically check for and create pull requests for dependency updates.
+
+**What Dependabot monitors:**
+- **GitHub Actions**: Monitors workflow action versions in `.github/workflows/` for security updates and new versions
+
+**Update schedule:**
+- Checks for updates weekly on Mondays at 06:00 UTC
+
+**Configuration:**
+- Configuration file: `.github/dependabot.yml`
+- Labels applied to PRs: `dependencies`, `github-actions`
+- Maximum open PRs: 5 per ecosystem
+- Commit message prefix: `chore(deps)`
+
+**GitOps considerations:**
+- Dependabot only monitors GitHub Actions workflows, not Helm chart versions or Kubernetes manifests
+- Helm chart updates are managed via Flux HelmReleases which can specify version constraints
+- Kubernetes manifests and container images are managed declaratively through the GitOps workflow
