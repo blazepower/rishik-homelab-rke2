@@ -28,6 +28,10 @@ spec:
         retention: 7d
         scrapeInterval: 30s
     grafana:
+      adminUser: admin
+      admin:
+        existingSecret: grafana-admin-credentials
+        passwordKey: admin-password
       service:
         type: ClusterIP
     alertmanager:
