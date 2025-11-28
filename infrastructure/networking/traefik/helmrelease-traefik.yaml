@@ -26,9 +26,13 @@ spec:
       kind: DaemonSet
     ports:
       web:
-        hostPort: 80
+        port: 80
+        expose: true
+        hostPort: 8080
       websecure:
-        hostPort: 443
+        port: 443
+        expose: true
+        hostPort: 8443
     service:
       type: ClusterIP
     ingressClass:
