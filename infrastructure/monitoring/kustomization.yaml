@@ -4,6 +4,5 @@ resources:
   - helmrepository-prometheus-community.yaml
   - helmrepository-grafana.yaml
   - helmrelease-kube-prometheus-stack.yaml
-  - helmrelease-loki.yaml
   - prometheusrules-alerts.yaml
   - ingress-grafana.yaml
