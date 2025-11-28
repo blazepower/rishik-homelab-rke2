@@ -41,8 +41,10 @@ spec:
         expose: true
         hostPort: 8443
     service:
+      enabled: true
       type: LoadBalancer
       externalTrafficPolicy: Local
+      loadBalancerIP: 192.168.1.150
     ingressClass:
       enabled: true
       isDefaultClass: true
