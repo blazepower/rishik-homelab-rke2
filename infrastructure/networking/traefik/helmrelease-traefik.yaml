@@ -23,13 +23,8 @@ spec:
       retries: 3
   values:
     deployment:
-      kind: DaemonSet
-
-    updateStrategy:
-      type: RollingUpdate
-      rollingUpdate:
-        maxUnavailable: 2
-        maxSurge: 0
+      kind: Deployment
+      replicas: 2
         
     resources:
       requests:
@@ -45,8 +40,8 @@ spec:
       websecure:
         port: 443
         expose: true
-    hostNetwork: true
-    dnsPolicy: ClusterFirstWithHostNet
+    hostNetwork: false
+    # dnsPolicy: ClusterFirstWithHostNet
     service:
       enabled: true
       type: LoadBalancer
