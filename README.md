@@ -28,6 +28,8 @@ infrastructure/
 ├── rbac/                       # Role-based access control
 ├── storage/                    # Storage configuration (Longhorn)
 ├── monitoring/                 # Monitoring stack (Prometheus, Grafana, Alertmanager)
+├── logging/                    # Logging stack (Loki, Promtail)
+├── cert-manager/               # TLS certificate management
 └── kustomization.yaml
 apps/
 └── plex/                       # Plex media server application
@@ -39,8 +41,10 @@ docs/                           # Detailed component documentation
 | Component | Description | Documentation |
 |-----------|-------------|---------------|
 | **Monitoring** | Prometheus, Grafana, and Alertmanager via kube-prometheus-stack | [docs/monitoring.md](docs/monitoring.md) |
+| **Logging** | Loki and Promtail for centralized log aggregation | [docs/logging.md](docs/logging.md) |
 | **Storage** | Longhorn distributed storage as default StorageClass | [docs/storage.md](docs/storage.md) |
 | **Networking** | Traefik ingress controller for HTTP/HTTPS routing | [docs/networking.md](docs/networking.md) |
+| **TLS** | cert-manager for TLS certificate management | [docs/tls.md](docs/tls.md) |
 | **Node Bootstrap** | Automated iSCSI installation on cluster nodes | [docs/node-bootstrap.md](docs/node-bootstrap.md) |
 | **CI/CD** | Comprehensive validation and security scanning pipeline | [docs/ci-cd.md](docs/ci-cd.md) |
 
