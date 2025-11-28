@@ -5,6 +5,7 @@ metadata:
   namespace: monitoring
   annotations:
     kubernetes.io/ingress.class: traefik
+    cert-manager.io/cluster-issuer: cluster-ca
 spec:
   rules:
     - host: grafana.homelab
@@ -17,3 +18,8 @@ spec:
                 name: kube-prometheus-stack-grafana
                 port:
                   number: 80
+
+  tls:
+    - hosts:
+        - grafana.homelab
+      secretName: grafana-tls
