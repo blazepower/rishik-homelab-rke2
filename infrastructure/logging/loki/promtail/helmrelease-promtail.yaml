@@ -24,6 +24,85 @@ spec:
     remediation:
       retries: 3
   values:
+    # Resource limits and requests
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 128Mi
     config:
       clients:
-        - url: http://loki.homelab:3100/loki/api/v1/push
+        - url: http://loki.monitoring:3100/loki/api/v1/push
+      # Kubernetes pods scrape configuration
+      snippets:
+        pipelineStages:
+          - cri: {}
+        scrapeConfigs: |
+          # Kubernetes pods scrape config
+          - job_name: kubernetes-pods
+            pipeline_stages:
+              {{- toYaml .Values.config.snippets.pipelineStages | nindent 6 }}
+            kubernetes_sd_configs:
+              - role: pod
+            relabel_configs:
+              # Only scrape pods with annotation promtail.io/scrape: "true"
+              - source_labels: [__meta_kubernetes_pod_annotation_promtail_io_scrape]
+                action: keep
+                regex: true
+              # Use pod name as instance label
+              - source_labels: [__meta_kubernetes_pod_name]
+                target_label: instance
+              # Use namespace as namespace label
+              - source_labels: [__meta_kubernetes_namespace]
+                target_label: namespace
+              # Use pod name as pod label
+              - source_labels: [__meta_kubernetes_pod_name]
+                target_label: pod
+              # Use container name as container label
+              - source_labels: [__meta_kubernetes_pod_container_name]
+                target_label: container
+              # Use app label from pod
+              - source_labels: [__meta_kubernetes_pod_label_app]
+                target_label: app
+              # Set job name from app label or pod name
+              - source_labels: [__meta_kubernetes_pod_label_app]
+                target_label: job
+              - source_labels: [__meta_kubernetes_pod_name]
+                target_label: job
+                regex: (.+)
+                replacement: $1
+              # Set path to container logs
+              - source_labels: [__meta_kubernetes_pod_uid, __meta_kubernetes_pod_container_name]
+                target_label: __path__
+                separator: /
+                replacement: /var/log/pods/*$1/*.log
+          # Scrape all pods container logs (default behavior)
+          - job_name: kubernetes-pods-all
+            pipeline_stages:
+              {{- toYaml .Values.config.snippets.pipelineStages | nindent 6 }}
+            kubernetes_sd_configs:
+              - role: pod
+            relabel_configs:
+              # Drop pods with promtail.io/scrape: "false"
+              - source_labels: [__meta_kubernetes_pod_annotation_promtail_io_scrape]
+                action: drop
+                regex: false
+              # Use namespace as namespace label
+              - source_labels: [__meta_kubernetes_namespace]
+                target_label: namespace
+              # Use pod name as pod label
+              - source_labels: [__meta_kubernetes_pod_name]
+                target_label: pod
+              # Use container name as container label
+              - source_labels: [__meta_kubernetes_pod_container_name]
+                target_label: container
+              # Use node name
+              - source_labels: [__meta_kubernetes_pod_node_name]
+                target_label: node
+              # Set path to container logs
+              - source_labels: [__meta_kubernetes_pod_uid, __meta_kubernetes_pod_container_name]
+                target_label: __path__
+                separator: /
+                replacement: /var/log/pods/*$1/*.log
