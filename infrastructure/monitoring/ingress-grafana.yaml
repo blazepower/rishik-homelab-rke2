@@ -17,3 +17,8 @@ spec:
                 name: kube-prometheus-stack-grafana
                 port:
                   number: 80
+
+  tls:
+    - hosts:
+        - grafana.homelab
+      secretName: grafana-tls
