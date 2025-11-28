@@ -27,7 +27,6 @@ spec:
       auth_enabled: false
       commonConfig:
         replication_factor: 1
-      storageClassName: longhorn
       schemaConfig:
         configs:
           - from: "2024-04-01"
@@ -40,6 +39,10 @@ spec:
     # Single binary mode configuration
     singleBinary:
       replicas: 1
+      persistence:
+        enabled: true
+        size: 10Gi
+        storageClass: longhorn
     # Disable components not needed in single binary mode
     backend:
       replicas: 0
