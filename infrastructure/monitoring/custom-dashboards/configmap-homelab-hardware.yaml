@@ -537,7 +537,7 @@ data:
             {
               "datasource": { "type": "prometheus", "uid": "prometheus" },
               "editorMode": "code",
-              "expr": "rate(node_disk_read_time_seconds_total{device=~\"nvme.*\"}[5m]) / rate(node_disk_reads_completed_total{device=~\"nvme.*\"}[5m])",
+              "expr": "rate(node_disk_read_time_seconds_total{device=~\"nvme.*\"}[5m]) / (rate(node_disk_reads_completed_total{device=~\"nvme.*\"}[5m]) > 0)",
               "legendFormat": "read {{instance}} {{device}}",
               "range": true,
               "refId": "A"
@@ -545,7 +545,7 @@ data:
             {
               "datasource": { "type": "prometheus", "uid": "prometheus" },
               "editorMode": "code",
-              "expr": "rate(node_disk_write_time_seconds_total{device=~\"nvme.*\"}[5m]) / rate(node_disk_writes_completed_total{device=~\"nvme.*\"}[5m])",
+              "expr": "rate(node_disk_write_time_seconds_total{device=~\"nvme.*\"}[5m]) / (rate(node_disk_writes_completed_total{device=~\"nvme.*\"}[5m]) > 0)",
               "legendFormat": "write {{instance}} {{device}}",
               "range": true,
               "refId": "B"

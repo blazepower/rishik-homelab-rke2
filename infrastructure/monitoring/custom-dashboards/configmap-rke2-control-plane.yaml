@@ -710,7 +710,7 @@ data:
             {
               "datasource": { "type": "prometheus", "uid": "prometheus" },
               "editorMode": "code",
-              "expr": "sum(rate(kubelet_running_pods[5m])) by (node)",
+              "expr": "sum(kubelet_running_pods) by (node)",
               "legendFormat": "running {{node}}",
               "range": true,
               "refId": "B"
