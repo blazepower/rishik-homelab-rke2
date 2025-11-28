@@ -3,3 +3,4 @@ kind: Kustomization
 resources:
   - helmrepository-prometheus-community.yaml
   - helmrelease-kube-prometheus-stack.yaml
+  - ingress-grafana.yaml
