@@ -136,7 +136,7 @@ data:
             {
               "datasource": { "type": "prometheus", "uid": "prometheus" },
               "editorMode": "code",
-              "expr": "rate(node_network_transmit_packets_dropped_total[1m])",
+              "expr": "rate(node_network_transmit_drop_total[1m])",
               "legendFormat": "TX Drop {{instance}} {{device}}",
               "range": true,
               "refId": "B"
@@ -297,7 +297,7 @@ data:
             {
               "datasource": { "type": "prometheus", "uid": "prometheus" },
               "editorMode": "code",
-              "expr": "(rate(node_network_receive_bytes_total{device!~\"lo|veth.*|cali.*|flannel.*\"}[1m]) * 8) / (node_network_speed_bytes{device!~\"lo|veth.*|cali.*|flannel.*\"} * 8) * 100",
+              "expr": "rate(node_network_receive_bytes_total{device!~\"lo|veth.*|cali.*|flannel.*\"}[1m]) / node_network_speed_bytes{device!~\"lo|veth.*|cali.*|flannel.*\"} * 100",
               "legendFormat": "RX Saturation {{instance}} {{device}}",
               "range": true,
               "refId": "A"
@@ -305,7 +305,7 @@ data:
             {
               "datasource": { "type": "prometheus", "uid": "prometheus" },
               "editorMode": "code",
-              "expr": "(rate(node_network_transmit_bytes_total{device!~\"lo|veth.*|cali.*|flannel.*\"}[1m]) * 8) / (node_network_speed_bytes{device!~\"lo|veth.*|cali.*|flannel.*\"} * 8) * 100",
+              "expr": "rate(node_network_transmit_bytes_total{device!~\"lo|veth.*|cali.*|flannel.*\"}[1m]) / node_network_speed_bytes{device!~\"lo|veth.*|cali.*|flannel.*\"} * 100",
               "legendFormat": "TX Saturation {{instance}} {{device}}",
               "range": true,
               "refId": "B"
@@ -675,16 +675,16 @@ data:
             {
               "datasource": { "type": "prometheus", "uid": "prometheus" },
               "editorMode": "code",
-              "expr": "kubeproxy_sync_proxy_rules_duration_seconds_count",
-              "legendFormat": "Sync Rules Count {{instance}}",
+              "expr": "histogram_quantile(0.99, sum(rate(kubeproxy_sync_proxy_rules_duration_seconds_bucket[5m])) by (le, instance))",
+              "legendFormat": "Sync Rules P99 {{instance}}",
               "range": true,
               "refId": "A"
             },
             {
               "datasource": { "type": "prometheus", "uid": "prometheus" },
               "editorMode": "code",
-              "expr": "kubeproxy_network_programming_duration_seconds_count",
-              "legendFormat": "Network Programming {{instance}}",
+              "expr": "histogram_quantile(0.99, sum(rate(kubeproxy_network_programming_duration_seconds_bucket[5m])) by (le, instance))",
+              "legendFormat": "Network Programming P99 {{instance}}",
               "range": true,
               "refId": "B"
             }
@@ -966,14 +966,14 @@ data:
             {
               "datasource": { "type": "prometheus", "uid": "prometheus" },
               "editorMode": "code",
-              "expr": "histogram_quantile(0.99, sum(rate(coredns_dns_request_duration_seconds_bucket[5m])) by (le, instance))",
+              "expr": "sum(rate(coredns_dns_request_duration_seconds_bucket[5m])) by (le)",
               "format": "heatmap",
-              "legendFormat": "{{instance}}",
+              "legendFormat": "{{le}}",
               "range": true,
               "refId": "A"
             }
           ],
-          "title": "Per-Node DNS Latency Heatmap (P99)",
+          "title": "DNS Request Latency Heatmap",
           "type": "heatmap"
         },
         {
@@ -1014,14 +1014,14 @@ data:
             {
               "datasource": { "type": "prometheus", "uid": "prometheus" },
               "editorMode": "code",
-              "expr": "histogram_quantile(0.99, sum(rate(traefik_service_request_duration_seconds_bucket[5m])) by (le, service))",
+              "expr": "sum(rate(traefik_service_request_duration_seconds_bucket[5m])) by (le)",
               "format": "heatmap",
-              "legendFormat": "{{service}}",
+              "legendFormat": "{{le}}",
               "range": true,
               "refId": "A"
             }
           ],
-          "title": "Service Request Latency Heatmap (P99)",
+          "title": "Service Request Latency Heatmap",
           "type": "heatmap"
         },
         {
@@ -1098,7 +1098,7 @@ data:
               "color": { "mode": "palette-classic" },
               "mappings": [],
               "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] },
-              "unit": "bytes"
+              "unit": "Bps"
             },
             "overrides": []
           },
@@ -1121,13 +1121,13 @@ data:
             {
               "datasource": { "type": "prometheus", "uid": "prometheus" },
               "editorMode": "code",
-              "expr": "topk(10, sum by (namespace) (container_network_receive_bytes_total{namespace!=\"\"} + container_network_transmit_bytes_total{namespace!=\"\"}))",
+              "expr": "topk(10, sum by (namespace) (rate(container_network_receive_bytes_total{namespace!=\"\"}[5m]) + rate(container_network_transmit_bytes_total{namespace!=\"\"}[5m])))",
               "legendFormat": "{{namespace}}",
               "range": true,
               "refId": "A"
             }
           ],
-          "title": "Cumulative Bandwidth By Namespace (Top 10)",
+          "title": "Bandwidth Rate By Namespace (Top 10)",
           "type": "bargauge"
         },
         {
