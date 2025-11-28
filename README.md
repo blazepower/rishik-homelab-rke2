@@ -37,6 +37,7 @@ infrastructure/
 ├── crds/                       # Custom Resource Definitions
 ├── namespaces/                 # Namespace definitions
 ├── networking/                 # Network configuration
+│   └── traefik/                # Traefik ingress controller
 ├── node-bootstrap/             # Node bootstrap automation
 │   └── iscsi/                  # iSCSI package installation
 ├── node-config/                # Node labels and configuration
@@ -120,6 +121,51 @@ spec:
       storage: 1Gi
 ```
 
+## Networking
+
+### Traefik Ingress Controller
+
+[Traefik](https://traefik.io/) is deployed as the default ingress controller for the cluster, providing HTTPS routing, load-balancing, middleware support, and future Let's Encrypt integration.
+
+**Configuration:**
+- Deployed via Helm chart from `https://traefik.github.io/charts`
+- Installed in the `kube-system` namespace
+- Chart version: 25.0.0
+- Deployment type: DaemonSet (runs on all nodes, no external load balancer required)
+- Exposes ports 80 (HTTP) and 443 (HTTPS) via hostPorts
+- Service type: ClusterIP
+- Set as the default IngressClass
+
+**Files:**
+- `infrastructure/networking/traefik/helmrepository-traefik.yaml` - Helm repository source
+- `infrastructure/networking/traefik/helmrelease-traefik.yaml` - Helm release configuration
+- `infrastructure/networking/traefik/kustomization.yaml` - Kustomization for Traefik resources
+
+**Usage:**
+Once deployed, Traefik will be available as the default ingress controller. Create Ingress resources to expose your services:
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: my-app
+  namespace: my-namespace
+spec:
+  rules:
+  - host: myapp.homelab
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: my-service
+            port:
+              number: 80
+```
+
+**Note:** Ensure you have DNS entries pointing your ingress hostnames to your node IPs where Traefik is running.
+
 ## Node Bootstrap
 
 ### iSCSI Installation
@@ -142,6 +188,29 @@ The cluster uses GitOps-managed node bootstrap automation to install open-iscsi 
 - `infrastructure/node-bootstrap/iscsi/kustomization.yaml` - Kustomization for iSCSI resources
 
 **Note:** The open-iscsi package is a prerequisite for Longhorn iSCSI-based storage. The bootstrap automation ensures all nodes have the required packages installed automatically when they join the cluster.
+
+## Dependency Management
+
+### Dependabot
+
+This repository uses [Dependabot](https://docs.github.com/en/code-security/dependabot) to automatically check for and create pull requests for dependency updates.
+
+**What Dependabot monitors:**
+- **GitHub Actions**: Monitors workflow action versions in `.github/workflows/` for security updates and new versions
+
+**Update schedule:**
+- Checks for updates weekly on Mondays at 06:00 UTC
+
+**Configuration:**
+- Configuration file: `.github/dependabot.yml`
+- Labels applied to PRs: `dependencies`, `github-actions`
+- Maximum open PRs: 5 per ecosystem
+- Commit message prefix: `chore(deps)`
+
+**GitOps considerations:**
+- Dependabot only monitors GitHub Actions workflows, not Helm chart versions or Kubernetes manifests
+- Helm chart updates are managed via Flux HelmReleases which can specify version constraints
+- Kubernetes manifests and container images are managed declaratively through the GitOps workflow
 
 ## CI/CD Pipeline
 
