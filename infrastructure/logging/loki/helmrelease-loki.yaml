@@ -39,6 +39,8 @@ spec:
         configs:
           - from: "2024-04-01"
             object_store: filesystem
+            schema: v11
+            store: boltdb-shipper
             index:
               prefix: loki_index_
               period: 24h
