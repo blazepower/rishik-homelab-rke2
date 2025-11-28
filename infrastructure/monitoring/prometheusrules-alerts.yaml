@@ -206,7 +206,7 @@ spec:
     - name: cert-manager-alerts
       rules:
         - alert: CertExpiringSoon
-          expr: certmanager_certificate_expiration_timestamp_seconds < (time() + 86400 * 10)
+          expr: certmanager_certificate_expiration_timestamp_seconds - time() < 86400 * 10
           for: 5m
           labels:
             severity: warning
