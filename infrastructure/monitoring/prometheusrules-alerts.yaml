@@ -180,3 +180,37 @@ spec:
           annotations:
             summary: "Alertmanager is not receiving alerts"
             description: "Alertmanager has not received any alerts in the last 30 minutes. This may be normal if there are no issues."
+
+    - name: traefik-alerts
+      rules:
+        - alert: TraefikHigh5xx
+          expr: sum(rate(traefik_service_requests_total{code=~"5.."}[5m])) > 20
+          for: 2m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Traefik is returning many 5xx"
+            description: "High number of 5xx responses through Traefik"
+
+    - name: metallb-alerts
+      rules:
+        - alert: MetalLBAddressPoolDepleted
+          expr: metallb_allocator_addresses_total - metallb_allocator_addresses_in_use_total < 5
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "MetalLB IP address pool nearly depleted"
+            description: "MetalLB has fewer than 5 IP addresses remaining"
+
+    - name: cert-manager-alerts
+      rules:
+        - alert: CertExpiringSoon
+          expr: certmanager_certificate_expiration_timestamp_seconds < (time() + 86400 * 10)
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "TLS certificate expiring soon"
+            description: "A TLS certificate will expire in less than 10 days"
+
