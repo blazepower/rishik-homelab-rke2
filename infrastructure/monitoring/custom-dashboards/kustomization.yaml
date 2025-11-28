@@ -4,3 +4,4 @@ resources:
   - configmap-rke2-control-plane.yaml
   - configmap-homelab-hardware.yaml
   - configmap-error-funnel.yaml
+  - gpu-transcoding-dashboard.yaml
