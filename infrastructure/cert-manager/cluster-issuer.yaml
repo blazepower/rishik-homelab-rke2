@@ -1,3 +1,15 @@
+# Prerequisites:
+# The secret 'cluster-ca-keypair' must be created manually in the cert-manager namespace
+# before applying this ClusterIssuer configuration.
+#
+# The secret must contain the following fields:
+#   - tls.crt: The CA certificate (PEM-encoded)
+#   - tls.key: The CA private key (PEM-encoded)
+#
+# Example command to create the secret:
+#   kubectl create secret tls cluster-ca-keypair \
+#     --cert=ca.crt --key=ca.key \
+#     -n cert-manager
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
 metadata:
