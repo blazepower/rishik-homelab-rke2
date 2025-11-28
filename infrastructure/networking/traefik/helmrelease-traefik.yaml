@@ -29,6 +29,7 @@ spec:
       type: RollingUpdate
       rollingUpdate:
         maxUnavailable: 2
+        maxSurge: 0
         
     resources:
       requests:
