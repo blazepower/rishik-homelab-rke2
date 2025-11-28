@@ -5,4 +5,4 @@ resources:
   - media.yaml
   - monitoring.yaml
   - storage.yaml
-
+  - metallb.yaml
