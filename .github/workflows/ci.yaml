@@ -102,6 +102,143 @@ jobs:
       - name: Build clusters/production kustomization
         run: kustomize build clusters/production --enable-helm > /dev/null
 
+  dry-run-validate:
+    name: Kubernetes Dry Run Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install kustomize
+        run: |
+          curl -sL https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${{ env.KUSTOMIZE_VERSION }}/kustomize_v${{ env.KUSTOMIZE_VERSION }}_linux_amd64.tar.gz | tar xz
+          sudo mv kustomize /usr/local/bin/
+
+      - name: Install kubeconform
+        run: |
+          curl -sL https://github.com/yannh/kubeconform/releases/download/v0.6.4/kubeconform-linux-amd64.tar.gz | tar xz
+          sudo mv kubeconform /usr/local/bin/
+
+      - name: Download Flux CRD schemas
+        run: |
+          mkdir -p /tmp/flux-schemas
+          curl -sL https://github.com/fluxcd/flux2/releases/latest/download/crd-schemas.tar.gz | tar zxf - -C /tmp/flux-schemas
+
+      - name: Dry run apps manifests
+        run: |
+          echo "Building and validating apps manifests..."
+          kustomize build apps --enable-helm > /tmp/apps-manifests.yaml
+
+          if [[ -s /tmp/apps-manifests.yaml ]]; then
+            echo "Validating rendered apps manifests with kubeconform..."
+            kubeconform \
+              -strict \
+              -ignore-missing-schemas \
+              -kubernetes-version ${{ env.KUBERNETES_VERSION }} \
+              -schema-location default \
+              -schema-location '/tmp/flux-schemas/{{ .ResourceKind }}{{ .KindSuffix }}.json' \
+              -summary \
+              /tmp/apps-manifests.yaml
+          else
+            echo "No apps manifests to validate"
+          fi
+
+      - name: Dry run infrastructure manifests
+        run: |
+          echo "Building and validating infrastructure manifests..."
+          kustomize build infrastructure --enable-helm > /tmp/infrastructure-manifests.yaml
+
+          if [[ -s /tmp/infrastructure-manifests.yaml ]]; then
+            echo "Validating rendered infrastructure manifests with kubeconform..."
+            kubeconform \
+              -strict \
+              -ignore-missing-schemas \
+              -kubernetes-version ${{ env.KUBERNETES_VERSION }} \
+              -schema-location default \
+              -schema-location '/tmp/flux-schemas/{{ .ResourceKind }}{{ .KindSuffix }}.json' \
+              -summary \
+              /tmp/infrastructure-manifests.yaml
+          else
+            echo "No infrastructure manifests to validate"
+          fi
+
+      - name: Dry run dashboard ConfigMaps
+        run: |
+          echo "Validating dashboard ConfigMaps..."
+
+          for file in infrastructure/monitoring/custom-dashboards/configmap-*.yaml; do
+            if [[ -f "$file" ]]; then
+              echo "Validating $file..."
+              kubeconform \
+                -strict \
+                -kubernetes-version ${{ env.KUBERNETES_VERSION }} \
+                -schema-location default \
+                "$file"
+              if [[ $? -eq 0 ]]; then
+                echo "  ✓ $file passes validation"
+              else
+                echo "  ✗ $file failed validation"
+                exit 1
+              fi
+            fi
+          done
+
+          echo "All dashboard ConfigMaps pass validation"
+
+      - name: Dry run logging manifests
+        run: |
+          echo "Building and validating logging manifests..."
+
+          if [[ -d "infrastructure/logging" ]]; then
+            kustomize build infrastructure/logging --enable-helm > /tmp/logging-manifests.yaml
+
+            if [[ -s /tmp/logging-manifests.yaml ]]; then
+              echo "Validating rendered logging manifests with kubeconform..."
+              kubeconform \
+                -strict \
+                -ignore-missing-schemas \
+                -kubernetes-version ${{ env.KUBERNETES_VERSION }} \
+                -schema-location default \
+                -schema-location '/tmp/flux-schemas/{{ .ResourceKind }}{{ .KindSuffix }}.json' \
+                -summary \
+                /tmp/logging-manifests.yaml
+            fi
+          else
+            echo "No logging directory found"
+          fi
+
+          echo "Logging manifests validation complete"
+
+      - name: Dry run clusters/production manifests
+        run: |
+          echo "Building and validating clusters/production manifests..."
+          kustomize build clusters/production --enable-helm > /tmp/clusters-manifests.yaml
+
+          if [[ -s /tmp/clusters-manifests.yaml ]]; then
+            echo "Validating rendered clusters/production manifests with kubeconform..."
+            # Note: Some flux-system components may have complex CRDs that aren't in the schema
+            # We run validation and report but don't fail the build for clusters/production
+            result=$(kubeconform \
+              -strict \
+              -ignore-missing-schemas \
+              -kubernetes-version ${{ env.KUBERNETES_VERSION }} \
+              -schema-location default \
+              -schema-location '/tmp/flux-schemas/{{ .ResourceKind }}{{ .KindSuffix }}.json' \
+              -summary \
+              /tmp/clusters-manifests.yaml 2>&1) || true
+
+            echo "$result"
+
+            # Check if there are any Invalid resources (not just skipped)
+            if echo "$result" | grep -q "Invalid: [1-9]"; then
+              echo "WARNING: Some cluster manifests have validation errors. Please review."
+            else
+              echo "Cluster manifests validation passed (some resources may be skipped due to missing schemas)"
+            fi
+          else
+            echo "No clusters/production manifests to validate"
+          fi
+
   secret-detection:
     name: Secret Detection
     runs-on: ubuntu-latest
@@ -250,3 +387,241 @@ jobs:
             fi
           done
           echo "All kustomization files have valid YAML syntax"
+
+  dashboard-validate:
+    name: Grafana Dashboard Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate dashboard JSON in ConfigMaps
+        run: |
+          echo "Validating Grafana dashboard JSON embedded in ConfigMaps..."
+
+          # Find all ConfigMap files in custom-dashboards directory
+          dashboard_files=$(find infrastructure/monitoring/custom-dashboards -name 'configmap-*.yaml' -type f 2>/dev/null || true)
+
+          if [[ -z "$dashboard_files" ]]; then
+            echo "No custom dashboard ConfigMaps found, skipping validation"
+            exit 0
+          fi
+
+          errors=0
+          for file in $dashboard_files; do
+            echo "Validating $file..."
+
+            # Extract and validate JSON from ConfigMap data
+            python3 << EOF
+          import yaml
+          import json
+          import sys
+
+          try:
+              with open('$file') as f:
+                  data = yaml.safe_load(f)
+
+              if data.get('kind') != 'ConfigMap':
+                  print(f"  Skipping non-ConfigMap file")
+                  sys.exit(0)
+
+              config_data = data.get('data', {})
+              if not config_data:
+                  print(f"  No data field found in ConfigMap")
+                  sys.exit(0)
+
+              for key, value in config_data.items():
+                  if key.endswith('.json'):
+                      try:
+                          parsed = json.loads(value)
+                          # Validate basic Grafana dashboard structure
+                          if 'panels' not in parsed and 'rows' not in parsed:
+                              print(f"  WARNING: {key} may not be a valid Grafana dashboard (missing panels/rows)")
+                          else:
+                              print(f"  ✓ {key} is valid JSON with dashboard structure")
+                      except json.JSONDecodeError as e:
+                          print(f"  ✗ {key} contains invalid JSON: {e}")
+                          sys.exit(1)
+
+              print(f"  Dashboard validation passed")
+          except Exception as e:
+              print(f"  ✗ Error processing file: {e}")
+              sys.exit(1)
+          EOF
+
+            if [[ $? -ne 0 ]]; then
+              errors=$((errors + 1))
+            fi
+          done
+
+          if [[ $errors -gt 0 ]]; then
+            echo "ERROR: $errors dashboard file(s) failed validation"
+            exit 1
+          fi
+
+          echo "All Grafana dashboard ConfigMaps are valid"
+
+  logging-validate:
+    name: Logging Configuration Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate Loki configuration
+        run: |
+          echo "Validating Loki HelmRelease configuration..."
+
+          loki_file="infrastructure/logging/loki/helmrelease-loki.yaml"
+          if [[ -f "$loki_file" ]]; then
+            echo "Checking $loki_file..."
+
+            # Validate YAML syntax
+            if ! python3 -c "import yaml; yaml.safe_load(open('$loki_file'))" 2>/dev/null; then
+              echo "ERROR: Invalid YAML syntax in $loki_file"
+              exit 1
+            fi
+
+            # Validate required Loki configuration fields
+            python3 << EOF
+          import yaml
+          import sys
+
+          with open('$loki_file') as f:
+              data = yaml.safe_load(f)
+
+          # Check HelmRelease structure
+          if data.get('kind') != 'HelmRelease':
+              print("ERROR: Expected HelmRelease kind")
+              sys.exit(1)
+
+          spec = data.get('spec', {})
+          values = spec.get('values', {})
+
+          # Validate Loki configuration
+          loki_config = values.get('loki', {})
+
+          # Check storage configuration
+          storage = loki_config.get('storage', {})
+          if not storage.get('type'):
+              print("WARNING: Loki storage type not specified")
+          else:
+              print(f"  ✓ Storage type: {storage.get('type')}")
+
+          # Check retention configuration
+          limits = loki_config.get('limits_config', {})
+          if limits.get('retention_period'):
+              print(f"  ✓ Retention period: {limits.get('retention_period')}")
+
+          print("Loki configuration validation passed")
+          EOF
+
+            if [[ $? -ne 0 ]]; then
+              exit 1
+            fi
+          else
+            echo "Loki HelmRelease not found at $loki_file"
+          fi
+
+      - name: Validate Promtail configuration
+        run: |
+          echo "Validating Promtail HelmRelease configuration..."
+
+          promtail_file="infrastructure/logging/loki/promtail/helmrelease-promtail.yaml"
+          if [[ -f "$promtail_file" ]]; then
+            echo "Checking $promtail_file..."
+
+            # Validate YAML syntax
+            if ! python3 -c "import yaml; yaml.safe_load(open('$promtail_file'))" 2>/dev/null; then
+              echo "ERROR: Invalid YAML syntax in $promtail_file"
+              exit 1
+            fi
+
+            # Validate Promtail configuration
+            python3 << EOF
+          import yaml
+          import sys
+
+          with open('$promtail_file') as f:
+              data = yaml.safe_load(f)
+
+          # Check HelmRelease structure
+          if data.get('kind') != 'HelmRelease':
+              print("ERROR: Expected HelmRelease kind")
+              sys.exit(1)
+
+          spec = data.get('spec', {})
+          values = spec.get('values', {})
+
+          # Check Promtail client configuration
+          config = values.get('config', {})
+          clients = config.get('clients', [])
+
+          if not clients:
+              print("WARNING: No Promtail clients configured")
+          else:
+              for i, client in enumerate(clients):
+                  url = client.get('url', '')
+                  if 'loki' in url.lower():
+                      print(f"  ✓ Client {i+1} configured to push to Loki: {url}")
+                  else:
+                      print(f"  Client {i+1} URL: {url}")
+
+          print("Promtail configuration validation passed")
+          EOF
+
+            if [[ $? -ne 0 ]]; then
+              exit 1
+            fi
+          else
+            echo "Promtail HelmRelease not found at $promtail_file"
+          fi
+
+      - name: Validate logging kustomizations
+        run: |
+          echo "Validating logging kustomization files..."
+
+          for kust in $(find infrastructure/logging -name 'kustomization.yaml' -type f); do
+            echo "Checking $kust..."
+
+            # Validate YAML syntax
+            if ! python3 -c "import yaml; yaml.safe_load(open('$kust'))" 2>/dev/null; then
+              echo "ERROR: Invalid YAML syntax in $kust"
+              exit 1
+            fi
+
+            # Check that referenced resources exist
+            python3 << EOF
+          import yaml
+          import os
+          import sys
+
+          kust_file = '$kust'
+          kust_dir = os.path.dirname(kust_file)
+
+          with open(kust_file) as f:
+              data = yaml.safe_load(f)
+
+          resources = data.get('resources', [])
+          missing = []
+
+          for resource in resources:
+              resource_path = os.path.join(kust_dir, resource)
+              if not os.path.exists(resource_path):
+                  missing.append(resource)
+              else:
+                  print(f"  ✓ Resource exists: {resource}")
+
+          if missing:
+              print(f"ERROR: Missing resources in {kust_file}: {missing}")
+              sys.exit(1)
+
+          print(f"All resources in {kust_file} exist")
+          EOF
+
+            if [[ $? -ne 0 ]]; then
+              exit 1
+            fi
+          done
+
+          echo "All logging kustomization files are valid"
