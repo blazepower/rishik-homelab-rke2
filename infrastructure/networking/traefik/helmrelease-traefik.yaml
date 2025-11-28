@@ -39,6 +39,7 @@ spec:
         port: 443
         expose: true
     hostNetwork: true
+    maxUnavailable: 2
     dnsPolicy: ClusterFirstWithHostNet
     service:
       enabled: true
