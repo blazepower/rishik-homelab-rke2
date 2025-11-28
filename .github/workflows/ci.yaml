@@ -216,15 +216,25 @@ jobs:
 
           if [[ -s /tmp/clusters-manifests.yaml ]]; then
             echo "Validating rendered clusters/production manifests with kubeconform..."
-            # Use || true because flux-system components may have complex CRDs
-            kubeconform \
+            # Note: Some flux-system components may have complex CRDs that aren't in the schema
+            # We run validation and report but don't fail the build for clusters/production
+            result=$(kubeconform \
               -strict \
               -ignore-missing-schemas \
               -kubernetes-version ${{ env.KUBERNETES_VERSION }} \
               -schema-location default \
               -schema-location '/tmp/flux-schemas/{{ .ResourceKind }}{{ .KindSuffix }}.json' \
               -summary \
-              /tmp/clusters-manifests.yaml || true
+              /tmp/clusters-manifests.yaml 2>&1) || true
+
+            echo "$result"
+
+            # Check if there are any Invalid resources (not just skipped)
+            if echo "$result" | grep -q "Invalid: [1-9]"; then
+              echo "WARNING: Some cluster manifests have validation errors. Please review."
+            else
+              echo "Cluster manifests validation passed (some resources may be skipped due to missing schemas)"
+            fi
           else
             echo "No clusters/production manifests to validate"
           fi
