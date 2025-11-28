@@ -35,13 +35,12 @@ spec:
       web:
         port: 80
         expose: true
-        hostPort: 8080
       websecure:
         port: 443
         expose: true
-        hostPort: 8443
     service:
-      type: ClusterIP
+      type: LoadBalancer
+      externalTrafficPolicy: Local
     ingressClass:
       enabled: true
       isDefaultClass: true
