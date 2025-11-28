@@ -8,3 +8,4 @@ resources:
   - monitoring
   - logging
   - cert-manager
+  - accelerators/intel-gpu
