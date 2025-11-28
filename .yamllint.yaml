@@ -1,0 +1,44 @@
+---
+extends: default
+
+rules:
+  line-length:
+    max: 200
+    level: warning
+  indentation:
+    spaces: 2
+    indent-sequences: true
+  comments:
+    require-starting-space: true
+    min-spaces-from-content: 1
+  document-start: disable
+  truthy:
+    allowed-values: ['true', 'false', 'yes', 'no']
+    check-keys: false
+  braces:
+    min-spaces-inside: 0
+    max-spaces-inside: 1
+  brackets:
+    min-spaces-inside: 0
+    max-spaces-inside: 1
+  colons:
+    max-spaces-before: 0
+    max-spaces-after: 1
+  commas:
+    max-spaces-before: 0
+    min-spaces-after: 1
+    max-spaces-after: 1
+  empty-lines:
+    max: 2
+    max-start: 0
+    max-end: 1
+  key-duplicates: enable
+  new-line-at-end-of-file: enable
+  trailing-spaces: enable
+
+ignore: |
+  .git/
+  .github/agents/
+  clusters/production/flux-system/gotk-components.yaml
+  node_modules/
+  vendor/

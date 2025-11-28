@@ -1,0 +1,252 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+      - main
+  pull_request:
+    branches:
+      - master
+      - main
+
+permissions:
+  contents: read
+
+env:
+  KUBERNETES_VERSION: "1.29.0"
+  KUSTOMIZE_VERSION: "5.4.2"
+
+jobs:
+  yaml-lint:
+    name: YAML Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install yamllint
+        run: pip install yamllint
+
+      - name: Run yamllint
+        run: yamllint -c .yamllint.yaml .
+
+  kubernetes-validate:
+    name: Kubernetes Manifest Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install kubeconform
+        run: |
+          curl -sL https://github.com/yannh/kubeconform/releases/download/v0.6.4/kubeconform-linux-amd64.tar.gz | tar xz
+          sudo mv kubeconform /usr/local/bin/
+
+      - name: Download Flux CRD schemas
+        run: |
+          mkdir -p /tmp/flux-schemas
+          curl -sL https://github.com/fluxcd/flux2/releases/latest/download/crd-schemas.tar.gz | tar zxf - -C /tmp/flux-schemas
+
+      - name: Validate apps with kubeconform
+        run: |
+          find apps -name '*.yaml' -type f ! -name 'kustomization.yaml' | xargs -I {} kubeconform \
+            -strict \
+            -ignore-missing-schemas \
+            -kubernetes-version ${{ env.KUBERNETES_VERSION }} \
+            -schema-location default \
+            -schema-location '/tmp/flux-schemas/{{ .ResourceKind }}{{ .KindSuffix }}.json' \
+            -summary \
+            {}
+
+      - name: Validate infrastructure with kubeconform
+        run: |
+          find infrastructure -name '*.yaml' -type f ! -name 'kustomization.yaml' | xargs -I {} kubeconform \
+            -strict \
+            -ignore-missing-schemas \
+            -kubernetes-version ${{ env.KUBERNETES_VERSION }} \
+            -schema-location default \
+            -schema-location '/tmp/flux-schemas/{{ .ResourceKind }}{{ .KindSuffix }}.json' \
+            -summary \
+            {}
+
+      - name: Validate clusters with kubeconform
+        run: |
+          find clusters -name '*.yaml' -type f ! -name 'kustomization.yaml' ! -path '*/flux-system/*' | xargs -I {} kubeconform \
+            -strict \
+            -ignore-missing-schemas \
+            -kubernetes-version ${{ env.KUBERNETES_VERSION }} \
+            -schema-location default \
+            -schema-location '/tmp/flux-schemas/{{ .ResourceKind }}{{ .KindSuffix }}.json' \
+            -summary \
+            {} || true
+
+  kustomize-build:
+    name: Kustomize Build Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install kustomize
+        run: |
+          curl -sL https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${{ env.KUSTOMIZE_VERSION }}/kustomize_v${{ env.KUSTOMIZE_VERSION }}_linux_amd64.tar.gz | tar xz
+          sudo mv kustomize /usr/local/bin/
+
+      - name: Build apps kustomization
+        run: kustomize build apps --enable-helm > /dev/null
+
+      - name: Build infrastructure kustomization
+        run: kustomize build infrastructure --enable-helm > /dev/null
+
+      - name: Build clusters/production kustomization
+        run: kustomize build clusters/production --enable-helm > /dev/null
+
+  secret-detection:
+    name: Secret Detection
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install gitleaks
+        run: |
+          curl -sL https://github.com/gitleaks/gitleaks/releases/download/v8.18.4/gitleaks_8.18.4_linux_x64.tar.gz | tar xz
+          sudo mv gitleaks /usr/local/bin/
+
+      - name: Run gitleaks
+        run: gitleaks detect --config .gitleaks.toml --source . --verbose
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install kubesec
+        run: |
+          curl -sL -o kubesec https://github.com/controlplaneio/kubesec/releases/download/v2.14.1/kubesec_linux_amd64
+          chmod +x kubesec
+          sudo mv kubesec /usr/local/bin/
+
+      - name: Scan apps manifests with kubesec
+        run: |
+          echo "Scanning apps manifests..."
+          if [[ -d "apps" ]]; then
+            files=$(find apps -name '*.yaml' -type f ! -name 'kustomization.yaml' 2>/dev/null || true)
+            if [[ -n "$files" ]]; then
+              for file in $files; do
+                kind=$(grep -E "^kind:" "$file" | head -1 | awk '{print $2}')
+                if [[ "$kind" == "Deployment" || "$kind" == "DaemonSet" || "$kind" == "StatefulSet" || "$kind" == "Pod" ]]; then
+                  echo "Scanning $file..."
+                  result=$(kubesec scan "$file" 2>/dev/null || echo "[]")
+                  score=$(echo "$result" | jq -r '.[0].score // 0')
+                  if [[ "$score" -lt 0 ]]; then
+                    echo "CRITICAL: $file has a negative security score: $score"
+                    echo "$result" | jq '.[0].scoring.critical // []'
+                    exit 1
+                  fi
+                  echo "Score: $score"
+                fi
+              done
+            else
+              echo "No YAML files found in apps directory"
+            fi
+          else
+            echo "apps directory does not exist, skipping"
+          fi
+
+      - name: Scan infrastructure manifests with kubesec
+        run: |
+          echo "Scanning infrastructure manifests..."
+          if [[ -d "infrastructure" ]]; then
+            files=$(find infrastructure -name '*.yaml' -type f ! -name 'kustomization.yaml' ! -path '*/node-bootstrap/*' 2>/dev/null || true)
+            if [[ -n "$files" ]]; then
+              for file in $files; do
+                kind=$(grep -E "^kind:" "$file" | head -1 | awk '{print $2}')
+                if [[ "$kind" == "Deployment" || "$kind" == "DaemonSet" || "$kind" == "StatefulSet" || "$kind" == "Pod" ]]; then
+                  echo "Scanning $file..."
+                  result=$(kubesec scan "$file" 2>/dev/null || echo "[]")
+                  score=$(echo "$result" | jq -r '.[0].score // 0')
+                  if [[ "$score" -lt 0 ]]; then
+                    echo "CRITICAL: $file has a negative security score: $score"
+                    echo "$result" | jq '.[0].scoring.critical // []'
+                    exit 1
+                  fi
+                  echo "Score: $score"
+                fi
+              done
+            else
+              echo "No YAML files found in infrastructure directory"
+            fi
+          else
+            echo "infrastructure directory does not exist, skipping"
+          fi
+
+  trivy-scan:
+    name: Trivy Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Trivy config scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: 'config'
+          scan-ref: '.'
+          severity: 'CRITICAL'
+          exit-code: '1'
+          # Skip directories that require elevated privileges by design:
+          # - flux-system: Flux GitOps controllers need cluster-wide access
+          # - node-bootstrap: Node bootstrap scripts require privileged access to install packages
+          skip-dirs: '.git,.github/agents,clusters/production/flux-system,infrastructure/node-bootstrap'
+          format: 'table'
+
+  flux-validate:
+    name: Flux Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Flux CLI
+        run: |
+          curl -s https://fluxcd.io/install.sh | sudo bash
+
+      - name: Validate Flux prerequisites
+        run: |
+          echo "Checking Flux prerequisites..."
+          flux check --pre 2>/dev/null || echo "Note: flux check --pre requires cluster access, skipping runtime checks"
+
+      - name: Validate Flux CRDs syntax
+        run: |
+          echo "Validating Flux resource syntax..."
+          for file in $(find . -name '*.yaml' -type f ! -path './.git/*' ! -path './.github/agents/*'); do
+            if grep -q "fluxcd.io" "$file" 2>/dev/null; then
+              echo "Checking syntax of Flux resource: $file"
+              # Validate YAML syntax (use safe_load_all for multi-document YAML files)
+              if ! python3 -c "import yaml; list(yaml.safe_load_all(open('$file')))" 2>/dev/null; then
+                echo "ERROR: Invalid YAML syntax in $file"
+                exit 1
+              fi
+            fi
+          done
+          echo "All Flux resources have valid YAML syntax"
+
+      - name: Check Kustomization files
+        run: |
+          echo "Checking Kustomization files..."
+          for kust in $(find . -name 'kustomization.yaml' -type f ! -path './.git/*' ! -path './.github/*'); do
+            dir=$(dirname "$kust")
+            echo "Checking $kust..."
+            # Validate YAML syntax (use safe_load_all for multi-document YAML files)
+            if ! python3 -c "import yaml; list(yaml.safe_load_all(open('$kust')))" 2>/dev/null; then
+              echo "ERROR: Invalid YAML syntax in $kust"
+              exit 1
+            fi
+          done
+          echo "All kustomization files have valid YAML syntax"

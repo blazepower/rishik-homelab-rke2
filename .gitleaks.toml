@@ -1,0 +1,90 @@
+# Gitleaks configuration for detecting secrets and sensitive data
+# https://github.com/gitleaks/gitleaks
+
+title = "Gitleaks Configuration for GitOps Repository"
+
+[extend]
+useDefault = true
+
+# Custom rules for Kubernetes-specific secrets
+[[rules]]
+id = "kubernetes-secret-data"
+description = "Kubernetes Secret with embedded data"
+regex = '''(?i)(data|stringData):\s*\n\s+[\w-]+:\s*[A-Za-z0-9+/=]{20,}'''
+keywords = ["data", "stringData"]
+
+[[rules]]
+id = "base64-encoded-secret"
+description = "Potential base64 encoded secret in YAML"
+regex = '''(?i)password:\s*[A-Za-z0-9+/=]{16,}'''
+keywords = ["password"]
+
+[[rules]]
+id = "api-token"
+description = "API Token or Key"
+regex = '''(?i)(api[_-]?key|api[_-]?token|access[_-]?token)\s*[:=]\s*['"]?[A-Za-z0-9_\-]{20,}['"]?'''
+keywords = ["api_key", "apikey", "api-key", "api_token", "apitoken", "api-token", "access_token", "accesstoken"]
+
+[[rules]]
+id = "private-key"
+description = "Private Key"
+regex = '''-----BEGIN (RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY-----'''
+keywords = ["PRIVATE KEY"]
+
+[[rules]]
+id = "aws-credentials"
+description = "AWS Access Key or Secret"
+regex = '''(?i)(aws[_-]?access[_-]?key[_-]?id|aws[_-]?secret[_-]?access[_-]?key)\s*[:=]\s*['"]?[A-Za-z0-9/+=]{20,}['"]?'''
+keywords = ["aws_access_key", "aws_secret"]
+
+[[rules]]
+id = "github-token"
+description = "GitHub Token"
+regex = '''(?i)(gh[pousr]_[A-Za-z0-9_]{36,}|github[_-]?token\s*[:=]\s*['"]?[A-Za-z0-9_\-]{35,}['"]?)'''
+keywords = ["github", "gh_", "ghp_", "gho_", "ghu_", "ghs_", "ghr_"]
+
+[[rules]]
+id = "generic-password"
+description = "Generic password in config"
+regex = '''(?i)(password|passwd|pwd)\s*[:=]\s*['"]?[^\s'"]{8,}['"]?'''
+keywords = ["password", "passwd", "pwd"]
+
+[[rules]]
+id = "bearer-token"
+description = "Bearer Token"
+regex = '''(?i)bearer\s+[A-Za-z0-9_\-\.=]{20,}'''
+keywords = ["bearer"]
+
+# Allowlist for known safe patterns
+[allowlist]
+description = "Global allowlist"
+paths = [
+  '''\.git/''',
+  '''\.github/agents/''',
+  '''\.gitleaks\.toml$''',
+  '''go\.sum$''',
+  '''package-lock\.json$''',
+  '''yarn\.lock$''',
+]
+
+regexes = [
+  # Allow references to secrets (not the secrets themselves)
+  '''existingSecret:''',
+  '''secretKeyRef:''',
+  '''valueFrom:''',
+  '''secretName:''',
+  # Allow documentation examples
+  '''example\.com''',
+  '''placeholder''',
+  '''your-.*-here''',
+  '''<.*>''',
+  # Allow Helm values references
+  '''\{\{.*\}\}''',
+  # Allow base64 encoded empty/example values
+  '''YWRtaW4=''',  # "admin" in base64
+  # Allow image digests
+  '''sha256:[a-f0-9]{64}''',
+]
+
+# Commits to ignore (add commit hashes of known false positives)
+commits = []
