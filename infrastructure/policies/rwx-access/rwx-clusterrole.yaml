@@ -9,6 +9,9 @@ metadata:
   name: rwx-pvc-manager
 rules:
   # Core PVC management
+  # NOTE: Cluster-wide 'delete' permission on PersistentVolumeClaims is required for GitOps controllers (e.g., Flux)
+  # to reconcile and clean up PVCs across all namespaces as part of automated deployments. This is a broad permission;
+  # ensure only trusted controllers are bound to this role.
   - apiGroups: [""]
     resources: ["persistentvolumeclaims"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
