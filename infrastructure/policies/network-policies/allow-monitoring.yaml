@@ -1,0 +1,36 @@
+# Allow monitoring namespace (Prometheus) to scrape application metrics from pods
+# This enables the kube-prometheus-stack to collect metrics cluster-wide
+# Note: Ports listed cover common application metrics endpoints. Applications should
+# expose metrics on these standard ports for scraping to work correctly.
+#
+# For Prometheus component-to-component communication, see allow-prometheus-internal.yaml
+#
+# Usage: Copy this NetworkPolicy to other namespaces by changing the
+# metadata.namespace field or using Kustomize namespace transformers
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-monitoring-scrape
+  namespace: default
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        # Node exporter metrics
+        - protocol: TCP
+          port: 9100
+        # Common application metrics port (Spring Boot Actuator, etc.)
+        - protocol: TCP
+          port: 8080
+        # HTTPS metrics endpoint
+        - protocol: TCP
+          port: 8443
+        # Additional common metrics port
+        - protocol: TCP
+          port: 9090

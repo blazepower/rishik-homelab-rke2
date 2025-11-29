@@ -1,0 +1,63 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-run-as-nonroot
+  annotations:
+    policies.kyverno.io/title: Require runAsNonRoot
+    policies.kyverno.io/category: Pod Security Standards (Baseline)
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/description: >-
+      Containers must be required to run as non-root users. This policy
+      validates that either the pod-level or container-level securityContext
+      sets runAsNonRoot to true, preventing containers from running as the
+      root user.
+spec:
+  validationFailureAction: Audit
+  background: true
+  rules:
+    - name: require-run-as-nonroot
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - kube-system
+                - kube-node-lease
+                - kube-public
+                - flux-system
+                - kyverno
+                - longhorn-system
+                - storage
+                - monitoring
+                - cert-manager
+      validate:
+        message: >-
+          Running as root is not allowed. Either the pod or container
+          '{{element.name}}' must set securityContext.runAsNonRoot to true.
+        # Checks container-level runAsNonRoot first, then pod-level, defaults to false
+        foreach:
+          - list: "request.object.spec.containers"
+            deny:
+              conditions:
+                all:
+                  - key: "{{ element.securityContext.runAsNonRoot || request.object.spec.securityContext.runAsNonRoot || false }}"
+                    operator: Equals
+                    value: false
+          - list: "request.object.spec.initContainers || []"
+            deny:
+              conditions:
+                all:
+                  - key: "{{ element.securityContext.runAsNonRoot || request.object.spec.securityContext.runAsNonRoot || false }}"
+                    operator: Equals
+                    value: false
+          - list: "request.object.spec.ephemeralContainers || []"
+            deny:
+              conditions:
+                all:
+                  - key: "{{ element.securityContext.runAsNonRoot || request.object.spec.securityContext.runAsNonRoot || false }}"
+                    operator: Equals
+                    value: false

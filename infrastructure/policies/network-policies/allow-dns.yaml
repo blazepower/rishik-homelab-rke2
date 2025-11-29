@@ -1,0 +1,24 @@
+# Allow DNS traffic (UDP/TCP port 53) to kube-dns service
+# This is essential for pods to resolve service names and external domains
+#
+# Usage: Copy this NetworkPolicy to other namespaces by changing the
+# metadata.namespace field or using Kustomize namespace transformers
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: default
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

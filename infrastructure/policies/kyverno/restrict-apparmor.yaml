@@ -1,0 +1,62 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: restrict-apparmor
+  annotations:
+    policies.kyverno.io/title: Restrict AppArmor Profiles
+    policies.kyverno.io/category: Pod Security Standards (Baseline)
+    policies.kyverno.io/severity: low
+    policies.kyverno.io/description: >-
+      AppArmor provides additional security by restricting the actions that
+      containers can perform. This policy validates that pods only use
+      runtime/default or localhost profiles for AppArmor. Unconfined profiles
+      are not allowed. This is an optional but recommended security control.
+spec:
+  validationFailureAction: Audit
+  background: true
+  rules:
+    - name: restrict-apparmor-profiles
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - kube-system
+                - kube-node-lease
+                - kube-public
+                - flux-system
+                - kyverno
+                - longhorn-system
+                - storage
+                - monitoring
+                - cert-manager
+      validate:
+        message: >-
+          AppArmor profile must be runtime/default or localhost/*.
+          Unconfined profiles are not allowed.
+        foreach:
+          - list: "request.object.spec.containers"
+            deny:
+              conditions:
+                all:
+                  - key: "{{ request.object.metadata.annotations[join('', ['container.apparmor.security.beta.kubernetes.io/', element.name])] || 'runtime/default' }}"
+                    operator: Equals
+                    value: "unconfined"
+          - list: "request.object.spec.initContainers || []"
+            deny:
+              conditions:
+                all:
+                  - key: "{{ request.object.metadata.annotations[join('', ['container.apparmor.security.beta.kubernetes.io/', element.name])] || 'runtime/default' }}"
+                    operator: Equals
+                    value: "unconfined"
+          - list: "request.object.spec.ephemeralContainers || []"
+            deny:
+              conditions:
+                all:
+                  - key: "{{ request.object.metadata.annotations[join('', ['container.apparmor.security.beta.kubernetes.io/', element.name])] || 'runtime/default' }}"
+                    operator: Equals
+                    value: "unconfined"

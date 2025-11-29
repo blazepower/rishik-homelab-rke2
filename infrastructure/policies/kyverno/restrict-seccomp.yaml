@@ -1,0 +1,91 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: restrict-seccomp
+  annotations:
+    policies.kyverno.io/title: Restrict Seccomp Profiles
+    policies.kyverno.io/category: Pod Security Standards (Baseline)
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/description: >-
+      Seccomp (secure computing mode) profiles can reduce the attack surface
+      of containers by limiting the syscalls they can make. This policy
+      validates that pods and containers only use RuntimeDefault or Localhost
+      seccomp profiles. Unconfined profiles are not allowed.
+spec:
+  validationFailureAction: Audit
+  background: true
+  rules:
+    - name: restrict-seccomp-pod
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - kube-system
+                - kube-node-lease
+                - kube-public
+                - flux-system
+                - kyverno
+                - longhorn-system
+                - storage
+                - monitoring
+                - cert-manager
+      validate:
+        message: >-
+          Pod seccomp profile must be RuntimeDefault or Localhost.
+          Unconfined profiles are not allowed.
+        deny:
+          conditions:
+            any:
+              - key: "{{ request.object.spec.securityContext.seccompProfile.type || 'RuntimeDefault' }}"
+                operator: Equals
+                value: "Unconfined"
+    - name: restrict-seccomp-containers
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - kube-system
+                - kube-node-lease
+                - kube-public
+                - flux-system
+                - kyverno
+                - longhorn-system
+                - storage
+                - monitoring
+                - cert-manager
+      validate:
+        message: >-
+          Container seccomp profile must be RuntimeDefault or Localhost.
+          Unconfined profiles are not allowed.
+        foreach:
+          - list: "request.object.spec.containers"
+            deny:
+              conditions:
+                all:
+                  - key: "{{ element.securityContext.seccompProfile.type || 'RuntimeDefault' }}"
+                    operator: Equals
+                    value: "Unconfined"
+          - list: "request.object.spec.initContainers || []"
+            deny:
+              conditions:
+                all:
+                  - key: "{{ element.securityContext.seccompProfile.type || 'RuntimeDefault' }}"
+                    operator: Equals
+                    value: "Unconfined"
+          - list: "request.object.spec.ephemeralContainers || []"
+            deny:
+              conditions:
+                all:
+                  - key: "{{ element.securityContext.seccompProfile.type || 'RuntimeDefault' }}"
+                    operator: Equals
+                    value: "Unconfined"
