@@ -171,7 +171,8 @@ infrastructure/policies/
 │   ├── default-deny.yaml
 │   ├── allow-dns.yaml
 │   ├── allow-ingress-controller.yaml
-│   └── allow-monitoring.yaml
+│   ├── allow-monitoring.yaml
+│   └── allow-prometheus-internal.yaml
 └── rwx-access/
     ├── kustomization.yaml
     ├── rwx-clusterrole.yaml
@@ -184,6 +185,7 @@ These Pod Security Standards policies complement the existing policies in the "C
 These policies implement the Kubernetes Pod Security Standards baseline profile using Kyverno ClusterPolicies.
 
 > **Important:** All policies are shown in **Audit** mode for safe testing. For production clusters, you **must** set `validationFailureAction: Enforce` for all critical pod security policies (privileged, host namespace/network, hostPath, capability, non-root, seccomp/AppArmor restrictions) to ensure enforcement and prevent privileged pod creation. You may use environment-based overrides to allow Audit mode in non-production environments, but production clusters must enforce these controls.
+
 ### 8. Disallow Host Namespaces
 
 **Policy**: `disallow-host-namespaces`
@@ -258,7 +260,13 @@ Allows ingress from Traefik ingress controller in `kube-system` namespace. Requi
 
 **Policy**: `allow-monitoring-scrape`
 
-Allows ingress from the `monitoring` namespace on common metrics ports (9090, 9100, 8080, 8443, 9091, 9093, 9094). Required for Prometheus scraping.
+Allows ingress from the `monitoring` namespace on common application metrics ports (8080, 8443, 9100, 10250). Required for Prometheus to scrape application and node metrics.
+
+### Allow Prometheus Internal
+
+**Policy**: `allow-prometheus-internal`
+
+Allows ingress within the `monitoring` namespace for Prometheus component-to-component communication. Covers ports for Prometheus server (9090), Pushgateway (9091), Alertmanager (9093, 9094), and Thanos (10901, 10902).
 
 ## RWX Access Controls
 

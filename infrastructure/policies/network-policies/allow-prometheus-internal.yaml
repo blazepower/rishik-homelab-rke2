@@ -1,0 +1,40 @@
+# Allow Prometheus component-to-component communication within the monitoring namespace
+# This enables internal communication between Prometheus server, Alertmanager, Pushgateway, etc.
+#
+# This policy should be applied to the monitoring namespace to allow components to communicate
+# with each other. For application metrics scraping, see allow-monitoring.yaml
+#
+# Usage: Apply this NetworkPolicy to the monitoring namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prometheus-internal
+  namespace: monitoring
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        # Prometheus server
+        - protocol: TCP
+          port: 9090
+        # Pushgateway
+        - protocol: TCP
+          port: 9091
+        # Alertmanager web UI and API
+        - protocol: TCP
+          port: 9093
+        # Alertmanager cluster communication (gossip)
+        - protocol: TCP
+          port: 9094
+        # Thanos sidecar gRPC (if using Thanos)
+        - protocol: TCP
+          port: 10901
+        # Thanos sidecar HTTP (if using Thanos)
+        - protocol: TCP
+          port: 10902
