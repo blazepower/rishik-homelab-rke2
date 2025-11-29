@@ -70,7 +70,7 @@ Useful for Prometheus/Loki queries and future multi-tenant experiments.
 
 Automatically injects `topologySpreadConstraints` for Deployments to ensure workloads are spread across nodes.
 
-**Mutation**: Adds zone-aware scheduling with `maxSkew: 1` and `whenUnsatisfiable: ScheduleAnyway`.
+**Mutation**: Adds node-aware scheduling (topology spread constraints across nodes) with `maxSkew: 1` and `whenUnsatisfiable: ScheduleAnyway`.
 
 ### 5. Mutate Ingress Annotations
 
