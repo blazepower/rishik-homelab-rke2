@@ -67,14 +67,14 @@ spec:
             summary: "Kernel deadlock detected on {{ $labels.instance }}"
             description: "Node Problem Detector has detected a kernel deadlock on node {{ $labels.instance }}."
 
-        - alert: NodeDockerHang
-          expr: problem_gauge{type="DockerHung"} > 0
+        - alert: NodeContainerRuntimeHang
+          expr: problem_gauge{type=~"DockerHung|ContainerdHung"} > 0
           for: 5m
           labels:
             severity: critical
           annotations:
-            summary: "Docker daemon hung on {{ $labels.instance }}"
-            description: "Node Problem Detector has detected that Docker daemon is hung on node {{ $labels.instance }}."
+            summary: "Container runtime hung on {{ $labels.instance }}"
+            description: "Node Problem Detector has detected that the container runtime (Docker or containerd) is hung on node {{ $labels.instance }}."
 
         - alert: NodeContainerdUnhealthy
           expr: problem_gauge{type="ContainerdUnhealthy"} > 0
