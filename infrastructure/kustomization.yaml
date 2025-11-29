@@ -9,4 +9,5 @@ resources:
   - monitoring
   - logging
   - cert-manager
+  - sealed-secrets
   - accelerators/intel-gpu

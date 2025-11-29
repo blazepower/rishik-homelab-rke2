@@ -31,6 +31,7 @@ infrastructure/
 ├── monitoring/                 # Monitoring stack (Prometheus, Grafana, Alertmanager)
 ├── logging/                    # Logging stack (Loki, Promtail)
 ├── cert-manager/               # TLS certificate management
+├── sealed-secrets/             # GitOps-safe secret encryption
 └── kustomization.yaml
 apps/
 └── plex/                       # Plex media server application
@@ -46,6 +47,7 @@ docs/                           # Detailed component documentation
 | **Storage** | Longhorn distributed storage as default StorageClass | [docs/storage.md](docs/storage.md) |
 | **Networking** | Traefik ingress controller for HTTP/HTTPS routing | [docs/networking.md](docs/networking.md) |
 | **TLS** | cert-manager for TLS certificate management | [docs/tls.md](docs/tls.md) |
+| **Sealed Secrets** | Bitnami Sealed Secrets for GitOps-safe secret management | [docs/sealed-secrets.md](docs/sealed-secrets.md) |
 | **Node Bootstrap** | Automated iSCSI installation on cluster nodes | [docs/node-bootstrap.md](docs/node-bootstrap.md) |
 | **GPU Acceleration** | Intel QuickSync hardware transcoding via GPU Device Plugin | [infrastructure/accelerators/intel-gpu/README.md](infrastructure/accelerators/intel-gpu/README.md) |
 | **CI/CD** | Comprehensive validation and security scanning pipeline | [docs/ci-cd.md](docs/ci-cd.md) |
