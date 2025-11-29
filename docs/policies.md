@@ -260,7 +260,7 @@ Allows ingress from Traefik ingress controller in `kube-system` namespace. Requi
 
 **Policy**: `allow-monitoring-scrape`
 
-Allows ingress from the `monitoring` namespace on common application metrics ports (8080, 8443, 9100, 10250). Required for Prometheus to scrape application and node metrics.
+Allows ingress from the `monitoring` namespace on common application metrics ports (8080, 8443, 9100, 9090). Required for Prometheus to scrape application and node metrics.
 
 ### Allow Prometheus Internal
 

@@ -39,10 +39,10 @@ spec:
           spec:
             =(containers):
               - =(ports):
-                  - =(hostPort): "0"
+                  - =(hostPort): 0
             =(initContainers):
               - =(ports):
-                  - =(hostPort): "0"
+                  - =(hostPort): 0
             =(ephemeralContainers):
               - =(ports):
-                  - =(hostPort): "0"
+                  - =(hostPort): 0
