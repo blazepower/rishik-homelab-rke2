@@ -11,3 +11,4 @@ resources:
   - cert-manager
   - sealed-secrets
   - accelerators/intel-gpu
+  - policies
