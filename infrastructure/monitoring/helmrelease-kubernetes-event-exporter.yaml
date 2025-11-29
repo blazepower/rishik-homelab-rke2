@@ -9,6 +9,7 @@ spec:
   chartRef:
     kind: OCIRepository
     name: kubernetes-event-exporter
+    namespace: flux-system
   install:
     createNamespace: false
     remediation:
