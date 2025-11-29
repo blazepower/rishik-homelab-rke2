@@ -1,0 +1,79 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: descheduler
+  namespace: kube-system
+spec:
+  interval: 10m
+  chart:
+    spec:
+      chart: descheduler
+      sourceRef:
+        kind: HelmRepository
+        name: descheduler
+        namespace: flux-system
+  install:
+    createNamespace: false
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+  values:
+    kind: Deployment
+    replicas: 1
+
+    resources:
+      requests:
+        cpu: "25m"
+        memory: "64Mi"
+      limits:
+        cpu: "100m"
+        memory: "128Mi"
+
+    # Run every hour
+    deschedulingInterval: 1h
+
+    deschedulerPolicy:
+      profiles:
+        - name: default
+          pluginConfig:
+            - name: DefaultEvictor
+              args:
+                evictLocalStoragePods: false
+                evictSystemCriticalPods: false
+                evictFailedBarePods: true
+                nodeFit: true
+            - name: RemoveDuplicates
+              args:
+                excludeOwnerKinds:
+                  - DaemonSet
+            - name: RemovePodsViolatingNodeAffinity
+              args:
+                nodeAffinityType:
+                  - requiredDuringSchedulingIgnoredDuringExecution
+            - name: RemovePodsViolatingInterPodAntiAffinity
+            - name: RemovePodsViolatingNodeTaints
+            - name: LowNodeUtilization
+              args:
+                thresholds:
+                  cpu: 20
+                  memory: 20
+                  pods: 20
+                targetThresholds:
+                  cpu: 50
+                  memory: 50
+                  pods: 50
+          plugins:
+            balance:
+              enabled:
+                - RemoveDuplicates
+                - LowNodeUtilization
+            deschedule:
+              enabled:
+                - RemovePodsViolatingNodeAffinity
+                - RemovePodsViolatingInterPodAntiAffinity
+                - RemovePodsViolatingNodeTaints
+
+    # Use infrastructure-high priority
+    priorityClassName: infrastructure-high

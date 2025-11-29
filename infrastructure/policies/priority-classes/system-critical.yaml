@@ -1,0 +1,9 @@
+# For system-critical components that should never be evicted
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: system-critical
+value: 1000000
+globalDefault: false
+preemptionPolicy: PreemptLowerPriority
+description: "Critical system components (ingress, storage, networking). Should not be evicted."

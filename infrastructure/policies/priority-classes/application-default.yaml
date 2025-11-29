@@ -1,0 +1,9 @@
+# Default priority for application workloads
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: application-default
+value: 1000
+globalDefault: true
+preemptionPolicy: PreemptLowerPriority
+description: "Default priority for application workloads."

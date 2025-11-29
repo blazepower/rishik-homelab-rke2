@@ -3,3 +3,5 @@ kind: Kustomization
 resources:
   - network-policies
   - rwx-access
+  - resource-defaults
+  - priority-classes
