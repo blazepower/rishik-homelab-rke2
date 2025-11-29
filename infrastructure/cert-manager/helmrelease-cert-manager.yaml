@@ -22,3 +22,26 @@ spec:
     installCRDs: true
     extraArgs:
       - --enable-certificate-owner-ref=true
+    resources:
+      requests:
+        cpu: "25m"
+        memory: "64Mi"
+      limits:
+        cpu: "100m"
+        memory: "128Mi"
+    webhook:
+      resources:
+        requests:
+          cpu: "10m"
+          memory: "32Mi"
+        limits:
+          cpu: "50m"
+          memory: "64Mi"
+    cainjector:
+      resources:
+        requests:
+          cpu: "25m"
+          memory: "64Mi"
+        limits:
+          cpu: "100m"
+          memory: "128Mi"

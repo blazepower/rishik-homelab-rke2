@@ -22,11 +22,11 @@ spec:
     remediation:
       retries: 3
   values:
-    # Keep this reasonable for homelab scale
     prometheus:
       prometheusSpec:
         retention: 7d
-        scrapeInterval: 30s
+        scrapeInterval: 60s
+        evaluationInterval: 60s
         resources:
           requests:
             cpu: "100m"
@@ -34,6 +34,14 @@ spec:
           limits:
             cpu: "500m"
             memory: "1Gi"
+        storageSpec:
+          volumeClaimTemplate:
+            spec:
+              storageClassName: longhorn
+              accessModes: ["ReadWriteOnce"]
+              resources:
+                requests:
+                  storage: 10Gi
     grafana:
       adminUser: admin
       admin:
@@ -89,3 +97,15 @@ spec:
         limits:
           cpu: "100m"
           memory: "64Mi"
+    kubeApiServer:
+      enabled: true
+    kubeControllerManager:
+      enabled: false
+    kubeScheduler:
+      enabled: false
+    kubeProxy:
+      enabled: false
+    kubeEtcd:
+      enabled: false
+    coreDns:
+      enabled: false

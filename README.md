@@ -64,3 +64,48 @@ This repository uses [Dependabot](https://docs.github.com/en/code-security/depen
 - **Configuration:** `.github/dependabot.yml`
 
 **Note:** Helm chart updates are managed via Flux HelmReleases, not Dependabot.
+
+## Performance Tuning
+
+This cluster is optimized for a resource-constrained homelab environment (2-node RKE2 cluster). Key optimizations include:
+
+### Resource Limits
+
+All components have explicit resource requests and limits to prevent runaway resource consumption:
+
+| Component | CPU Request | CPU Limit | Memory Request | Memory Limit |
+|-----------|-------------|-----------|----------------|--------------|
+| Prometheus | 100m | 500m | 256Mi | 1Gi |
+| Grafana | 50m | 200m | 128Mi | 256Mi |
+| Alertmanager | 25m | 100m | 64Mi | 128Mi |
+| Loki | 100m | 500m | 256Mi | 512Mi |
+| Promtail | 50m | 200m | 64Mi | 128Mi |
+| Traefik | 50m | 200m | 64Mi | 128Mi |
+| Longhorn Manager | 25m | 200m | 64Mi | 256Mi |
+| cert-manager | 25m | 100m | 64Mi | 128Mi |
+| MetalLB Controller | 10m | 100m | 32Mi | 128Mi |
+
+### Monitoring Optimizations
+
+- **Scrape interval**: 60s (reduced from default 30s) to lower CPU/memory usage
+- **Evaluation interval**: 60s for rule evaluation
+- **Retention**: 7 days for Prometheus metrics
+- **Disabled components**: kubeControllerManager, kubeScheduler, kubeProxy, kubeEtcd, coreDns monitoring (RKE2 manages these internally)
+
+### Logging Optimizations
+
+- **Log retention**: 14 days (336 hours) for Loki
+- **Ingestion limits**: Rate-limited to 4MB/s with 6MB burst
+- **Stream limits**: Maximum 5000 streams per user
+
+### Storage Optimizations
+
+- **Replica count**: 1 (single replica for homelab - no HA needed)
+- **Replica auto-balance**: Disabled to reduce background I/O
+- **Orphan auto-deletion**: Enabled to clean up unused resources
+- **Minimal storage threshold**: 15% reserved for safety
+
+### Networking Optimizations
+
+- **Traefik replicas**: 1 (sufficient for homelab traffic)
+- **Service type**: LoadBalancer via MetalLB
