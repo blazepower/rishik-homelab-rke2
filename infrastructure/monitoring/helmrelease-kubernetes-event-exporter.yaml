@@ -9,11 +9,9 @@ spec:
     spec:
       chart: kubernetes-event-exporter
       sourceRef:
-        kind: HelmRepository
-        name: bitnami
+        kind: OCIRepository
+        name: bitnami-kubernetes-event-exporter
         namespace: flux-system
-        # Optionally pin a version, e.g.:
-        # version: 3.2.0
   install:
     createNamespace: false
     remediation:
