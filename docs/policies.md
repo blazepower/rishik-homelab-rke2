@@ -142,30 +142,40 @@ kubectl logs -n kyverno -l app.kubernetes.io/component=admission-controller
 
 ## File Structure
 
+Kyverno installation and policies are separated to ensure proper ordering (CRDs must exist before ClusterPolicies can be created).
+
 ```
+clusters/production/
+├── kyverno-install.yaml         # Flux Kustomization for Kyverno install (with healthChecks)
+└── kyverno-policies.yaml        # Flux Kustomization for policies (dependsOn: kyverno-install)
+
 infrastructure/policies/
 ├── kustomization.yaml
-├── namespace.yaml
-├── helmrepository-kyverno.yaml
-├── helmrelease-kyverno.yaml
-├── cluster-policies/
+├── kyverno-install/             # Kyverno installation resources
 │   ├── kustomization.yaml
-│   ├── require-resources-limits.yaml
-│   ├── block-risky-capabilities.yaml
-│   ├── enforce-namespace-labels.yaml
-│   ├── mutate-topology-spread.yaml
-│   ├── mutate-ingress-annotations.yaml
-│   ├── disallow-latest-tag.yaml
-│   └── require-image-signatures.yaml
-├── kyverno/
+│   ├── namespace.yaml
+│   ├── helmrepository-kyverno.yaml
+│   └── helmrelease-kyverno.yaml
+├── kyverno-policies/            # ClusterPolicy resources (applied after Kyverno is ready)
 │   ├── kustomization.yaml
-│   ├── disallow-host-namespaces.yaml
-│   ├── restrict-host-ports.yaml
-│   ├── restrict-capabilities.yaml
-│   ├── disallow-privilege-escalation.yaml
-│   ├── require-run-as-nonroot.yaml
-│   ├── restrict-seccomp.yaml
-│   └── restrict-apparmor.yaml
+│   ├── cluster-policies/        # Custom validation and mutation policies
+│   │   ├── kustomization.yaml
+│   │   ├── require-resources-limits.yaml
+│   │   ├── block-risky-capabilities.yaml
+│   │   ├── enforce-namespace-labels.yaml
+│   │   ├── mutate-topology-spread.yaml
+│   │   ├── mutate-ingress-annotations.yaml
+│   │   ├── disallow-latest-tag.yaml
+│   │   └── require-image-signatures.yaml
+│   └── pss-baseline/            # Pod Security Standards Baseline policies
+│       ├── kustomization.yaml
+│       ├── disallow-host-namespaces.yaml
+│       ├── restrict-host-ports.yaml
+│       ├── restrict-capabilities.yaml
+│       ├── disallow-privilege-escalation.yaml
+│       ├── require-run-as-nonroot.yaml
+│       ├── restrict-seccomp.yaml
+│       └── restrict-apparmor.yaml
 ├── network-policies/
 │   ├── kustomization.yaml
 │   ├── default-deny.yaml
@@ -178,6 +188,16 @@ infrastructure/policies/
     ├── rwx-clusterrole.yaml
     └── rwx-clusterrolebinding.yaml
 ```
+
+### Deployment Order
+
+The Flux Kustomizations ensure proper ordering:
+
+1. **kyverno-install** deploys first: namespace, HelmRepository, and HelmRelease
+2. **healthChecks** wait for the HelmRelease to be ready (Kyverno CRDs registered)
+3. **kyverno-policies** deploys after via `dependsOn: kyverno-install`
+
+This prevents the "no matches for kind ClusterPolicy" error that occurs when ClusterPolicy resources are applied before Kyverno's CRDs exist.
 
 ## Pod Security Standards (Baseline)
 
