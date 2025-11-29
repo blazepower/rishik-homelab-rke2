@@ -1,0 +1,45 @@
+# Allow flux-system namespace pods to function properly
+# Flux components and sealed-secrets need API server access and DNS
+#
+# Note: This policy uses broad CIDR ranges (0.0.0.0/0) which is acceptable for
+# a homelab environment. For production, consider restricting to specific IPs.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-flux-system
+  namespace: flux-system
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow ingress from anywhere (Flux webhooks, sealed-secrets API, etc.)
+    - from:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+  egress:
+    # Allow DNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Allow Kubernetes API server and external HTTPS/HTTP traffic
+    # (for pulling charts/artifacts from registries)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 80
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443
+        - protocol: TCP
+          port: 9345
