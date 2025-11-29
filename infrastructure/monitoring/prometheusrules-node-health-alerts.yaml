@@ -1,0 +1,122 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: node-health-alerts
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: swap-alerts
+      rules:
+        - alert: NodeHighSwapUsage
+          expr: (node_memory_SwapTotal_bytes > 0) and ((node_memory_SwapTotal_bytes - node_memory_SwapFree_bytes) / node_memory_SwapTotal_bytes * 100 > 80)
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High swap usage on {{ $labels.instance }}"
+            description: "Swap usage is above 80% on node {{ $labels.instance }} (current value: {{ $value | printf \"%.1f\" }}%)."
+
+        - alert: NodeSwapThrashing
+          expr: rate(node_vmstat_pswpin[5m]) > 100 or rate(node_vmstat_pswpout[5m]) > 100
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Swap thrashing detected on {{ $labels.instance }}"
+            description: "High swap in/out activity detected on node {{ $labels.instance }}, indicating memory pressure."
+
+        - alert: NodeSwapCritical
+          expr: (node_memory_SwapTotal_bytes > 0) and ((node_memory_SwapTotal_bytes - node_memory_SwapFree_bytes) / node_memory_SwapTotal_bytes * 100 > 95)
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Critical swap usage on {{ $labels.instance }}"
+            description: "Swap usage is above 95% on node {{ $labels.instance }} (current value: {{ $value | printf \"%.1f\" }}%)."
+
+    - name: kured-alerts
+      rules:
+        - alert: KuredRebootRequired
+          expr: kured_reboot_required > 0
+          for: 24h
+          labels:
+            severity: warning
+          annotations:
+            summary: "Node {{ $labels.node }} requires reboot"
+            description: "Node {{ $labels.node }} has required a reboot for more than 24 hours. Consider scheduling maintenance."
+
+        - alert: KuredRebootPending
+          expr: kured_reboot_required > 0
+          for: 1h
+          labels:
+            severity: info
+          annotations:
+            summary: "Node {{ $labels.node }} has pending reboot"
+            description: "Node {{ $labels.node }} requires a reboot. Kured will handle this during the maintenance window."
+
+    - name: node-problem-detector-alerts
+      rules:
+        - alert: NodeKernelDeadlock
+          expr: problem_gauge{type="KernelDeadlock"} > 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Kernel deadlock detected on {{ $labels.instance }}"
+            description: "Node Problem Detector has detected a kernel deadlock on node {{ $labels.instance }}."
+
+        - alert: NodeContainerRuntimeHang
+          expr: problem_gauge{type=~"DockerHung|ContainerdHung"} > 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Container runtime hung on {{ $labels.instance }}"
+            description: "Node Problem Detector has detected that the container runtime (Docker or containerd) is hung on node {{ $labels.instance }}."
+
+        - alert: NodeContainerdUnhealthy
+          expr: problem_gauge{type="ContainerdUnhealthy"} > 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Containerd unhealthy on {{ $labels.instance }}"
+            description: "Node Problem Detector has detected that containerd is unhealthy on node {{ $labels.instance }}."
+
+        - alert: NodeReadonlyFilesystem
+          expr: problem_gauge{type="ReadonlyFilesystem"} > 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Read-only filesystem detected on {{ $labels.instance }}"
+            description: "Node Problem Detector has detected a read-only filesystem on node {{ $labels.instance }}."
+
+        - alert: NodeFilesystemCorruption
+          expr: problem_gauge{type="CorruptContainerdOverlay"} > 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Filesystem corruption detected on {{ $labels.instance }}"
+            description: "Node Problem Detector has detected filesystem corruption on node {{ $labels.instance }}."
+
+        - alert: NodeOOMKillDetected
+          expr: increase(problem_counter{reason="OOMKilling"}[5m]) > 0
+          for: 1m
+          labels:
+            severity: warning
+          annotations:
+            summary: "OOM kill detected on {{ $labels.instance }}"
+            description: "Node Problem Detector has detected OOM kills on node {{ $labels.instance }}."
+
+        - alert: NodeTaskHung
+          expr: problem_gauge{type="TaskHung"} > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Hung task detected on {{ $labels.instance }}"
+            description: "Node Problem Detector has detected hung tasks on node {{ $labels.instance }}."
