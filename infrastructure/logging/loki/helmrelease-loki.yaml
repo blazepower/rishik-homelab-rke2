@@ -28,7 +28,7 @@ spec:
       auth_enabled: false
       commonConfig:
         replication_factor: 1
-      # Log retention policy - 30 days
+      # Log retention policy - 14 days
       limits_config:
         retention_period: 336h
         allow_structured_metadata: false
