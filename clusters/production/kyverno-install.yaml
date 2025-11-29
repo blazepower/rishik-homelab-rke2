@@ -1,0 +1,18 @@
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: kyverno-install
+  namespace: flux-system
+spec:
+  interval: 10m
+  path: ./infrastructure/policies/kyverno-install
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  healthChecks:
+    - apiVersion: helm.toolkit.fluxcd.io/v2beta2
+      kind: HelmRelease
+      name: kyverno
+      namespace: kyverno
+  timeout: 5m
