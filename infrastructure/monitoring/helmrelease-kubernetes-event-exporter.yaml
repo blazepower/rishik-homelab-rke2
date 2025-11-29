@@ -46,5 +46,4 @@ spec:
               name: "{{ .InvolvedObject.Name }}"
       route:
         routes:
-          - match:
-              - receiver: loki
+          - receiver: loki
