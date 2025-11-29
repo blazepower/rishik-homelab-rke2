@@ -27,8 +27,13 @@ spec:
       defaultClassReplicaCount: 1
     defaultSettings:
       defaultDataPath: "/var/lib/longhorn"
-      # Minimum CPU percentage guaranteed for instance managers (5%)
       guaranteedInstanceManagerCPU: 5
+      concurrentAutomaticEngineUpgradePerNodeLimit: 1
+      backupTarget: ""
+      backupTargetCredentialSecret: ""
+      replicaAutoBalance: "disabled"
+      storageMinimalAvailablePercentage: 15
+      orphanAutoDeletion: true
     longhornManager:
       resources:
         requests:
