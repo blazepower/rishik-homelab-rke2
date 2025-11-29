@@ -101,7 +101,7 @@ Verifies that container images are signed using Cosign/Sigstore for supply chain
 - Reports unsigned images in policy reports without blocking deployments (Audit mode)
 - Helps identify and track unsigned images for future remediation
 
-**Excludes**: `kube-system`, `kube-public`, `kube-node-lease`, `kyverno`, `flux-system`, `cert-manager`, `longhorn-system`, `storage`, `monitoring`, `logging`
+**Excludes**: `kube-system`, `kube-public`, `kube-node-lease`, `kyverno`, `flux-system`, `cert-manager`, `longhorn-system`, `storage`, `monitoring`
 
 **Note**: This policy uses `required: false` initially. Once all images are signed, set `required: true` and transition to Enforce mode for full supply chain security.
 
