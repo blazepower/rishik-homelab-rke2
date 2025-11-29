@@ -409,6 +409,25 @@ If `kubeseal --fetch-cert` fails:
    curl http://localhost:8080/v1/cert.pem > cert.pem
    ```
 
+#### NetworkPolicy Requirements
+
+If `kubeseal --fetch-cert` returns a 502 Bad Gateway error:
+
+```
+error: cannot fetch certificate: error trying to reach service: proxy error from 127.0.0.1:9345 while dialing 10.42.x.x:8080, code 502: 502 Bad Gateway
+```
+
+This indicates that NetworkPolicies are blocking the Kubernetes API server proxy from reaching the sealed-secrets pod. The API server proxy connects directly to pod IPs, which means it bypasses the Service and requires explicit NetworkPolicy rules.
+
+**Solution:** Ensure the `allow-sealed-secrets` NetworkPolicy exists in `flux-system` namespace. This policy is located at:
+- `infrastructure/policies/network-policies/allow-sealed-secrets.yaml`
+
+The policy allows:
+- Ingress to sealed-secrets pod on port 8080 from the API server/node network
+- Ingress on port 8081 for Prometheus metrics scraping
+
+See [docs/policies.md](policies.md) for more details on NetworkPolicies.
+
 ### Scope/Namespace Mismatches
 
 If you see "no key could decrypt secret" errors:
