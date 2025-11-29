@@ -1,0 +1,120 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: disallow-latest-tag
+  annotations:
+    policies.kyverno.io/title: Disallow Latest Tag and Enforce Trusted Registries
+    policies.kyverno.io/category: Best Practices
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/description: >-
+      Disallow images tagged :latest and enforce that images come from
+      trusted registries (Docker Hub, GHCR, quay.io, gcr.io, etc.)
+      for better image hygiene and reproducibility.
+spec:
+  validationFailureAction: Audit
+  background: true
+  rules:
+    - name: disallow-latest-tag
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - kube-system
+                - kube-node-lease
+                - kube-public
+                - flux-system
+                - kyverno
+                - longhorn-system
+      validate:
+        message: >-
+          Images tagged ':latest' are not allowed. Please use a specific version tag.
+          Container '{{element.name}}' uses image '{{element.image}}'.
+        foreach:
+          - list: "request.object.spec.containers"
+            deny:
+              conditions:
+                any:
+                  - key: "{{ element.image | contains(@, ':latest') }}"
+                    operator: Equals
+                    value: true
+                  - key: "{{ element.image | regex_match('^[^:]+$') }}"
+                    operator: Equals
+                    value: true
+          - list: "request.object.spec.initContainers || []"
+            deny:
+              conditions:
+                any:
+                  - key: "{{ element.image | contains(@, ':latest') }}"
+                    operator: Equals
+                    value: true
+                  - key: "{{ element.image | regex_match('^[^:]+$') }}"
+                    operator: Equals
+                    value: true
+          - list: "request.object.spec.ephemeralContainers || []"
+            deny:
+              conditions:
+                any:
+                  - key: "{{ element.image | contains(@, ':latest') }}"
+                    operator: Equals
+                    value: true
+                  - key: "{{ element.image | regex_match('^[^:]+$') }}"
+                    operator: Equals
+                    value: true
+    - name: validate-trusted-registries
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - kube-system
+                - kube-node-lease
+                - kube-public
+                - flux-system
+                - kyverno
+                - longhorn-system
+      validate:
+        message: >-
+          Images must come from trusted registries.
+          Container '{{element.name}}' uses image '{{element.image}}' which is not from
+          a trusted registry. Allowed registries: docker.io, ghcr.io, quay.io, gcr.io,
+          registry.k8s.io, mcr.microsoft.com, lscr.io, or Docker Hub library images.
+        foreach:
+          - list: "request.object.spec.containers"
+            deny:
+              conditions:
+                all:
+                  - key: "{{ element.image | regex_match('^[^/]+:[^/]+$') }}"
+                    operator: NotEquals
+                    value: true
+                  - key: "{{ element.image | starts_with(@, 'docker.io/') || element.image | starts_with(@, 'ghcr.io/') || element.image | starts_with(@, 'quay.io/') || element.image | starts_with(@, 'gcr.io/') || element.image | starts_with(@, 'registry.k8s.io/') || element.image | starts_with(@, 'mcr.microsoft.com/') || element.image | starts_with(@, 'lscr.io/') }}"
+                    operator: Equals
+                    value: false
+          - list: "request.object.spec.initContainers || []"
+            deny:
+              conditions:
+                all:
+                  - key: "{{ element.image | regex_match('^[^/]+:[^/]+$') }}"
+                    operator: NotEquals
+                    value: true
+                  - key: "{{ element.image | starts_with(@, 'docker.io/') || element.image | starts_with(@, 'ghcr.io/') || element.image | starts_with(@, 'quay.io/') || element.image | starts_with(@, 'gcr.io/') || element.image | starts_with(@, 'registry.k8s.io/') || element.image | starts_with(@, 'mcr.microsoft.com/') || element.image | starts_with(@, 'lscr.io/') }}"
+                    operator: Equals
+                    value: false
+          - list: "request.object.spec.ephemeralContainers || []"
+            deny:
+              conditions:
+                all:
+                  - key: "{{ element.image | regex_match('^[^/]+:[^/]+$') }}"
+                    operator: NotEquals
+                    value: true
+                  - key: "{{ element.image | starts_with(@, 'docker.io/') || element.image | starts_with(@, 'ghcr.io/') || element.image | starts_with(@, 'quay.io/') || element.image | starts_with(@, 'gcr.io/') || element.image | starts_with(@, 'registry.k8s.io/') || element.image | starts_with(@, 'mcr.microsoft.com/') || element.image | starts_with(@, 'lscr.io/') }}"
+                    operator: Equals
+                    value: false

@@ -30,6 +30,8 @@ infrastructure/
 │   ├── iscsi/                  # iSCSI installation
 │   └── gpu/                    # GPU bootstrap DaemonSet for Intel QuickSync
 ├── node-config/                # Node labels and configuration
+├── policies/                   # Kyverno policy engine and cluster policies
+│   └── cluster-policies/       # ClusterPolicy resources
 ├── rbac/                       # Role-based access control
 ├── storage/                    # Storage configuration (Longhorn)
 ├── monitoring/                 # Monitoring stack (Prometheus, Grafana, Alertmanager)
@@ -54,6 +56,7 @@ docs/                           # Detailed component documentation
 | **Networking** | Traefik ingress controller and MetalLB load balancer | [docs/networking.md](docs/networking.md) |
 | **TLS** | cert-manager for TLS certificate management | [docs/tls.md](docs/tls.md) |
 | **Sealed Secrets** | Bitnami Sealed Secrets for GitOps-safe secret management | [docs/sealed-secrets.md](docs/sealed-secrets.md) |
+| **Policies** | Kyverno policy engine for admission control and policy enforcement | [docs/policies.md](docs/policies.md) |
 | **Node Bootstrap** | Automated iSCSI installation and GPU bootstrap DaemonSet for Intel QuickSync | [docs/node-bootstrap.md](docs/node-bootstrap.md) |
 | **GPU Acceleration** | Intel QuickSync hardware transcoding via GPU Device Plugin | [infrastructure/accelerators/intel-gpu/README.md](infrastructure/accelerators/intel-gpu/README.md) |
 | **CI/CD** | Comprehensive validation and security scanning pipeline | [docs/ci-cd.md](docs/ci-cd.md) |

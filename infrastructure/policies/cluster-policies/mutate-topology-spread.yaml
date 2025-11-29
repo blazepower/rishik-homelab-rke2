@@ -1,0 +1,45 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: mutate-topology-spread
+  annotations:
+    policies.kyverno.io/title: Inject Topology Spread Constraints
+    policies.kyverno.io/category: Best Practices
+    policies.kyverno.io/severity: low
+    policies.kyverno.io/description: >-
+      Automatically inject standard topologySpreadConstraints for Deployments
+      to ensure workloads are spread across nodes in the RKE2 cluster.
+spec:
+  background: false
+  rules:
+    - name: add-topology-spread-constraints
+      match:
+        any:
+          - resources:
+              kinds:
+                - Deployment
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - kube-system
+                - kube-node-lease
+                - kube-public
+                - flux-system
+                - kyverno
+      preconditions:
+        all:
+          - key: "{{ request.object.spec.template.spec.topologySpreadConstraints || '' | length(@) }}"
+            operator: Equals
+            value: 0
+      mutate:
+        patchStrategicMerge:
+          spec:
+            template:
+              spec:
+                topologySpreadConstraints:
+                  - maxSkew: 1
+                    topologyKey: kubernetes.io/hostname
+                    whenUnsatisfiable: ScheduleAnyway
+                    labelSelector:
+                      matchLabels: "{{ request.object.spec.selector.matchLabels }}"

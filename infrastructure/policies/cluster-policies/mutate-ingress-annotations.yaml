@@ -1,0 +1,36 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: mutate-ingress-annotations
+  annotations:
+    policies.kyverno.io/title: Inject Standard Ingress Annotations
+    policies.kyverno.io/category: Best Practices
+    policies.kyverno.io/severity: low
+    policies.kyverno.io/description: >-
+      Automatically add standard annotations to Ingress resources
+      handled by Traefik for consistent logging and tracing.
+spec:
+  background: false
+  rules:
+    - name: add-standard-annotations
+      match:
+        any:
+          - resources:
+              kinds:
+                - Ingress
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - kube-system
+                - kube-node-lease
+                - kube-public
+                - flux-system
+                - kyverno
+      mutate:
+        patchStrategicMerge:
+          metadata:
+            annotations:
+              +(traefik.ingress.kubernetes.io/router.tls): "true"
+              +(homelab.rishik.dev/managed-by): "kyverno"
+              +(homelab.rishik.dev/log-level): "info"

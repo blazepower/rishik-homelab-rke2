@@ -1,0 +1,57 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: enforce-namespace-labels
+  annotations:
+    policies.kyverno.io/title: Enforce Namespace Labels
+    policies.kyverno.io/category: Best Practices
+    policies.kyverno.io/severity: low
+    policies.kyverno.io/description: >-
+      Require environment=production and owner=rishik labels on all namespaces.
+      This helps with Prometheus/Loki queries and future multi-tenant experiments.
+spec:
+  validationFailureAction: Audit
+  background: true
+  rules:
+    - name: require-environment-label
+      match:
+        any:
+          - resources:
+              kinds:
+                - Namespace
+      exclude:
+        any:
+          - resources:
+              names:
+                - default
+                - kube-system
+                - kube-node-lease
+                - kube-public
+                - flux-system
+      validate:
+        message: "Namespace must have 'environment' label set."
+        pattern:
+          metadata:
+            labels:
+              environment: "?*"
+    - name: require-owner-label
+      match:
+        any:
+          - resources:
+              kinds:
+                - Namespace
+      exclude:
+        any:
+          - resources:
+              names:
+                - default
+                - kube-system
+                - kube-node-lease
+                - kube-public
+                - flux-system
+      validate:
+        message: "Namespace must have 'owner' label set."
+        pattern:
+          metadata:
+            labels:
+              owner: "?*"
