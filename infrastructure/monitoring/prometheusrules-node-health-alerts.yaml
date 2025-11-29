@@ -10,7 +10,7 @@ spec:
     - name: swap-alerts
       rules:
         - alert: NodeHighSwapUsage
-          expr: (node_memory_SwapTotal_bytes - node_memory_SwapFree_bytes) / node_memory_SwapTotal_bytes * 100 > 80
+          expr: (node_memory_SwapTotal_bytes > 0) and ((node_memory_SwapTotal_bytes - node_memory_SwapFree_bytes) / node_memory_SwapTotal_bytes * 100 > 80)
           for: 5m
           labels:
             severity: warning
@@ -28,7 +28,7 @@ spec:
             description: "High swap in/out activity detected on node {{ $labels.instance }}, indicating memory pressure."
 
         - alert: NodeSwapCritical
-          expr: (node_memory_SwapTotal_bytes - node_memory_SwapFree_bytes) / node_memory_SwapTotal_bytes * 100 > 95
+          expr: (node_memory_SwapTotal_bytes > 0) and ((node_memory_SwapTotal_bytes - node_memory_SwapFree_bytes) / node_memory_SwapTotal_bytes * 100 > 95)
           for: 2m
           labels:
             severity: critical

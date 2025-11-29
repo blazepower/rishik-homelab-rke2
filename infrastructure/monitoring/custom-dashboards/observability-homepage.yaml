@@ -1840,7 +1840,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "max((node_memory_SwapTotal_bytes - node_memory_SwapFree_bytes) / node_memory_SwapTotal_bytes * 100) OR on() vector(0)",
+              "expr": "max((node_memory_SwapTotal_bytes - node_memory_SwapFree_bytes) / node_memory_SwapTotal_bytes * 100 and node_memory_SwapTotal_bytes > 0) OR on() vector(0)",
               "legendFormat": "Max Swap Usage",
               "refId": "A"
             }
