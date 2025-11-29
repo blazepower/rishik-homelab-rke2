@@ -1,0 +1,25 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: node-feature-discovery
+  namespace: monitoring
+  labels:
+    app: node-feature-discovery
+    release: kube-prometheus-stack
+spec:
+  jobLabel: node-feature-discovery
+  namespaceSelector:
+    matchNames:
+      - kube-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: node-feature-discovery
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
+    - port: metrics-master
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s

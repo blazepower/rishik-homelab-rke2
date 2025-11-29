@@ -3,8 +3,12 @@ kind: Kustomization
 resources:
   - helmrepository-prometheus-community.yaml
   - helmrepository-grafana.yaml
+  - helmrepository-kubernetes-event-exporter.yaml
   - helmrelease-kube-prometheus-stack.yaml
+  - helmrelease-kubernetes-event-exporter.yaml
   - prometheusrules-alerts.yaml
   - ingress-grafana.yaml
+  - servicemonitor-node-feature-discovery.yaml
+  - servicemonitor-intel-gpu-plugin.yaml
   - custom-dashboards/
   - dashboards/
