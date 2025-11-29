@@ -139,3 +139,110 @@ Tracks errors and issues across the cluster for debugging:
 - **Ingress/Network Errors**: Traefik error responses, endpoints not ready
 - **Storage Errors**: PVC pending/lost, Longhorn volume issues
 - **Flux GitOps Errors**: Reconciliation failures, stalled resources
+
+#### Node Feature Discovery Dashboard
+File: `configmap-nfd-dashboard.yaml`
+
+Monitors Node Feature Discovery (NFD) metrics:
+- **Feature Discovery Duration**: Histogram showing p50/p99 discovery duration by node
+- **Node Update Rates**: Success and failure rates for node label updates
+- **Labels per Node**: Number of labels applied to each node
+- **NFD Worker Status**: Health status of NFD worker pods
+
+#### Intel GPU Device Plugin Dashboard
+File: `configmap-intel-gpu-dashboard.yaml`
+
+Monitors Intel GPU device plugin and GPU allocation:
+- **GPU Allocation Overview**: Total GPUs, allocated, available, and device health
+- **GPU Allocation per Node**: Allocatable vs requested GPU resources per node
+- **GPU Utilization**: GPU busy percentage and memory usage
+- **Device Health Status**: GPU device health and plugin status
+- **GPU Resource Requests/Limits**: Table of workloads with GPU requests
+
+#### Kubernetes Events Dashboard
+File: `configmap-kubernetes-events-dashboard.yaml`
+
+Displays Kubernetes events from the Event Exporter using Loki:
+- **Event Overview**: Total, normal, and warning event counts
+- **Event Timeline by Type**: Stacked bar chart of Normal vs Warning events
+- **Events by Namespace**: Timeline and pie chart of events per namespace
+- **Events by Reason**: Distribution of events by reason (Scheduled, Pulled, Created, etc.)
+- **Recent Warning Events**: Log view of recent warning events
+- **Event Rate Over Time**: Events per second and events by resource kind
+
+## ServiceMonitors
+
+### Node Feature Discovery (NFD)
+File: `servicemonitor-node-feature-discovery.yaml`
+
+Monitors NFD master and worker components in `kube-system` namespace:
+- **Port**: 8081
+- **Path**: `/metrics`
+- **Key Metrics**:
+  - `nfd_feature_discovery_duration_seconds`: Histogram of feature discovery duration
+  - `nfd_node_updates_total`: Counter of successful node label updates
+  - `nfd_node_update_failures_total`: Counter of failed node label updates
+
+### Intel GPU Device Plugin
+File: `servicemonitor-intel-gpu-plugin.yaml`
+
+Monitors Intel GPU device plugin in `kube-system` namespace:
+- **Port**: 8080
+- **Path**: `/metrics`
+- **Key Metrics**:
+  - GPU allocation and capacity metrics
+  - Device health status
+  - Plugin operational metrics
+
+## Kubernetes Event Exporter
+
+The Kubernetes Event Exporter captures cluster events and sends them to Loki for querying in Grafana.
+
+### Configuration
+- **HelmRepository**: `helmrepository-kubernetes-event-exporter.yaml` (Bitnami charts)
+- **HelmRelease**: `helmrelease-kubernetes-event-exporter.yaml`
+- **Namespace**: `monitoring`
+- **Loki Endpoint**: `http://loki.monitoring.svc.cluster.local:3100/loki/api/v1/push`
+
+### Resource Limits
+
+| Component | CPU Request | CPU Limit | Memory Request | Memory Limit |
+|-----------|-------------|-----------|----------------|--------------|
+| Event Exporter | 25m | 100m | 64Mi | 128Mi |
+
+### Event Labels
+
+Events are sent to Loki with the following labels:
+- `job`: `kubernetes-event-exporter`
+- `namespace`: Event's involved object namespace
+- `reason`: Event reason (e.g., Scheduled, Pulled, Created, Started, Killing)
+- `type`: Event type (Normal, Warning)
+- `kind`: Involved object kind (Pod, Deployment, Node, etc.)
+- `name`: Involved object name
+
+### Querying Events in Grafana
+
+Use LogQL queries in Grafana's Explore interface to query events:
+
+```logql
+# All events
+{job="kubernetes-event-exporter"}
+
+# Warning events only
+{job="kubernetes-event-exporter", type="Warning"}
+
+# Events for a specific namespace
+{job="kubernetes-event-exporter", namespace="monitoring"}
+
+# Events by reason
+{job="kubernetes-event-exporter", reason="Scheduled"}
+
+# Pod events
+{job="kubernetes-event-exporter", kind="Pod"}
+
+# Count events by type over time
+sum by (type) (count_over_time({job="kubernetes-event-exporter"} [5m]))
+
+# Warning events rate
+sum(rate({job="kubernetes-event-exporter", type="Warning"} [5m]))
+```

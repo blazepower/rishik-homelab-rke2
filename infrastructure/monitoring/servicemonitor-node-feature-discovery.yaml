@@ -1,0 +1,30 @@
+# ServiceMonitor for Node Feature Discovery (NFD)
+# Scrapes metrics from both NFD master and NFD worker components
+# Metrics include: nfd_feature_discovery_duration_seconds, nfd_node_updates_total, nfd_node_update_failures_total
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: node-feature-discovery
+  namespace: monitoring
+  labels:
+    app: node-feature-discovery
+    release: kube-prometheus-stack
+spec:
+  jobLabel: node-feature-discovery
+  namespaceSelector:
+    matchNames:
+      - kube-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: node-feature-discovery
+  endpoints:
+    # NFD worker metrics endpoint (port 8081)
+    - port: metrics
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
+    # NFD master metrics endpoint (port 8081)
+    - port: metrics-master
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s

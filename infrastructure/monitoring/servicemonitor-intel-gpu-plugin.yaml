@@ -1,0 +1,25 @@
+# ServiceMonitor for Intel GPU Device Plugin
+# Scrapes metrics from the Intel GPU device plugin on port 8080
+# Metrics include: GPU allocation, capacity, and device health
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: intel-gpu-plugin
+  namespace: monitoring
+  labels:
+    app: intel-gpu-plugin
+    release: kube-prometheus-stack
+spec:
+  jobLabel: intel-gpu-plugin
+  namespaceSelector:
+    matchNames:
+      - kube-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: intel-gpu-plugin
+  endpoints:
+    # Intel GPU plugin metrics endpoint (port 8080)
+    - port: metrics
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
