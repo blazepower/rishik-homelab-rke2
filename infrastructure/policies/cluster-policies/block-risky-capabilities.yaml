@@ -52,6 +52,13 @@ spec:
                   - key: "{{ element.securityContext.privileged || false }}"
                     operator: Equals
                     value: true
+          - list: "request.object.spec.ephemeralContainers || []"
+            deny:
+              conditions:
+                all:
+                  - key: "{{ element.securityContext.privileged || false }}"
+                    operator: Equals
+                    value: true
     - name: deny-host-network
       match:
         any:
