@@ -31,6 +31,6 @@ spec:
         patchStrategicMerge:
           metadata:
             annotations:
-              +(traefik.ingress.kubernetes.io/router.tls): "false"
+              +(traefik.ingress.kubernetes.io/router.tls): "true"
               +(homelab.rishik.dev/managed-by): "kyverno"
               +(homelab.rishik.dev/log-level): "info"
