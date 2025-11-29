@@ -67,6 +67,8 @@ paths = [
   '''yarn\.lock$''',
   # Documentation files with example credentials
   '''docs/sealed-secrets\.md$''',
+  # Sealed Secrets files (encrypted secrets safe to commit)
+  '''sealedsecret-[^/]+\.ya?ml$''',
 ]
 
 regexes = [
