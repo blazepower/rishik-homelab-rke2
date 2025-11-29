@@ -71,28 +71,10 @@ spec:
           - list: "request.object.spec.containers"
             deny:
               conditions:
-                all:
-                  - key: "{{ element.image | starts_with(@, 'docker.io/') }}"
-                    operator: Equals
-                    value: false
-                  - key: "{{ element.image | starts_with(@, 'ghcr.io/') }}"
-                    operator: Equals
-                    value: false
-                  - key: "{{ element.image | starts_with(@, 'quay.io/') }}"
-                    operator: Equals
-                    value: false
-                  - key: "{{ element.image | starts_with(@, 'gcr.io/') }}"
-                    operator: Equals
-                    value: false
-                  - key: "{{ element.image | starts_with(@, 'registry.k8s.io/') }}"
-                    operator: Equals
-                    value: false
-                  - key: "{{ element.image | starts_with(@, 'mcr.microsoft.com/') }}"
-                    operator: Equals
-                    value: false
-                  - key: "{{ element.image | starts_with(@, 'lscr.io/') }}"
-                    operator: Equals
-                    value: false
-                  - key: "{{ element.image | contains(@, '/') }}"
-                    operator: Equals
+                any:
+                  - key: "{{ element.image | regex_match('^[^/]+:[^/]+$') }}"
+                    operator: NotEquals
                     value: true
+                  - key: "{{ element.image | starts_with(@, 'docker.io/') || element.image | starts_with(@, 'ghcr.io/') || element.image | starts_with(@, 'quay.io/') || element.image | starts_with(@, 'gcr.io/') || element.image | starts_with(@, 'registry.k8s.io/') || element.image | starts_with(@, 'mcr.microsoft.com/') || element.image | starts_with(@, 'lscr.io/') }}"
+                    operator: Equals
+                    value: false
