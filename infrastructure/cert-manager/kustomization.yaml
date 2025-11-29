@@ -4,3 +4,4 @@ resources:
   - helmrepository-cert-manager.yaml
   - helmrelease-cert-manager.yaml
   - cluster-issuer.yaml
+  - sealedsecret-cluster-ca-tls.yaml
