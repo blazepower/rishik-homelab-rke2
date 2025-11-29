@@ -1,0 +1,9 @@
+# For important infrastructure components
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: infrastructure-high
+value: 100000
+globalDefault: false
+preemptionPolicy: PreemptLowerPriority
+description: "Important infrastructure components (monitoring, logging, cert-manager). May preempt application workloads."

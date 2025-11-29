@@ -12,3 +12,4 @@ resources:
   - sealed-secrets
   - accelerators/intel-gpu
   - policies
+  - scheduling

@@ -1,0 +1,9 @@
+# For batch jobs and non-critical workloads
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: application-low
+value: 100
+globalDefault: false
+preemptionPolicy: Never
+description: "Low priority for batch jobs and non-critical workloads. Will not preempt other pods."

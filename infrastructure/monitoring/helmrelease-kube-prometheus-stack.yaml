@@ -24,6 +24,7 @@ spec:
   values:
     prometheus:
       prometheusSpec:
+        priorityClassName: infrastructure-high
         retention: 7d
         scrapeInterval: 60s
         evaluationInterval: 60s
@@ -43,6 +44,7 @@ spec:
                 requests:
                   storage: 10Gi
     grafana:
+      priorityClassName: infrastructure-high
       adminUser: admin
       admin:
         existingSecret: grafana-admin-credentials
@@ -66,6 +68,7 @@ spec:
     alertmanager:
       enabled: true
       alertmanagerSpec:
+        priorityClassName: infrastructure-high
         resources:
           requests:
             cpu: "25m"

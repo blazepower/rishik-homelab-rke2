@@ -24,6 +24,8 @@ spec:
     remediation:
       retries: 3
   values:
+    # Use infrastructure-high priority
+    priorityClassName: infrastructure-high
     # Resource limits and requests
     resources:
       requests:

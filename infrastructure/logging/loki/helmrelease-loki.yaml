@@ -52,6 +52,7 @@ spec:
     # Single binary mode configuration
     singleBinary:
       replicas: 1
+      priorityClassName: infrastructure-high
       persistence:
         enabled: true
         size: 10Gi
