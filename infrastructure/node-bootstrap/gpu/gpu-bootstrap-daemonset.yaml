@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: rke2-node-bootstrap-gpu
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      app: rke2-node-bootstrap-gpu
+  template:
+    metadata:
+      labels:
+        app: rke2-node-bootstrap-gpu
+    spec:
+      hostPID: true
+      hostNetwork: true
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: gpu-bootstrap
+          image: ubuntu:24.04@sha256:c35e29c9450151419d9448b0fd75374fec4fff364a27f176fb458d472dfc9e54
+          securityContext:
+            privileged: true
+          command:
+            - /bin/bash
+            - -c
+            - |
+              chmod +x /usr/local/bin/gpu-bootstrap.sh
+              /usr/local/bin/gpu-bootstrap.sh
+          resources:
+            requests:
+              cpu: "10m"
+              memory: "64Mi"
+            limits:
+              cpu: "100m"
+              memory: "256Mi"
+          livenessProbe:
+            exec:
+              command:
+                - test
+                - -f
+                - /host/var/lib/gpu-bootstrap.done
+            initialDelaySeconds: 120
+            periodSeconds: 60
+            failureThreshold: 5
+          readinessProbe:
+            exec:
+              command:
+                - test
+                - -f
+                - /host/var/lib/gpu-bootstrap.done
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            failureThreshold: 10
+          volumeMounts:
+            - name: host-root
+              mountPath: /host
+            - name: gpu-bootstrap-script
+              mountPath: /usr/local/bin/gpu-bootstrap.sh
+              subPath: gpu-bootstrap.sh
+      volumes:
+        - name: host-root
+          hostPath:
+            path: /
+        - name: gpu-bootstrap-script
+          configMap:
+            name: gpu-bootstrap-script
+            defaultMode: 0755

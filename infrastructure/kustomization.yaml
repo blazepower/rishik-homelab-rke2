@@ -5,6 +5,7 @@ resources:
   - networking
   - storage
   - node-bootstrap/iscsi
+  - node-bootstrap/gpu
   - monitoring
   - logging
   - cert-manager
