@@ -1,4 +1,4 @@
-apiVersion: helm.toolkit.fluxcd.io/v2beta2
+apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
   name: kubernetes-event-exporter
@@ -8,9 +8,10 @@ spec:
   chart:
     spec:
       chart: kubernetes-event-exporter
+      version: "3.6.3"
       sourceRef:
-        kind: OCIRepository
-        name: bitnami-kubernetes-event-exporter
+        kind: HelmRepository
+        name: bitnami
         namespace: flux-system
   install:
     createNamespace: false
