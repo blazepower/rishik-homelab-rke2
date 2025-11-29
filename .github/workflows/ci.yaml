@@ -16,6 +16,9 @@ permissions:
 env:
   KUBERNETES_VERSION: "1.29.0"
   KUSTOMIZE_VERSION: "5.4.2"
+  KUBECONFORM_VERSION: "0.6.4"
+  GITLEAKS_VERSION: "8.18.4"
+  KUBESEC_VERSION: "2.14.1"
 
 jobs:
   yaml-lint:
@@ -38,9 +41,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Cache kubeconform
+        uses: actions/cache@v4
+        id: cache-kubeconform
+        with:
+          path: /usr/local/bin/kubeconform
+          key: kubeconform-${{ env.KUBECONFORM_VERSION }}
+
       - name: Install kubeconform
+        if: steps.cache-kubeconform.outputs.cache-hit != 'true'
         run: |
-          curl -sL https://github.com/yannh/kubeconform/releases/download/v0.6.4/kubeconform-linux-amd64.tar.gz | tar xz
+          curl -sL https://github.com/yannh/kubeconform/releases/download/v${{ env.KUBECONFORM_VERSION }}/kubeconform-linux-amd64.tar.gz | tar xz
           sudo mv kubeconform /usr/local/bin/
 
       - name: Download Flux CRD schemas
@@ -88,7 +99,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Cache kustomize
+        uses: actions/cache@v4
+        id: cache-kustomize
+        with:
+          path: /usr/local/bin/kustomize
+          key: kustomize-${{ env.KUSTOMIZE_VERSION }}
+
       - name: Install kustomize
+        if: steps.cache-kustomize.outputs.cache-hit != 'true'
         run: |
           curl -sL https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${{ env.KUSTOMIZE_VERSION }}/kustomize_v${{ env.KUSTOMIZE_VERSION }}_linux_amd64.tar.gz | tar xz
           sudo mv kustomize /usr/local/bin/
@@ -109,14 +128,30 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Cache kustomize
+        uses: actions/cache@v4
+        id: cache-kustomize
+        with:
+          path: /usr/local/bin/kustomize
+          key: kustomize-${{ env.KUSTOMIZE_VERSION }}
+
       - name: Install kustomize
+        if: steps.cache-kustomize.outputs.cache-hit != 'true'
         run: |
           curl -sL https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${{ env.KUSTOMIZE_VERSION }}/kustomize_v${{ env.KUSTOMIZE_VERSION }}_linux_amd64.tar.gz | tar xz
           sudo mv kustomize /usr/local/bin/
 
+      - name: Cache kubeconform
+        uses: actions/cache@v4
+        id: cache-kubeconform
+        with:
+          path: /usr/local/bin/kubeconform
+          key: kubeconform-${{ env.KUBECONFORM_VERSION }}
+
       - name: Install kubeconform
+        if: steps.cache-kubeconform.outputs.cache-hit != 'true'
         run: |
-          curl -sL https://github.com/yannh/kubeconform/releases/download/v0.6.4/kubeconform-linux-amd64.tar.gz | tar xz
+          curl -sL https://github.com/yannh/kubeconform/releases/download/v${{ env.KUBECONFORM_VERSION }}/kubeconform-linux-amd64.tar.gz | tar xz
           sudo mv kubeconform /usr/local/bin/
 
       - name: Download Flux CRD schemas
@@ -248,9 +283,17 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Cache gitleaks
+        uses: actions/cache@v4
+        id: cache-gitleaks
+        with:
+          path: /usr/local/bin/gitleaks
+          key: gitleaks-${{ env.GITLEAKS_VERSION }}
+
       - name: Install gitleaks
+        if: steps.cache-gitleaks.outputs.cache-hit != 'true'
         run: |
-          curl -sL https://github.com/gitleaks/gitleaks/releases/download/v8.18.4/gitleaks_8.18.4_linux_x64.tar.gz | tar xz
+          curl -sL https://github.com/gitleaks/gitleaks/releases/download/v${{ env.GITLEAKS_VERSION }}/gitleaks_${{ env.GITLEAKS_VERSION }}_linux_x64.tar.gz | tar xz
           sudo mv gitleaks /usr/local/bin/
 
       - name: Run gitleaks
@@ -263,9 +306,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Cache kubesec
+        uses: actions/cache@v4
+        id: cache-kubesec
+        with:
+          path: /usr/local/bin/kubesec
+          key: kubesec-${{ env.KUBESEC_VERSION }}
+
       - name: Install kubesec
+        if: steps.cache-kubesec.outputs.cache-hit != 'true'
         run: |
-          curl -sL -o kubesec https://github.com/controlplaneio/kubesec/releases/download/v2.14.1/kubesec_linux_amd64
+          curl -sL -o kubesec https://github.com/controlplaneio/kubesec/releases/download/v${{ env.KUBESEC_VERSION }}/kubesec_linux_amd64
           chmod +x kubesec
           sudo mv kubesec /usr/local/bin/
 
@@ -625,3 +676,267 @@ jobs:
           done
 
           echo "All logging kustomization files are valid"
+
+  shellcheck:
+    name: Shell Script Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: sudo apt-get install -y shellcheck
+
+      - name: Validate standalone shell scripts
+        run: |
+          echo "Validating standalone shell scripts with shellcheck..."
+          errors=0
+
+          # Check rotate-cluster-ca.sh at root
+          if [[ -f "rotate-cluster-ca.sh" ]]; then
+            echo "Checking rotate-cluster-ca.sh..."
+            if shellcheck rotate-cluster-ca.sh; then
+              echo "  ✓ rotate-cluster-ca.sh passed"
+            else
+              echo "  ✗ rotate-cluster-ca.sh failed"
+              errors=$((errors + 1))
+            fi
+          fi
+
+          # Check iscsi-bootstrap.sh
+          if [[ -f "infrastructure/node-bootstrap/iscsi/iscsi-bootstrap.sh" ]]; then
+            echo "Checking infrastructure/node-bootstrap/iscsi/iscsi-bootstrap.sh..."
+            if shellcheck infrastructure/node-bootstrap/iscsi/iscsi-bootstrap.sh; then
+              echo "  ✓ iscsi-bootstrap.sh passed"
+            else
+              echo "  ✗ iscsi-bootstrap.sh failed"
+              errors=$((errors + 1))
+            fi
+          fi
+
+          # Check the 'scripts' file if it exists and has a shell shebang
+          if [[ -f "scripts" ]] && head -1 scripts | grep -qE '^#!.*(bash|sh)'; then
+            echo "Checking scripts..."
+            if shellcheck scripts; then
+              echo "  ✓ scripts passed"
+            else
+              echo "  ✗ scripts failed"
+              errors=$((errors + 1))
+            fi
+          fi
+
+          # Find any other shell scripts in scripts/ directory (if it's a directory)
+          if [[ -d "scripts" ]]; then
+            while IFS= read -r -d '' script; do
+              echo "Checking $script..."
+              if shellcheck "$script"; then
+                echo "  ✓ $script passed"
+              else
+                echo "  ✗ $script failed"
+                errors=$((errors + 1))
+              fi
+            done < <(find scripts -name '*.sh' -type f -print0 2>/dev/null)
+          fi
+
+          if [[ $errors -gt 0 ]]; then
+            echo "ERROR: $errors shell script(s) failed validation"
+            exit 1
+          fi
+
+          echo "All standalone shell scripts passed shellcheck validation"
+
+      - name: Validate embedded shell scripts in ConfigMaps
+        run: |
+          echo "Extracting and validating shell scripts embedded in ConfigMaps..."
+          errors=0
+
+          # Create a unique temp directory for extracted scripts
+          EXTRACT_DIR=$(mktemp -d) || { echo "Failed to create temp directory"; exit 1; }
+          trap 'rm -rf "$EXTRACT_DIR"' EXIT
+          echo "Using temp directory: $EXTRACT_DIR"
+
+          # Find and extract shell scripts from all ConfigMaps in node-bootstrap
+          while IFS= read -r -d '' manifest; do
+            if grep -q '\.sh:' "$manifest" 2>/dev/null; then
+              echo "Extracting scripts from $manifest..."
+
+              # Use environment variables to safely pass values to Python
+              MANIFEST_FILE="$manifest" EXTRACT_DIR="$EXTRACT_DIR" python3 << 'EOF'
+          import yaml
+          import os
+
+          manifest_file = os.environ['MANIFEST_FILE']
+          extract_dir = os.environ['EXTRACT_DIR']
+          basename = os.path.basename(manifest_file).replace('.yaml', '')
+
+          with open(manifest_file) as f:
+              data = yaml.safe_load(f)
+
+          # Handle ConfigMap
+          if data.get('kind') == 'ConfigMap':
+              config_data = data.get('data', {})
+              for key, value in config_data.items():
+                  if key.endswith('.sh') and value:
+                      output_file = os.path.join(extract_dir, f'{basename}-{key}')
+                      with open(output_file, 'w') as out:
+                          out.write(value)
+                      print(f"  Extracted {key} to {output_file}")
+          EOF
+            fi
+          done < <(find infrastructure/node-bootstrap -name '*.yaml' -type f ! -name 'kustomization.yaml' -print0 2>/dev/null)
+
+          # Run shellcheck on all extracted scripts (handle empty directory case)
+          shopt -s nullglob
+          scripts=("$EXTRACT_DIR"/*.sh)
+          shopt -u nullglob
+
+          if [[ ${#scripts[@]} -eq 0 ]]; then
+            echo "No embedded shell scripts found to validate"
+          else
+            for script in "${scripts[@]}"; do
+              echo "Checking extracted script: $(basename "$script")..."
+              # SC2317: Unreachable code - can happen in heredocs
+              # SC1091: Not following sourced files - expected in container context
+              if shellcheck -e SC2317 -e SC1091 "$script"; then
+                echo "  ✓ $(basename "$script") passed"
+              else
+                echo "  ✗ $(basename "$script") failed"
+                errors=$((errors + 1))
+              fi
+            done
+          fi
+
+          if [[ $errors -gt 0 ]]; then
+            echo "ERROR: $errors embedded shell script(s) failed validation"
+            exit 1
+          fi
+
+          echo "All embedded shell scripts passed shellcheck validation"
+
+  markdown-lint:
+    name: Markdown Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install markdownlint-cli
+        run: npm install -g markdownlint-cli
+
+      - name: Run markdownlint on docs
+        run: |
+          echo "Linting markdown files in docs/..."
+          if [[ -d "docs" ]]; then
+            # Create a temporary config if none exists
+            if [[ ! -f ".markdownlint.yaml" ]] && [[ ! -f ".markdownlint.json" ]]; then
+              MDLINT_CONFIG=$(mktemp --suffix=.yaml)
+              cat > "$MDLINT_CONFIG" << 'EOF'
+          # Markdownlint configuration
+          default: true
+          # Allow line length to be flexible for documentation
+          MD013: false
+          # Allow inline HTML for badges and special formatting
+          MD033: false
+          # Allow multiple headers with same content
+          MD024:
+            siblings_only: true
+          # Allow trailing punctuation in headers
+          MD026: false
+          EOF
+              echo "Using temporary config: $MDLINT_CONFIG"
+              markdownlint --config "$MDLINT_CONFIG" docs/
+              # Store config path for README step
+              echo "MDLINT_CONFIG=$MDLINT_CONFIG" >> "$GITHUB_ENV"
+            else
+              markdownlint docs/
+            fi
+          else
+            echo "No docs directory found, skipping markdown linting"
+          fi
+
+      - name: Lint README
+        run: |
+          if [[ ! -f "README.md" ]]; then
+            echo "No README.md found, skipping"
+            exit 0
+          fi
+
+          echo "Linting README.md (informational only - will not fail CI)..."
+
+          # Determine config to use and run markdownlint
+          if [[ -n "${MDLINT_CONFIG:-}" ]] && [[ -f "$MDLINT_CONFIG" ]]; then
+            markdownlint --config "$MDLINT_CONFIG" README.md 2>&1 || echo "Note: README.md has lint warnings (non-blocking)"
+          elif [[ -f ".markdownlint.yaml" ]]; then
+            markdownlint --config .markdownlint.yaml README.md 2>&1 || echo "Note: README.md has lint warnings (non-blocking)"
+          elif [[ -f ".markdownlint.json" ]]; then
+            markdownlint --config .markdownlint.json README.md 2>&1 || echo "Note: README.md has lint warnings (non-blocking)"
+          else
+            echo "No markdownlint config available, skipping README lint"
+          fi
+
+  ci-status:
+    name: CI Status
+    runs-on: ubuntu-latest
+    needs:
+      - yaml-lint
+      - kubernetes-validate
+      - kustomize-build
+      - dry-run-validate
+      - secret-detection
+      - security-scan
+      - trivy-scan
+      - flux-validate
+      - dashboard-validate
+      - logging-validate
+      - shellcheck
+      - markdown-lint
+    if: always()
+    steps:
+      - name: Check all job statuses
+        run: |
+          echo "=== CI Status Summary ==="
+          echo ""
+
+          # Check if any required job failed
+          results='${{ toJSON(needs) }}'
+
+          # Parse results and check for failures
+          failed_jobs=""
+          successful_jobs=""
+
+          # List of all jobs to check
+          jobs="yaml-lint kubernetes-validate kustomize-build dry-run-validate"
+          jobs="$jobs secret-detection security-scan trivy-scan flux-validate"
+          jobs="$jobs dashboard-validate logging-validate shellcheck markdown-lint"
+
+          for job in $jobs; do
+            result=$(echo "$results" | jq -r ".[\"$job\"].result // \"unknown\"")
+            if [[ "$result" == "failure" ]]; then
+              failed_jobs="$failed_jobs $job"
+              echo "❌ $job: FAILED"
+            elif [[ "$result" == "success" ]]; then
+              successful_jobs="$successful_jobs $job"
+              echo "✅ $job: PASSED"
+            elif [[ "$result" == "skipped" ]]; then
+              echo "⏭️ $job: SKIPPED"
+            else
+              echo "❓ $job: $result"
+            fi
+          done
+
+          echo ""
+          echo "==========================="
+
+          if [[ -n "$failed_jobs" ]]; then
+            echo ""
+            echo "❌ CI FAILED - The following jobs failed:$failed_jobs"
+            exit 1
+          else
+            echo ""
+            echo "✅ CI PASSED - All checks completed successfully!"
+          fi
