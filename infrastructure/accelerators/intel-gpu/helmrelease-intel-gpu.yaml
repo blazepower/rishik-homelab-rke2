@@ -6,9 +6,9 @@ metadata:
 spec:
   interval: 10m
   dependsOn:
-    - name: intel-device-plugins-operator
-      namespace: kube-system
     - name: node-feature-discovery
+      namespace: kube-system
+    - name: intel-device-plugins-operator
       namespace: kube-system
   chart:
     spec:
