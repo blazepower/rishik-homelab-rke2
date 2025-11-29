@@ -92,6 +92,19 @@ Enforces image hygiene by:
 
 Docker Hub library images (e.g., `nginx:1.21`) are allowed.
 
+### 7. Require Image Signatures
+
+**Policy**: `require-image-signatures`
+
+Verifies that container images are signed using Cosign/Sigstore for supply chain security:
+- Uses keyless signature verification with Sigstore's Rekor transparency log
+- Reports unsigned images in policy reports without blocking deployments (Audit mode)
+- Helps identify and track unsigned images for future remediation
+
+**Excludes**: `kube-system`, `kube-public`, `kube-node-lease`, `kyverno`, `flux-system`, `cert-manager`, `longhorn-system`, `storage`, `monitoring`, `logging`
+
+**Note**: This policy uses `required: false` initially. Once all images are signed, set `required: true` and transition to Enforce mode for full supply chain security.
+
 ## Transitioning to Enforce Mode
 
 To switch a policy from Audit to Enforce mode:
@@ -142,5 +155,6 @@ infrastructure/policies/
     ├── enforce-namespace-labels.yaml
     ├── mutate-topology-spread.yaml
     ├── mutate-ingress-annotations.yaml
-    └── disallow-latest-tag.yaml
+    ├── disallow-latest-tag.yaml
+    └── require-image-signatures.yaml
 ```
