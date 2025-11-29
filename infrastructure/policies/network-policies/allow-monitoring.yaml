@@ -31,9 +31,6 @@ spec:
         # HTTPS metrics endpoint
         - protocol: TCP
           port: 8443
-        # Kubernetes metrics (kubelet, kube-proxy)
-        - protocol: TCP
-          port: 10250
         # Additional common metrics port
         - protocol: TCP
           port: 9090
