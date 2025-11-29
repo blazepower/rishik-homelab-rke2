@@ -20,6 +20,7 @@ clusters/
     ├── flux-system/            # Flux GitOps components
     └── kustomization.yaml      # Production cluster configuration
 infrastructure/
+├── accelerators/               # Hardware accelerator plugins (Intel GPU)
 ├── crds/                       # Custom Resource Definitions
 ├── namespaces/                 # Namespace definitions
 ├── networking/                 # Network configuration (Traefik)
@@ -46,6 +47,7 @@ docs/                           # Detailed component documentation
 | **Networking** | Traefik ingress controller for HTTP/HTTPS routing | [docs/networking.md](docs/networking.md) |
 | **TLS** | cert-manager for TLS certificate management | [docs/tls.md](docs/tls.md) |
 | **Node Bootstrap** | Automated iSCSI installation on cluster nodes | [docs/node-bootstrap.md](docs/node-bootstrap.md) |
+| **GPU Acceleration** | Intel QuickSync hardware transcoding via GPU Device Plugin | [infrastructure/accelerators/intel-gpu/README.md](infrastructure/accelerators/intel-gpu/README.md) |
 | **CI/CD** | Comprehensive validation and security scanning pipeline | [docs/ci-cd.md](docs/ci-cd.md) |
 
 ## Dependency Management
