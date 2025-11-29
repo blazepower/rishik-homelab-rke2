@@ -43,20 +43,20 @@ spec:
             deny:
               conditions:
                 any:
-                  - key: "{{ element.securityContext.allowPrivilegeEscalation || true }}"
+                  - key: "{{ element.securityContext.allowPrivilegeEscalation }}"
                     operator: Equals
                     value: true
           - list: "request.object.spec.initContainers || []"
             deny:
               conditions:
                 any:
-                  - key: "{{ element.securityContext.allowPrivilegeEscalation || true }}"
+                  - key: "{{ element.securityContext.allowPrivilegeEscalation }}"
                     operator: Equals
                     value: true
           - list: "request.object.spec.ephemeralContainers || []"
             deny:
               conditions:
                 any:
-                  - key: "{{ element.securityContext.allowPrivilegeEscalation || true }}"
+                  - key: "{{ element.securityContext.allowPrivilegeEscalation }}"
                     operator: Equals
                     value: true
