@@ -10,6 +10,7 @@ resources:
   - helmrelease-kubernetes-event-exporter.yaml
   - helmrelease-kured.yaml
   - helmrelease-node-problem-detector.yaml
+  - sealedsecret-grafana-admin-creds.yaml
   - prometheusrules-alerts.yaml
   - prometheusrules-node-health-alerts.yaml
   - ingress-grafana.yaml
