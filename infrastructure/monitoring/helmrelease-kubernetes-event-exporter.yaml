@@ -6,10 +6,13 @@ metadata:
 spec:
   interval: 10m
   releaseName: kubernetes-event-exporter
-  chartRef:
-    kind: OCIRepository
-    name: kubernetes-event-exporter
-    namespace: flux-system
+  chart:
+    spec:
+      chart: kubernetes-event-exporter
+      sourceRef:
+        kind: HelmRepository
+        name: kubernetes-event-exporter
+        namespace: flux-system
   install:
     createNamespace: false
     remediation:
