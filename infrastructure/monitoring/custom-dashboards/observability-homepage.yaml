@@ -1625,6 +1625,272 @@ data:
             "x": 0,
             "y": 23
           },
+          "id": 105,
+          "panels": [],
+          "title": "Node Health",
+          "type": "row",
+          "uid": "row-node-health"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "mappings": [
+                {
+                  "options": {
+                    "0": {
+                      "color": "green",
+                      "index": 0,
+                      "text": "No Reboot"
+                    }
+                  },
+                  "type": "value"
+                },
+                {
+                  "options": {
+                    "1": {
+                      "color": "orange",
+                      "index": 1,
+                      "text": "Reboot Needed"
+                    }
+                  },
+                  "type": "value"
+                }
+              ],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 1
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 6,
+            "x": 0,
+            "y": 24
+          },
+          "id": 33,
+          "options": {
+            "colorMode": "background",
+            "graphMode": "none",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto"
+          },
+          "pluginVersion": "10.0.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(kured_reboot_required) OR on() vector(0)",
+              "legendFormat": "Pending Reboots",
+              "refId": "A"
+            }
+          ],
+          "title": "Kured Pending Reboots",
+          "type": "stat",
+          "uid": "panel-kured-pending"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 1
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 6,
+            "x": 6,
+            "y": 24
+          },
+          "id": 34,
+          "options": {
+            "colorMode": "background",
+            "graphMode": "none",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto"
+          },
+          "pluginVersion": "10.0.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(problem_gauge) OR on() vector(0)",
+              "legendFormat": "NPD Issues",
+              "refId": "A"
+            }
+          ],
+          "title": "Node Problem Detector Issues",
+          "type": "stat",
+          "uid": "panel-npd-issues"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "mappings": [],
+              "max": 100,
+              "min": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 50
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "percent"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 6,
+            "x": 12,
+            "y": 24
+          },
+          "id": 35,
+          "options": {
+            "orientation": "horizontal",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showThresholdLabels": false,
+            "showThresholdMarkers": true
+          },
+          "pluginVersion": "10.0.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max((node_memory_SwapTotal_bytes - node_memory_SwapFree_bytes) / node_memory_SwapTotal_bytes * 100) OR on() vector(0)",
+              "legendFormat": "Max Swap Usage",
+              "refId": "A"
+            }
+          ],
+          "title": "Max Swap Usage",
+          "type": "gauge",
+          "uid": "panel-swap-usage"
+        },
+        {
+          "datasource": {
+            "type": "datasource",
+            "uid": "grafana"
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 6,
+            "x": 18,
+            "y": 24
+          },
+          "id": 36,
+          "links": [
+            {
+              "targetBlank": true,
+              "title": "Node Health Dashboard",
+              "url": "/d/node-health/node-health"
+            }
+          ],
+          "options": {
+            "code": {
+              "language": "plaintext",
+              "showLineNumbers": false,
+              "showMiniMap": false
+            },
+            "content": "### [Node Health Dashboard \u2192](/d/node-health/node-health)\n\nKured, NPD, Swap metrics",
+            "mode": "markdown"
+          },
+          "pluginVersion": "10.0.0",
+          "title": "",
+          "transparent": true,
+          "type": "text",
+          "uid": "panel-link-node-health"
+        },
+        {
+          "collapsed": false,
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 28
+          },
           "id": 103,
           "panels": [],
           "title": "Network & Storage",
@@ -1689,7 +1955,7 @@ data:
             "h": 6,
             "w": 8,
             "x": 0,
-            "y": 24
+            "y": 29
           },
           "id": 22,
           "options": {
@@ -1789,7 +2055,7 @@ data:
             "h": 6,
             "w": 8,
             "x": 8,
-            "y": 24
+            "y": 29
           },
           "id": 23,
           "options": {
@@ -1857,7 +2123,7 @@ data:
             "h": 3,
             "w": 4,
             "x": 16,
-            "y": 24
+            "y": 29
           },
           "id": 24,
           "options": {
@@ -1921,7 +2187,7 @@ data:
             "h": 3,
             "w": 4,
             "x": 20,
-            "y": 24
+            "y": 29
           },
           "id": 25,
           "options": {
@@ -2012,7 +2278,7 @@ data:
             "h": 3,
             "w": 8,
             "x": 16,
-            "y": 27
+            "y": 32
           },
           "id": 26,
           "options": {
@@ -2058,7 +2324,7 @@ data:
             "h": 1,
             "w": 24,
             "x": 0,
-            "y": 30
+            "y": 35
           },
           "id": 104,
           "panels": [],
@@ -2075,7 +2341,7 @@ data:
             "h": 3,
             "w": 4,
             "x": 0,
-            "y": 31
+            "y": 36
           },
           "id": 27,
           "links": [
@@ -2109,7 +2375,7 @@ data:
             "h": 3,
             "w": 4,
             "x": 4,
-            "y": 31
+            "y": 36
           },
           "id": 28,
           "links": [
@@ -2143,7 +2409,7 @@ data:
             "h": 3,
             "w": 4,
             "x": 8,
-            "y": 31
+            "y": 36
           },
           "id": 29,
           "links": [
@@ -2177,7 +2443,7 @@ data:
             "h": 3,
             "w": 4,
             "x": 12,
-            "y": 31
+            "y": 36
           },
           "id": 30,
           "links": [
@@ -2211,7 +2477,7 @@ data:
             "h": 3,
             "w": 4,
             "x": 16,
-            "y": 31
+            "y": 36
           },
           "id": 31,
           "links": [
@@ -2245,7 +2511,7 @@ data:
             "h": 3,
             "w": 4,
             "x": 20,
-            "y": 31
+            "y": 36
           },
           "id": 32,
           "links": [

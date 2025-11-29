@@ -1,0 +1,24 @@
+# ServiceMonitor for Node Problem Detector
+# Scrapes metrics from node-problem-detector pods
+# Metrics include: problem_gauge, problem_counter for various node issues
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: node-problem-detector
+  namespace: monitoring
+  labels:
+    app: node-problem-detector
+    release: kube-prometheus-stack
+spec:
+  jobLabel: node-problem-detector
+  namespaceSelector:
+    matchNames:
+      - monitoring
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: node-problem-detector
+  endpoints:
+    - port: exporter
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
