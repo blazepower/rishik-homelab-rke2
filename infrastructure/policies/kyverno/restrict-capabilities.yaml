@@ -85,14 +85,14 @@ spec:
           Only safe capabilities may be added. Allowed: CHOWN, DAC_OVERRIDE,
           FOWNER, FSETID, KILL, SETGID, SETUID, SETPCAP, NET_BIND_SERVICE,
           SYS_CHROOT, SETFCAP.
-        # AllNotIn: deny if ALL capabilities in the add list are NOT in the allowed values
+        # AnyNotIn: deny if ANY capability in the add list is NOT in the allowed values
         foreach:
           - list: "request.object.spec.containers"
             deny:
               conditions:
                 any:
                   - key: "{{ element.securityContext.capabilities.add || `[]` }}"
-                    operator: AllNotIn
+                    operator: AnyNotIn
                     value:
                       - CHOWN
                       - DAC_OVERRIDE
@@ -110,7 +110,7 @@ spec:
               conditions:
                 any:
                   - key: "{{ element.securityContext.capabilities.add || `[]` }}"
-                    operator: AllNotIn
+                    operator: AnyNotIn
                     value:
                       - CHOWN
                       - DAC_OVERRIDE
@@ -128,7 +128,7 @@ spec:
               conditions:
                 any:
                   - key: "{{ element.securityContext.capabilities.add || `[]` }}"
-                    operator: AllNotIn
+                    operator: AnyNotIn
                     value:
                       - CHOWN
                       - DAC_OVERRIDE
