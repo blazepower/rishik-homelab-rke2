@@ -38,11 +38,12 @@ spec:
         message: >-
           Pod seccomp profile must be RuntimeDefault or Localhost.
           Unconfined profiles are not allowed.
-        pattern:
-          spec:
-            =(securityContext):
-              =(seccompProfile):
-                type: "RuntimeDefault | Localhost"
+        deny:
+          conditions:
+            any:
+              - key: "{{ request.object.spec.securityContext.seccompProfile.type || 'RuntimeDefault' }}"
+                operator: Equals
+                value: "Unconfined"
     - name: restrict-seccomp-containers
       match:
         any:

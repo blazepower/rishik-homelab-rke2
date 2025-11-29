@@ -44,22 +44,22 @@ spec:
             deny:
               conditions:
                 all:
-                  - key: ALL
-                    operator: NotIn
+                  - key: "ALL"
+                    operator: AnyNotIn
                     value: "{{ element.securityContext.capabilities.drop || `[]` }}"
           - list: "request.object.spec.initContainers || []"
             deny:
               conditions:
                 all:
-                  - key: ALL
-                    operator: NotIn
+                  - key: "ALL"
+                    operator: AnyNotIn
                     value: "{{ element.securityContext.capabilities.drop || `[]` }}"
           - list: "request.object.spec.ephemeralContainers || []"
             deny:
               conditions:
                 all:
-                  - key: ALL
-                    operator: NotIn
+                  - key: "ALL"
+                    operator: AnyNotIn
                     value: "{{ element.securityContext.capabilities.drop || `[]` }}"
     - name: restrict-added-capabilities
       match:

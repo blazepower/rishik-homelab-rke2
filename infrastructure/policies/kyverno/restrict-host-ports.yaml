@@ -35,25 +35,14 @@ spec:
                 - cert-manager
       validate:
         message: "Host ports are not allowed in user namespaces."
-        foreach:
-          - list: "request.object.spec.containers"
-            deny:
-              conditions:
-                any:
-                  - key: "{{ element.ports[].hostPort || `[]` | length(@) }}"
-                    operator: GreaterThan
-                    value: 0
-          - list: "request.object.spec.initContainers || []"
-            deny:
-              conditions:
-                any:
-                  - key: "{{ element.ports[].hostPort || `[]` | length(@) }}"
-                    operator: GreaterThan
-                    value: 0
-          - list: "request.object.spec.ephemeralContainers || []"
-            deny:
-              conditions:
-                any:
-                  - key: "{{ element.ports[].hostPort || `[]` | length(@) }}"
-                    operator: GreaterThan
-                    value: 0
+        pattern:
+          spec:
+            =(containers):
+              - =(ports):
+                  - =(hostPort): "0"
+            =(initContainers):
+              - =(ports):
+                  - =(hostPort): "0"
+            =(ephemeralContainers):
+              - =(ports):
+                  - =(hostPort): "0"
