@@ -1,0 +1,24 @@
+# ServiceMonitor for Kured (Kubernetes Reboot Daemon)
+# Scrapes metrics from kured pods on port 8080
+# Metrics include: kured_reboot_required, kured_reboot_status
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: kured
+  namespace: monitoring
+  labels:
+    app: kured
+    release: kube-prometheus-stack
+spec:
+  jobLabel: kured
+  namespaceSelector:
+    matchNames:
+      - monitoring
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kured
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
