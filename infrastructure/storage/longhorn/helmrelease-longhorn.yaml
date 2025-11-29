@@ -1,14 +1,18 @@
-apiVersion: helm.toolkit.fluxcd.io/v2beta2
+apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
   name: longhorn
   namespace: storage
+  annotations:
+    # Force reconciliation by updating this annotation
+    reconcile.fluxcd.io/requestedAt: "2025-11-29T00:00:00Z"
 spec:
   interval: 10m
+  timeout: 15m
   chart:
     spec:
       chart: longhorn
-      # optionally pin: version: 1.7.2
+      version: "1.10.x"  # Pin to 1.10.x to avoid unexpected upgrades
       sourceRef:
         kind: HelmRepository
         name: longhorn
@@ -17,10 +21,19 @@ spec:
   install:
     createNamespace: false
     remediation:
-      retries: 3
+      retries: 5
   upgrade:
+    # Clean up failed releases before retrying
+    cleanupOnFail: true
     remediation:
-      retries: 3
+      retries: 5
+      # Remediate the last failure instead of trying to uninstall
+      remediateLastFailure: true
+      strategy: rollback
+  # Prevent Flux from trying to uninstall on failure
+  uninstall:
+    keepHistory: false
+    timeout: 10m
   values:
     persistence:
       defaultClass: true
@@ -34,7 +47,8 @@ spec:
       replicaAutoBalance: "disabled"
       storageMinimalAvailablePercentage: 15
       orphanAutoDeletion: true
-      deleting-confirmation-flag: true
+      # Remove or set to false - this can interfere with Helm operations
+      # deleting-confirmation-flag: true
     longhornManager:
       resources:
         requests:
