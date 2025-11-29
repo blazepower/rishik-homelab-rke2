@@ -30,8 +30,12 @@ spec:
         replication_factor: 1
       # Log retention policy - 30 days
       limits_config:
-        retention_period: 720h
+        retention_period: 336h
         allow_structured_metadata: false
+        ingestion_rate_mb: 4
+        ingestion_burst_size_mb: 6
+        max_streams_per_user: 5000
+        max_global_streams_per_user: 5000
       compactor:
         retention_enabled: true
         retention_delete_delay: 2h

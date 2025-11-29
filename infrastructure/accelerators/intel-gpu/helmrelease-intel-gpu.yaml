@@ -25,3 +25,10 @@ spec:
     sharedDevNum: 4
     nodeSelector:
       intel.gpu: "true"
+    resources:
+      requests:
+        cpu: "10m"
+        memory: "32Mi"
+      limits:
+        cpu: "50m"
+        memory: "64Mi"
