@@ -834,7 +834,7 @@ jobs:
           if [[ -d "docs" ]]; then
             # Create a temporary config if none exists
             if [[ ! -f ".markdownlint.yaml" ]] && [[ ! -f ".markdownlint.json" ]]; then
-              MDLINT_CONFIG=$(mktemp --suffix=.yaml)
+              MDLINT_CONFIG=$(mktemp /tmp/mdlint.XXXXXX.yaml)
               cat > "$MDLINT_CONFIG" << 'EOF'
           # Markdownlint configuration
           default: true
@@ -868,13 +868,11 @@ jobs:
 
           echo "Linting README.md (informational only - will not fail CI)..."
 
-          # Determine config to use and run markdownlint
+          # Use same config as docs if available, otherwise skip
           if [[ -n "${MDLINT_CONFIG:-}" ]] && [[ -f "$MDLINT_CONFIG" ]]; then
             markdownlint --config "$MDLINT_CONFIG" README.md 2>&1 || echo "Note: README.md has lint warnings (non-blocking)"
-          elif [[ -f ".markdownlint.yaml" ]]; then
-            markdownlint --config .markdownlint.yaml README.md 2>&1 || echo "Note: README.md has lint warnings (non-blocking)"
-          elif [[ -f ".markdownlint.json" ]]; then
-            markdownlint --config .markdownlint.json README.md 2>&1 || echo "Note: README.md has lint warnings (non-blocking)"
+          elif [[ -f ".markdownlint.yaml" ]] || [[ -f ".markdownlint.json" ]]; then
+            markdownlint README.md 2>&1 || echo "Note: README.md has lint warnings (non-blocking)"
           else
             echo "No markdownlint config available, skipping README lint"
           fi
@@ -898,24 +896,19 @@ jobs:
     if: always()
     steps:
       - name: Check all job statuses
+        env:
+          NEEDS_CONTEXT: ${{ toJSON(needs) }}
         run: |
           echo "=== CI Status Summary ==="
           echo ""
 
-          # Check if any required job failed
-          results='${{ toJSON(needs) }}'
-
-          # Parse results and check for failures
+          # Parse results and check for failures using needs context
           failed_jobs=""
           successful_jobs=""
 
-          # List of all jobs to check
-          jobs="yaml-lint kubernetes-validate kustomize-build dry-run-validate"
-          jobs="$jobs secret-detection security-scan trivy-scan flux-validate"
-          jobs="$jobs dashboard-validate logging-validate shellcheck markdown-lint"
-
-          for job in $jobs; do
-            result=$(echo "$results" | jq -r ".[\"$job\"].result // \"unknown\"")
+          # Iterate through all jobs in the needs context dynamically
+          for job in $(echo "$NEEDS_CONTEXT" | jq -r 'keys[]'); do
+            result=$(echo "$NEEDS_CONTEXT" | jq -r ".[\"$job\"].result // \"unknown\"")
             if [[ "$result" == "failure" ]]; then
               failed_jobs="$failed_jobs $job"
               echo "❌ $job: FAILED"
