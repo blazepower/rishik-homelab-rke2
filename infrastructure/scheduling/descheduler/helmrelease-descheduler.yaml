@@ -31,8 +31,8 @@ spec:
         cpu: "100m"
         memory: "128Mi"
 
-    # Run every 5 minutes
-    deschedulingInterval: 5m
+    # Run every hour
+    deschedulingInterval: 1h
 
     deschedulerPolicy:
       profiles:

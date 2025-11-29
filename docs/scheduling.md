@@ -102,7 +102,7 @@ The following infrastructure components have been configured with priority class
 
 ## Descheduler
 
-The descheduler runs every 5 minutes to rebalance pods across nodes for better resource utilization.
+The descheduler runs every hour to rebalance pods across nodes for better resource utilization.
 
 ### Location
 
