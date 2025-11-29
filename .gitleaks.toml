@@ -65,6 +65,8 @@ paths = [
   '''go\.sum$''',
   '''package-lock\.json$''',
   '''yarn\.lock$''',
+  # Documentation files with example credentials
+  '''docs/sealed-secrets\.md$''',
 ]
 
 regexes = [
