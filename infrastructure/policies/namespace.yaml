@@ -6,3 +6,5 @@ metadata:
     name: kyverno
     environment: production
     owner: rishik
+    app.kubernetes.io/name: kyverno
+    app.kubernetes.io/component: policy-engine
