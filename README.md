@@ -31,7 +31,10 @@ infrastructure/
 │   └── gpu/                    # GPU bootstrap DaemonSet for Intel QuickSync
 ├── node-config/                # Node labels and configuration
 ├── policies/                   # Kyverno policy engine and cluster policies
-│   └── cluster-policies/       # ClusterPolicy resources
+│   ├── cluster-policies/       # ClusterPolicy resources (validation, mutation)
+│   ├── kyverno/                # Pod Security Standards (Baseline) policies
+│   ├── network-policies/       # Kubernetes NetworkPolicy resources
+│   └── rwx-access/             # RBAC for RWX storage management
 ├── rbac/                       # Role-based access control
 ├── storage/                    # Storage configuration (Longhorn)
 ├── monitoring/                 # Monitoring stack (Prometheus, Grafana, Alertmanager)

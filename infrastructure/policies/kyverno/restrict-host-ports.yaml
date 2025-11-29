@@ -1,0 +1,59 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: restrict-host-ports
+  annotations:
+    policies.kyverno.io/title: Restrict Host Ports
+    policies.kyverno.io/category: Pod Security Standards (Baseline)
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/description: >-
+      Access to host ports allows potential snooping of network traffic and
+      circumvents network policies. Host ports should be disabled or restricted
+      to a known list. This policy blocks any use of hostPort by containers.
+spec:
+  validationFailureAction: Audit
+  background: true
+  rules:
+    - name: deny-host-ports
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - kube-system
+                - kube-node-lease
+                - kube-public
+                - flux-system
+                - kyverno
+                - longhorn-system
+                - storage
+                - monitoring
+                - cert-manager
+      validate:
+        message: "Host ports are not allowed in user namespaces."
+        foreach:
+          - list: "request.object.spec.containers"
+            deny:
+              conditions:
+                any:
+                  - key: "{{ element.ports[].hostPort || `[]` | length(@) }}"
+                    operator: GreaterThan
+                    value: 0
+          - list: "request.object.spec.initContainers || []"
+            deny:
+              conditions:
+                any:
+                  - key: "{{ element.ports[].hostPort || `[]` | length(@) }}"
+                    operator: GreaterThan
+                    value: 0
+          - list: "request.object.spec.ephemeralContainers || []"
+            deny:
+              conditions:
+                any:
+                  - key: "{{ element.ports[].hostPort || `[]` | length(@) }}"
+                    operator: GreaterThan
+                    value: 0

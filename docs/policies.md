@@ -148,13 +148,134 @@ infrastructure/policies/
 ├── namespace.yaml
 ├── helmrepository-kyverno.yaml
 ├── helmrelease-kyverno.yaml
-└── cluster-policies/
+├── cluster-policies/
+│   ├── kustomization.yaml
+│   ├── require-resources-limits.yaml
+│   ├── block-risky-capabilities.yaml
+│   ├── enforce-namespace-labels.yaml
+│   ├── mutate-topology-spread.yaml
+│   ├── mutate-ingress-annotations.yaml
+│   ├── disallow-latest-tag.yaml
+│   └── require-image-signatures.yaml
+├── kyverno/
+│   ├── kustomization.yaml
+│   ├── disallow-host-namespaces.yaml
+│   ├── restrict-host-ports.yaml
+│   ├── restrict-capabilities.yaml
+│   ├── disallow-privilege-escalation.yaml
+│   ├── require-run-as-nonroot.yaml
+│   ├── restrict-seccomp.yaml
+│   └── restrict-apparmor.yaml
+├── network-policies/
+│   ├── kustomization.yaml
+│   ├── default-deny.yaml
+│   ├── allow-dns.yaml
+│   ├── allow-ingress-controller.yaml
+│   └── allow-monitoring.yaml
+└── rwx-access/
     ├── kustomization.yaml
-    ├── require-resources-limits.yaml
-    ├── block-risky-capabilities.yaml
-    ├── enforce-namespace-labels.yaml
-    ├── mutate-topology-spread.yaml
-    ├── mutate-ingress-annotations.yaml
-    ├── disallow-latest-tag.yaml
-    └── require-image-signatures.yaml
+    ├── rwx-clusterrole.yaml
+    └── rwx-clusterrolebinding.yaml
 ```
+
+## Pod Security Standards (Baseline)
+
+These policies implement the Kubernetes Pod Security Standards baseline profile using Kyverno ClusterPolicies. All policies are in **Audit** mode for safe testing.
+
+### 8. Disallow Host Namespaces
+
+**Policy**: `disallow-host-namespaces`
+
+Blocks sharing of host PID and IPC namespaces:
+- `hostPID: true` - Allows container to access host process IDs
+- `hostIPC: true` - Allows container to access host IPC resources
+
+**Note**: `hostNetwork` is already blocked by the `block-risky-capabilities` policy.
+
+### 9. Restrict Host Ports
+
+**Policy**: `restrict-host-ports`
+
+Blocks containers from binding to host ports, which could allow network traffic snooping or circumvent network policies.
+
+### 10. Restrict Capabilities
+
+**Policy**: `restrict-capabilities`
+
+Enforces Linux capability restrictions:
+- Requires containers to drop ALL capabilities
+- Allows only safe capabilities to be added: `CHOWN`, `DAC_OVERRIDE`, `FOWNER`, `FSETID`, `KILL`, `SETGID`, `SETUID`, `SETPCAP`, `NET_BIND_SERVICE`, `SYS_CHROOT`, `SETFCAP`
+
+### 11. Disallow Privilege Escalation
+
+**Policy**: `disallow-privilege-escalation`
+
+Requires `allowPrivilegeEscalation: false` on all containers to prevent processes from gaining more privileges than their parent.
+
+### 12. Require Run as Non-Root
+
+**Policy**: `require-run-as-nonroot`
+
+Requires either pod-level or container-level `runAsNonRoot: true` to ensure containers don't run as the root user.
+
+### 13. Restrict Seccomp
+
+**Policy**: `restrict-seccomp`
+
+Restricts seccomp profiles to `RuntimeDefault` or `Localhost`. Blocks `Unconfined` profiles which disable seccomp filtering.
+
+### 14. Restrict AppArmor
+
+**Policy**: `restrict-apparmor`
+
+Restricts AppArmor profiles to `runtime/default` or `localhost/*`. Blocks `unconfined` profiles.
+
+## Network Policies
+
+Kubernetes NetworkPolicies for namespace-level network isolation. These policies are applied to the `default` namespace as templates. Copy them to other namespaces as needed.
+
+### Default Deny All
+
+**Policy**: `default-deny-all`
+
+Denies all ingress and egress traffic by default. Apply to namespaces that need network isolation.
+
+### Allow DNS
+
+**Policy**: `allow-dns`
+
+Allows egress to kube-dns (UDP/TCP port 53) for DNS resolution. Essential for pods to resolve service names.
+
+### Allow Ingress Controller
+
+**Policy**: `allow-ingress-controller`
+
+Allows ingress from Traefik ingress controller in `kube-system` namespace. Required for services exposed via Ingress resources.
+
+### Allow Monitoring
+
+**Policy**: `allow-monitoring-scrape`
+
+Allows ingress from the `monitoring` namespace on common metrics ports (9090, 9100, 8080, 8443, 9091, 9093, 9094). Required for Prometheus scraping.
+
+## RWX Access Controls
+
+RBAC resources for managing ReadWriteMany (RWX) PersistentVolumeClaims with Longhorn storage.
+
+### RWX PVC Manager ClusterRole
+
+**ClusterRole**: `rwx-pvc-manager`
+
+Provides permissions for:
+- PVC creation, management, and deletion
+- PV read access for debugging
+- StorageClass read access
+- Longhorn volume and share manager read access
+
+### RWX PVC Manager Binding
+
+**ClusterRoleBinding**: `rwx-pvc-manager-binding`
+
+Binds the `rwx-pvc-manager` role to:
+- `kustomize-controller` in `flux-system` namespace
+- `helm-controller` in `flux-system` namespace

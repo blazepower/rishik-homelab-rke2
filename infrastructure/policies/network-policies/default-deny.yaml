@@ -1,0 +1,16 @@
+# Default deny all ingress and egress traffic for namespaces
+# Apply this policy to namespaces that need network isolation
+# System namespaces should be excluded from this policy
+#
+# Usage: Copy this NetworkPolicy to other namespaces by changing the
+# metadata.namespace field or using Kustomize namespace transformers
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: default
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress

@@ -1,0 +1,34 @@
+# ClusterRole for managing ReadWriteMany (RWX) PersistentVolumeClaims
+# This role provides permissions to create, manage, and use RWX PVCs
+# with Longhorn storage for shared access across multiple pods
+# Note: Longhorn resources are read-only for observability; Longhorn
+# controller manages volumes directly via its own service account
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: rwx-pvc-manager
+rules:
+  # Core PVC management
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # PV read access for debugging and validation
+  - apiGroups: [""]
+    resources: ["persistentvolumes"]
+    verbs: ["get", "list", "watch"]
+  # Storage class access
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["storageclasses"]
+    verbs: ["get", "list", "watch"]
+  # Volume attachment read access
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["volumeattachments"]
+    verbs: ["get", "list", "watch"]
+  # Longhorn volume management
+  - apiGroups: ["longhorn.io"]
+    resources: ["volumes", "engines", "replicas"]
+    verbs: ["get", "list", "watch"]
+  # Longhorn share manager for RWX
+  - apiGroups: ["longhorn.io"]
+    resources: ["sharemanagers"]
+    verbs: ["get", "list", "watch"]
