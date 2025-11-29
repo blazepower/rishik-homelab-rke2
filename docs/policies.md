@@ -77,7 +77,7 @@ Automatically injects `topologySpreadConstraints` for Deployments to ensure work
 **Policy**: `mutate-ingress-annotations`
 
 Adds standard annotations to Ingress resources:
-- `traefik.ingress.kubernetes.io/router.tls: "false"`
+- `traefik.ingress.kubernetes.io/router.tls: "true"`
 - `homelab.rishik.dev/managed-by: "kyverno"`
 - `homelab.rishik.dev/log-level: "info"`
 
