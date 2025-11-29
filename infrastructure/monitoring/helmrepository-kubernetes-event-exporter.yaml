@@ -1,13 +1,8 @@
 apiVersion: source.toolkit.fluxcd.io/v1beta2
-kind: OCIRepository
+kind: HelmRepository
 metadata:
   name: kubernetes-event-exporter
   namespace: flux-system
 spec:
   interval: 1h
-  layerSelector:
-    mediaType: "application/vnd.cncf.helm.chart.content.v1.tar+gzip"
-    operation: copy
-  url: oci://registry-1.docker.io/bitnamicharts/kubernetes-event-exporter
-  ref:
-    tag: "3.6.3"
+  url: https://resmoio.github.io/kubernetes-event-exporter
