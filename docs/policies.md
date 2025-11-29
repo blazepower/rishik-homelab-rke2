@@ -293,7 +293,10 @@ Allows ingress within the `monitoring` namespace for Prometheus component-to-com
 
 **Policy**: `allow-sealed-secrets`
 
-Allows traffic to the sealed-secrets controller for kubeseal CLI access. The Kubernetes API server proxy connects directly to pod IPs (bypassing the Service), so this policy allows ingress from the API server/node network to the sealed-secrets pod on port 8080. Also allows metrics scraping on port 8081 from the monitoring namespace.
+Allows traffic to the sealed-secrets controller for kubeseal CLI access:
+- The Kubernetes API server proxy connects directly to pod IPs, bypassing the Service
+- Allows ingress from the API server/node network to the sealed-secrets pod on port 8080
+- Allows metrics scraping on port 8081 from the monitoring namespace
 
 ### Allow Flux System
 

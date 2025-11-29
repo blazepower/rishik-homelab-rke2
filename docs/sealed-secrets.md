@@ -417,7 +417,7 @@ If `kubeseal --fetch-cert` returns a 502 Bad Gateway error:
 error: cannot fetch certificate: error trying to reach service: proxy error from 127.0.0.1:9345 while dialing 10.42.x.x:8080, code 502: 502 Bad Gateway
 ```
 
-This indicates that NetworkPolicies are blocking the Kubernetes API server proxy from reaching the sealed-secrets pod. The API server proxy connects directly to pod IPs, bypassing the Service.
+This indicates that NetworkPolicies are blocking the Kubernetes API server proxy from reaching the sealed-secrets pod. The API server proxy connects directly to pod IPs, which means it bypasses the Service and requires explicit NetworkPolicy rules.
 
 **Solution:** Ensure the `allow-sealed-secrets` NetworkPolicy exists in `flux-system` namespace. This policy is located at:
 - `infrastructure/policies/network-policies/allow-sealed-secrets.yaml`
