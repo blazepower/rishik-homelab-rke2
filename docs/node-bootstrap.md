@@ -1,5 +1,36 @@
 # Node Bootstrap
 
+## Node Requirements
+
+This section documents the requirements for nodes joining the cluster.
+
+### Operating System
+
+- Ubuntu 22.04 LTS or 24.04 LTS (Debian-based required for apt-get package installation)
+- Other Debian-based distributions may work but are untested
+
+### Hardware Requirements
+
+- **CPU**: x86_64 architecture
+- **Memory**: Minimum 4GB RAM recommended
+- **Storage**: Sufficient disk space for Longhorn distributed storage
+
+### For GPU/Hardware Transcoding (Optional)
+
+- Intel CPU with integrated graphics (Intel QuickSync Video support)
+- Supported Intel GPU generations: 6th gen (Skylake) or newer recommended
+- Kernel 5.x or newer for optimal i915 driver support
+
+### Network Requirements
+
+- Nodes must be able to reach the Kubernetes API server
+- Nodes must have internet access for package installation during bootstrap
+- Nodes should be on the same network segment or have proper routing configured
+
+### Pre-installed Requirements
+
+- None - the bootstrap DaemonSets handle all required package installation
+
 ## iSCSI Installation
 
 The cluster uses GitOps-managed node bootstrap automation to install open-iscsi on all RKE2 nodes. This is required for Longhorn storage to function properly.
@@ -78,4 +109,48 @@ View bootstrap logs:
 
 ```bash
 kubectl logs -n kube-system -l app=rke2-node-bootstrap-iscsi
+```
+
+## GPU Bootstrap (Intel QuickSync)
+
+The GPU bootstrap DaemonSet configures Intel QuickSync hardware transcoding on cluster nodes.
+
+### How it works
+
+- A DaemonSet runs on all nodes with tolerations for all taints
+- Creates kernel module configuration files on the host
+- Loads i915, drm, drm_kms_helper, and video kernel modules
+- Installs Intel GPU packages via apt-get in a chroot environment
+- Uses an idempotency marker (`/var/lib/gpu-bootstrap.done`) to prevent re-running
+
+### Packages Installed
+
+- intel-media-va-driver-non-free
+- intel-opencl-icd
+- libva-dev
+- vainfo
+
+### Resource Limits
+
+| Component | CPU Request | CPU Limit | Memory Request | Memory Limit |
+|-----------|-------------|-----------|----------------|--------------|
+| gpu-bootstrap | 10m | 100m | 64Mi | 256Mi |
+
+### Health Probes
+
+- **Liveness**: Checks for idempotency marker file (120s initial delay, 60s period)
+- **Readiness**: Checks for idempotency marker file (60s initial delay, 30s period)
+
+### Files
+
+- `infrastructure/node-bootstrap/gpu/gpu-bootstrap-configmap.yaml` - Bootstrap script
+- `infrastructure/node-bootstrap/gpu/gpu-bootstrap-daemonset.yaml` - DaemonSet definition
+- `infrastructure/node-bootstrap/gpu/kustomization.yaml` - Kustomization
+
+### Verification Commands
+
+```bash
+kubectl get daemonset rke2-node-bootstrap-gpu -n kube-system
+kubectl get pods -n kube-system -l app=rke2-node-bootstrap-gpu
+kubectl logs -n kube-system -l app=rke2-node-bootstrap-gpu
 ```

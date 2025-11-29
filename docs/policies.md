@@ -182,7 +182,9 @@ infrastructure/policies/
 │   ├── allow-dns.yaml
 │   ├── allow-ingress-controller.yaml
 │   ├── allow-monitoring.yaml
-│   └── allow-prometheus-internal.yaml
+│   ├── allow-prometheus-internal.yaml
+│   ├── allow-sealed-secrets.yaml
+│   └── allow-flux-system.yaml
 └── rwx-access/
     ├── kustomization.yaml
     ├── rwx-clusterrole.yaml
@@ -286,6 +288,22 @@ Allows ingress from the `monitoring` namespace on common application metrics por
 **Policy**: `allow-prometheus-internal`
 
 Allows ingress within the `monitoring` namespace for Prometheus component-to-component communication. Covers ports for Prometheus server (9090), Pushgateway (9091), Alertmanager (9093, 9094), and Thanos (10901, 10902).
+
+### Allow Sealed Secrets
+
+**Policy**: `allow-sealed-secrets`
+
+Allows traffic to the sealed-secrets controller for kubeseal CLI access. The Kubernetes API server proxy connects directly to pod IPs (bypassing the Service), so this policy allows ingress from the API server/node network to the sealed-secrets pod on port 8080. Also allows metrics scraping on port 8081 from the monitoring namespace.
+
+### Allow Flux System
+
+**Policy**: `allow-flux-system`
+
+Allows the flux-system namespace pods to function properly. Flux components and sealed-secrets need:
+- Egress to DNS (kube-system, port 53)
+- Egress to Kubernetes API server (ports 443, 6443, 9345)
+- Egress to external registries for pulling charts/artifacts (ports 80, 443)
+- Ingress from anywhere for webhooks and sealed-secrets API access
 
 ## RWX Access Controls
 
