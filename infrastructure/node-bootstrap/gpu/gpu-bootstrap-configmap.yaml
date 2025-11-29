@@ -1,0 +1,81 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gpu-bootstrap-script
+  namespace: kube-system
+data:
+  gpu-bootstrap.sh: |
+    #!/bin/bash
+    set -o pipefail
+
+    MARKER_FILE="/host/var/lib/gpu-bootstrap.done"
+    MODULES_CONF="/host/etc/modules-load.d/intel-gpu.conf"
+    MODPROBE_CONF="/host/etc/modprobe.d/i915.conf"
+
+    log() {
+      echo "[gpu-bootstrap] $1"
+    }
+
+    # Check idempotency marker
+    if [ -f "$MARKER_FILE" ]; then
+      log "Bootstrap already completed. Marker exists at $MARKER_FILE"
+      log "Keeping container alive for inspection..."
+      sleep infinity
+    fi
+
+    log "Starting Intel GPU bootstrap..."
+
+    # Create modules-load.d config for Intel GPU
+    if [ ! -f "$MODULES_CONF" ]; then
+      log "Creating $MODULES_CONF..."
+      cat > "$MODULES_CONF" <<EOF
+    i915
+    drm
+    drm_kms_helper
+    video
+    EOF
+      log "Created $MODULES_CONF"
+    else
+      log "$MODULES_CONF already exists, skipping..."
+    fi
+
+    # Create modprobe.d config for i915 GuC/HuC
+    if [ ! -f "$MODPROBE_CONF" ]; then
+      log "Creating $MODPROBE_CONF..."
+      cat > "$MODPROBE_CONF" <<EOF
+    options i915 enable_guc=3
+    EOF
+      log "Created $MODPROBE_CONF"
+    else
+      log "$MODPROBE_CONF already exists, skipping..."
+    fi
+
+    # Load kernel modules immediately on host
+    log "Loading kernel modules on host..."
+    for mod in i915 drm drm_kms_helper video; do
+      if chroot /host modprobe "$mod" 2>/dev/null; then
+        log "Loaded module: $mod"
+      else
+        log "Warning: Could not load module $mod (may already be loaded or not available)"
+      fi
+    done
+
+    # Install Intel GPU packages on host via chroot
+    log "Installing Intel GPU packages on host..."
+    chroot /host /bin/bash -c '
+      export DEBIAN_FRONTEND=noninteractive
+      apt-get update -y || echo "[gpu-bootstrap] Warning: apt-get update failed, continuing..."
+      apt-get install -y --no-install-recommends \
+        intel-media-va-driver-non-free \
+        intel-opencl-icd \
+        libva-dev \
+        vainfo || echo "[gpu-bootstrap] Warning: Some packages may have failed to install"
+    ' || log "Warning: chroot apt install encountered issues, continuing..."
+
+    # Create idempotency marker
+    log "Creating idempotency marker at $MARKER_FILE..."
+    touch "$MARKER_FILE"
+
+    log "Intel GPU bootstrap completed successfully!"
+    log "Keeping container alive for inspection..."
+    sleep infinity
