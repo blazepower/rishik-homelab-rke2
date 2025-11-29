@@ -180,6 +180,7 @@ infrastructure/policies/
 
 ## Pod Security Standards (Baseline)
 
+These Pod Security Standards policies complement the existing policies in the "Cluster Policies" section (particularly the `block-risky-capabilities` policy). While cluster-wide policies enforce broad security constraints, these baseline policies provide additional, fine-grained controls at the pod level to strengthen overall cluster security.
 These policies implement the Kubernetes Pod Security Standards baseline profile using Kyverno ClusterPolicies. All policies are in **Audit** mode for safe testing.
 
 ### 8. Disallow Host Namespaces
