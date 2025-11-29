@@ -181,8 +181,9 @@ infrastructure/policies/
 ## Pod Security Standards (Baseline)
 
 These Pod Security Standards policies complement the existing policies in the "Cluster Policies" section (particularly the `block-risky-capabilities` policy). While cluster-wide policies enforce broad security constraints, these baseline policies provide additional, fine-grained controls at the pod level to strengthen overall cluster security.
-These policies implement the Kubernetes Pod Security Standards baseline profile using Kyverno ClusterPolicies. All policies are in **Audit** mode for safe testing.
+These policies implement the Kubernetes Pod Security Standards baseline profile using Kyverno ClusterPolicies.
 
+> **Important:** All policies are shown in **Audit** mode for safe testing. For production clusters, you **must** set `validationFailureAction: Enforce` for all critical pod security policies (privileged, host namespace/network, hostPath, capability, non-root, seccomp/AppArmor restrictions) to ensure enforcement and prevent privileged pod creation. You may use environment-based overrides to allow Audit mode in non-production environments, but production clusters must enforce these controls.
 ### 8. Disallow Host Namespaces
 
 **Policy**: `disallow-host-namespaces`
