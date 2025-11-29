@@ -95,7 +95,7 @@ spec:
             description: "Node Problem Detector has detected a read-only filesystem on node {{ $labels.instance }}."
 
         - alert: NodeFilesystemCorruption
-          expr: problem_gauge{type="CorruptDockerOverlay2"} > 0
+          expr: problem_gauge{type="CorruptContainerdOverlay"} > 0
           for: 1m
           labels:
             severity: critical
