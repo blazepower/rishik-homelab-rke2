@@ -75,7 +75,19 @@ This module deploys:
 | Resource | Type | Namespace | Description |
 |----------|------|-----------|-------------|
 | intel | HelmRepository | flux-system | Intel Helm Charts repository |
+| nfd | HelmRepository | flux-system | Node Feature Discovery Helm Charts repository |
+| node-feature-discovery | HelmRelease | kube-system | Node Feature Discovery (provides NodeFeatureRule CRD) |
+| intel-device-plugins-operator | HelmRelease | kube-system | Intel Device Plugins Operator (provides GpuDevicePlugin CRD) |
 | intel-device-plugin-gpu | HelmRelease | kube-system | Intel GPU Device Plugin DaemonSet |
+
+### Dependencies
+
+The Intel GPU Device Plugin requires the following prerequisites to be installed first:
+
+1. **Node Feature Discovery (NFD)** - Provides the `NodeFeatureRule` CRD used for node labeling
+2. **Intel Device Plugins Operator** - Provides the `GpuDevicePlugin` CRD and operator functionality
+
+These dependencies are managed automatically via FluxCD's `dependsOn` configuration.
 
 ### Configuration
 

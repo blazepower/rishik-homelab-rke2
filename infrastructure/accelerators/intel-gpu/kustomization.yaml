@@ -2,4 +2,7 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - helmrepository-intel-gpu.yaml
+  - helmrepository-nfd.yaml
+  - helmrelease-nfd.yaml
+  - helmrelease-intel-device-plugins-operator.yaml
   - helmrelease-intel-gpu.yaml
