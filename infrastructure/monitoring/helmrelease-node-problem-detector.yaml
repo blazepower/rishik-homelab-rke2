@@ -34,7 +34,6 @@ spec:
     settings:
       log_monitors:
         - /config/kernel-monitor.json
-        - /config/docker-monitor.json
         - /config/systemd-monitor.json
       custom_plugin_monitors: []
     tolerations:
