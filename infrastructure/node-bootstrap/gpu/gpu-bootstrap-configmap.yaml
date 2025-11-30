@@ -8,22 +8,58 @@ data:
     #!/bin/bash
     set -o pipefail
 
+    BOOTSTRAP_VERSION="v2"
     MARKER_FILE="/host/var/lib/gpu-bootstrap.done"
     MODULES_CONF="/host/etc/modules-load.d/intel-gpu.conf"
     MODPROBE_CONF="/host/etc/modprobe.d/i915.conf"
+    SIMPLEDRM_BLACKLIST="/host/etc/modprobe.d/blacklist-simpledrm.conf"
 
     log() {
       echo "[gpu-bootstrap] $1"
     }
 
-    # Check idempotency marker
+    # Check idempotency marker with version
     if [ -f "$MARKER_FILE" ]; then
-      log "Bootstrap already completed. Marker exists at $MARKER_FILE"
-      log "Keeping container alive for inspection..."
-      sleep infinity
+      CURRENT_VERSION=$(cat "$MARKER_FILE" 2>/dev/null)
+      if [ "$CURRENT_VERSION" = "$BOOTSTRAP_VERSION" ]; then
+        log "Bootstrap already completed (version: $BOOTSTRAP_VERSION). Marker exists at $MARKER_FILE"
+        log "Keeping container alive for inspection..."
+        sleep infinity
+      else
+        log "Bootstrap version mismatch: found '$CURRENT_VERSION', expected '$BOOTSTRAP_VERSION'. Re-running bootstrap..."
+      fi
     fi
 
-    log "Starting Intel GPU bootstrap..."
+    log "Starting Intel GPU bootstrap (version: $BOOTSTRAP_VERSION)..."
+
+    # Blacklist simpledrm module to prevent /dev/dri/by-path conflicts with Intel GPU device plugin
+    log "Creating simpledrm blacklist at $SIMPLEDRM_BLACKLIST..."
+    cat > "$SIMPLEDRM_BLACKLIST" <<EOF
+    # Blacklist simpledrm to prevent /dev/dri/by-path conflicts with Intel GPU device plugin
+    blacklist simpledrm
+    EOF
+    chmod 644 "$SIMPLEDRM_BLACKLIST"
+    log "Created $SIMPLEDRM_BLACKLIST"
+
+    # Attempt to unload simpledrm if currently loaded
+    if chroot /host lsmod | grep -q "^simpledrm"; then
+      log "simpledrm module is loaded, attempting to unload..."
+      if chroot /host modprobe -r simpledrm 2>/dev/null; then
+        log "Successfully unloaded simpledrm module"
+      else
+        log "Warning: Could not unload simpledrm module (in use). Will take effect after reboot."
+      fi
+    else
+      log "simpledrm module is not loaded"
+    fi
+
+    # Update initramfs to apply blacklist persistently
+    log "Updating initramfs to apply module blacklist..."
+    if chroot /host update-initramfs -u 2>/dev/null; then
+      log "Successfully updated initramfs"
+    else
+      log "Warning: Could not update initramfs. Blacklist may not persist after reboot."
+    fi
 
     # Create modules-load.d config for Intel GPU
     if [ ! -f "$MODULES_CONF" ]; then
@@ -72,9 +108,9 @@ data:
         vainfo || echo "[gpu-bootstrap] Warning: Some packages may have failed to install"
     ' || log "Warning: chroot apt install encountered issues, continuing..."
 
-    # Create idempotency marker
-    log "Creating idempotency marker at $MARKER_FILE..."
-    touch "$MARKER_FILE"
+    # Create idempotency marker with version
+    log "Creating idempotency marker at $MARKER_FILE with version $BOOTSTRAP_VERSION..."
+    echo "$BOOTSTRAP_VERSION" > "$MARKER_FILE"
 
     log "Intel GPU bootstrap completed successfully!"
     log "Keeping container alive for inspection..."
