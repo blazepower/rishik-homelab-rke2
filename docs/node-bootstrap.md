@@ -118,10 +118,54 @@ The GPU bootstrap DaemonSet configures Intel QuickSync hardware transcoding on c
 ### How it works
 
 - A DaemonSet runs on all nodes with tolerations for all taints
+- Blacklists the `simpledrm` kernel module via GRUB boot parameter (prevents conflicts with Intel GPU device plugin)
 - Creates kernel module configuration files on the host
 - Loads i915, drm, drm_kms_helper, and video kernel modules
 - Installs Intel GPU packages via apt-get in a chroot environment
-- Uses an idempotency marker (`/var/lib/gpu-bootstrap.done`) to prevent re-running
+- Uses an idempotency marker (`/var/lib/gpu-bootstrap-v3.done`) to prevent re-running
+
+### simpledrm Module Blacklisting
+
+The `simpledrm` kernel module is blacklisted via the `module_blacklist=simpledrm` kernel boot parameter in `/etc/default/grub`. This is necessary because simpledrm can interfere with the Intel GPU device plugin by claiming the GPU device before the i915 driver loads.
+
+#### Why GRUB boot parameter instead of modprobe.d?
+
+Using a kernel boot parameter instead of a `/etc/modprobe.d/` blacklist file provides these advantages:
+
+- **Easier to override temporarily**: At the GRUB menu, press `e` to edit, remove the parameter, and boot
+- **More visible/discoverable**: Easier to find and understand than files scattered in `/etc/modprobe.d/`
+- **No initramfs update required**: Takes effect on next boot without needing to regenerate initramfs
+
+#### Temporarily Re-enabling simpledrm
+
+If you need to temporarily re-enable simpledrm for troubleshooting (e.g., early boot console issues), you can do so at boot time without modifying any files:
+
+1. Reboot the node
+2. When the GRUB menu appears, press `e` to edit the boot entry
+3. Find the line starting with `linux` and locate `module_blacklist=simpledrm`
+4. Delete `module_blacklist=simpledrm` from the line
+5. Press `Ctrl+X` or `F10` to boot with the modified parameters
+
+This change is temporary and only affects the current boot. The blacklist will be restored on the next normal reboot.
+
+#### Permanently Re-enabling simpledrm
+
+To permanently re-enable simpledrm (not recommended unless you understand the implications for GPU device plugin):
+
+```bash
+# Edit GRUB configuration
+sudo nano /etc/default/grub
+
+# Remove "module_blacklist=simpledrm" from GRUB_CMDLINE_LINUX_DEFAULT
+
+# Update GRUB
+sudo update-grub
+
+# Reboot
+sudo reboot
+```
+
+**Note**: Permanently removing the blacklist may cause the Intel GPU device plugin to fail to detect the GPU. Only do this if you're troubleshooting specific issues and understand the trade-offs.
 
 ### Packages Installed
 
