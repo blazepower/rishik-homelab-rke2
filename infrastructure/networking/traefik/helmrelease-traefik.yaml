@@ -22,7 +22,7 @@ spec:
     remediation:
       retries: 3
   values:
-    priorityClassName: system-critical
+    priorityClassName: core-critical
     deployment:
       kind: Deployment
       replicas: 1

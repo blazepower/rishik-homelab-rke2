@@ -50,7 +50,7 @@ spec:
       # Remove or set to false - this can interfere with Helm operations
       # deleting-confirmation-flag: true
     longhornManager:
-      priorityClass: system-critical
+      priorityClass: core-critical
       resources:
         requests:
           cpu: "25m"
@@ -59,7 +59,7 @@ spec:
           cpu: "200m"
           memory: "256Mi"
     longhornDriver:
-      priorityClass: system-critical
+      priorityClass: core-critical
       resources:
         requests:
           cpu: "25m"
