@@ -36,7 +36,6 @@ spec:
       validate:
         message: >-
           Privileged containers are not allowed in user namespaces.
-          Container '{{element.name}}' has privileged: true.
         foreach:
           - list: "request.object.spec.containers"
             deny:

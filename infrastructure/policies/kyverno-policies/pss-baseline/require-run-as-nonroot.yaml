@@ -36,8 +36,8 @@ spec:
                 - cert-manager
       validate:
         message: >-
-          Running as root is not allowed. Either the pod or container
-          '{{element.name}}' must set securityContext.runAsNonRoot to true.
+          Running as root is not allowed. Either the pod or all containers
+          must set securityContext.runAsNonRoot to true.
         # Checks container-level runAsNonRoot first, then pod-level, defaults to false
         foreach:
           - list: "request.object.spec.containers"
