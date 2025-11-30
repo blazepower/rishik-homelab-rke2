@@ -8,6 +8,7 @@ This document describes the scheduling and resource management components in the
 - [Descheduler](#descheduler)
 - [Resource Quotas and Limit Ranges](#resource-quotas-and-limit-ranges)
 - [Applying to New Namespaces](#applying-to-new-namespaces)
+- [Pod Disruption Budgets](#pod-disruption-budgets)
 
 ## Priority Classes
 
@@ -272,3 +273,47 @@ spec:
 4. **Start conservative** with quotas and increase as needed rather than starting too high.
 
 5. **Consider namespace isolation** - each team or application should have its own namespace with appropriate quotas.
+
+## Pod Disruption Budgets
+
+PodDisruptionBudgets (PDBs) ensure workload availability during voluntary disruptions such as:
+- Node drains for maintenance
+- Cluster upgrades
+- Node scaling operations
+
+All infrastructure workloads have PDBs configured with `minAvailable: 50%`.
+
+### Configured PDBs
+
+| Component | Namespace | Min Available |
+|-----------|-----------|---------------|
+| Traefik | kube-system | 50% |
+| Longhorn Manager | storage | 50% |
+| Longhorn CSI Plugin | storage | 50% |
+| MetalLB Controller | metallb-system | 50% |
+| MetalLB Speaker | metallb-system | 50% |
+| Prometheus | monitoring | 50% |
+| Alertmanager | monitoring | 50% |
+| Grafana | monitoring | 50% |
+| Loki | monitoring | 50% |
+| Promtail | monitoring | 50% |
+| cert-manager | cert-manager | 50% |
+| cert-manager Webhook | cert-manager | 50% |
+| cert-manager CA Injector | cert-manager | 50% |
+| Sealed Secrets | flux-system | 50% |
+| Kyverno Admission | kyverno | 50% |
+| Kyverno Background | kyverno | 50% |
+| Flux Source Controller | flux-system | 50% |
+| Flux Kustomize Controller | flux-system | 50% |
+| Flux Helm Controller | flux-system | 50% |
+| Flux Notification Controller | flux-system | 50% |
+
+### Verifying PDBs
+
+```bash
+# List all PDBs
+kubectl get pdb -A
+
+# Check PDB status
+kubectl describe pdb <pdb-name> -n <namespace>
+```
