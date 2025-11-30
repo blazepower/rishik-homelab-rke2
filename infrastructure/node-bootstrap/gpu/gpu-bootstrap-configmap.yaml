@@ -8,7 +8,7 @@ data:
     #!/bin/bash
     set -o pipefail
 
-    MARKER_FILE="/host/var/lib/gpu-bootstrap-v3.done"
+    MARKER_FILE="/host/var/lib/gpu-bootstrap-v4.done"
     MODULES_CONF="/host/etc/modules-load.d/intel-gpu.conf"
     MODPROBE_CONF="/host/etc/modprobe.d/i915.conf"
     GRUB_DEFAULT="/host/etc/default/grub"
@@ -26,39 +26,41 @@ data:
 
     log "Starting Intel GPU bootstrap..."
 
-    # Configure GRUB to blacklist simpledrm via kernel boot parameter
-    log "Checking GRUB configuration for simpledrm blacklist..."
+    # Configure GRUB to blacklist simpledrm via initcall_blacklist kernel boot parameter
+    # Note: simpledrm is built into the kernel, not a loadable module, so we must use
+    # initcall_blacklist instead of module_blacklist to prevent it from initializing
+    log "Checking GRUB configuration for simpledrm initcall blacklist..."
     if [ -f "$GRUB_DEFAULT" ]; then
-      # Check if module_blacklist=simpledrm is already in GRUB_CMDLINE_LINUX_DEFAULT line
-      # Use word boundary matching to avoid matching partial strings like simpledrmfoo
-      if grep -E '^GRUB_CMDLINE_LINUX_DEFAULT=.*module_blacklist=simpledrm([[:space:]]|"|'"'"'|$)' "$GRUB_DEFAULT" >/dev/null 2>&1; then
-        log "GRUB already configured to blacklist simpledrm, skipping..."
+      # Check if initcall_blacklist=simpledrm_platform_driver_init is already in GRUB_CMDLINE_LINUX_DEFAULT line
+      # Use word boundary matching to avoid matching partial strings
+      if grep -E '^GRUB_CMDLINE_LINUX_DEFAULT=.*initcall_blacklist=simpledrm_platform_driver_init([[:space:]]|"|'"'"'|$)' "$GRUB_DEFAULT" >/dev/null 2>&1; then
+        log "GRUB already configured to blacklist simpledrm initcall, skipping..."
       else
-        log "Adding module_blacklist=simpledrm to GRUB configuration..."
+        log "Adding initcall_blacklist=simpledrm_platform_driver_init to GRUB configuration..."
         # Backup the original file
         [ ! -f "${GRUB_DEFAULT}.bak" ] && cp "$GRUB_DEFAULT" "${GRUB_DEFAULT}.bak"
-        # Append module_blacklist=simpledrm to GRUB_CMDLINE_LINUX_DEFAULT
+        # Append initcall_blacklist=simpledrm_platform_driver_init to GRUB_CMDLINE_LINUX_DEFAULT
         # Handle both double-quoted and single-quoted values
         # Use sed to trim trailing space before closing quote and add the parameter
         if grep -E '^GRUB_CMDLINE_LINUX_DEFAULT="[^"]*"' "$GRUB_DEFAULT" >/dev/null 2>&1; then
           # Handle empty, whitespace-only, and non-empty double-quoted values
-          sed -i 's/^GRUB_CMDLINE_LINUX_DEFAULT=" *\([^"]*\) *"/GRUB_CMDLINE_LINUX_DEFAULT="\1 module_blacklist=simpledrm"/' "$GRUB_DEFAULT"
+          sed -i 's/^GRUB_CMDLINE_LINUX_DEFAULT=" *\([^"]*\) *"/GRUB_CMDLINE_LINUX_DEFAULT="\1 initcall_blacklist=simpledrm_platform_driver_init"/' "$GRUB_DEFAULT"
         elif grep -E "^GRUB_CMDLINE_LINUX_DEFAULT='[^']*'" "$GRUB_DEFAULT" >/dev/null 2>&1; then
           # Handle empty, whitespace-only, and non-empty single-quoted values
-          sed -i "s/^GRUB_CMDLINE_LINUX_DEFAULT=' *\\([^']*\\) *'/GRUB_CMDLINE_LINUX_DEFAULT='\\1 module_blacklist=simpledrm'/" "$GRUB_DEFAULT"
+          sed -i "s/^GRUB_CMDLINE_LINUX_DEFAULT=' *\\([^']*\\) *'/GRUB_CMDLINE_LINUX_DEFAULT='\\1 initcall_blacklist=simpledrm_platform_driver_init'/" "$GRUB_DEFAULT"
         else
           log "Warning: Could not parse GRUB_CMDLINE_LINUX_DEFAULT format, skipping"
         fi
-        # Validate that module_blacklist=simpledrm was added successfully
-        if grep -qE '^GRUB_CMDLINE_LINUX_DEFAULT=.*module_blacklist=simpledrm([[:space:]]|"|'"'"'|$)' "$GRUB_DEFAULT"; then
-          log "Verified: module_blacklist=simpledrm was added to GRUB configuration"
+        # Validate that initcall_blacklist=simpledrm_platform_driver_init was added successfully
+        if grep -qE '^GRUB_CMDLINE_LINUX_DEFAULT=.*initcall_blacklist=simpledrm_platform_driver_init([[:space:]]|"|'"'"'|$)' "$GRUB_DEFAULT"; then
+          log "Verified: initcall_blacklist=simpledrm_platform_driver_init was added to GRUB configuration"
         else
-          log "Error: Failed to add module_blacklist=simpledrm to GRUB configuration"
+          log "Error: Failed to add initcall_blacklist=simpledrm_platform_driver_init to GRUB configuration"
           # Optionally restore backup
           mv "${GRUB_DEFAULT}.bak" "$GRUB_DEFAULT"
           exit 1
         fi
-        log "Updated GRUB_CMDLINE_LINUX_DEFAULT with module_blacklist=simpledrm"
+        log "Updated GRUB_CMDLINE_LINUX_DEFAULT with initcall_blacklist=simpledrm_platform_driver_init"
         # Run update-grub to apply changes
         log "Running update-grub to apply changes..."
         if ! output=$(chroot /host update-grub 2>&1); then
@@ -72,12 +74,12 @@ data:
       log "Warning: $GRUB_DEFAULT not found, skipping GRUB configuration"
     fi
 
-    # Attempt to unload simpledrm if currently loaded
-    log "Attempting to unload simpledrm module..."
+    # Attempt to unload simpledrm if currently loaded (may fail for built-in drivers)
+    log "Attempting to unload simpledrm driver..."
     if chroot /host modprobe -r simpledrm 2>/dev/null; then
-      log "Successfully unloaded simpledrm module"
+      log "Successfully unloaded simpledrm driver"
     else
-      log "Note: simpledrm in use or not loaded, will be blacklisted after reboot"
+      log "Note: simpledrm in use or built-in, will be blacklisted after reboot"
     fi
 
     # Create modules-load.d config for Intel GPU

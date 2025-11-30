@@ -118,20 +118,23 @@ The GPU bootstrap DaemonSet configures Intel QuickSync hardware transcoding on c
 ### How it works
 
 - A DaemonSet runs on all nodes with tolerations for all taints
-- Blacklists the `simpledrm` kernel module via GRUB boot parameter (prevents conflicts with Intel GPU device plugin)
+- Blacklists the `simpledrm` built-in driver via `initcall_blacklist` kernel boot parameter (prevents conflicts with Intel GPU device plugin)
 - Creates kernel module configuration files on the host
 - Loads i915, drm, drm_kms_helper, and video kernel modules
 - Installs Intel GPU packages via apt-get in a chroot environment
-- Uses an idempotency marker (`/var/lib/gpu-bootstrap-v3.done`) to prevent re-running
+- Uses an idempotency marker (`/var/lib/gpu-bootstrap-v4.done`) to prevent re-running
 
-### simpledrm Module Blacklisting
+### simpledrm Driver Blacklisting
 
-The `simpledrm` kernel module is blacklisted via the `module_blacklist=simpledrm` kernel boot parameter in `/etc/default/grub`. This is necessary because simpledrm can interfere with the Intel GPU device plugin by claiming the GPU device before the i915 driver loads.
+The `simpledrm` driver is blacklisted via the `initcall_blacklist=simpledrm_platform_driver_init` kernel boot parameter in `/etc/default/grub`. This is necessary because simpledrm can interfere with the Intel GPU device plugin by claiming the GPU device before the i915 driver loads.
+
+**Note**: The `simpledrm` driver is built into the kernel, not a loadable module. This means `module_blacklist` or `/etc/modprobe.d/` blacklist files will not work. The `initcall_blacklist` kernel parameter prevents the driver's init function from being called during boot, which is the correct approach for built-in drivers.
 
 #### Why GRUB boot parameter instead of modprobe.d?
 
-Using a kernel boot parameter instead of a `/etc/modprobe.d/` blacklist file provides these advantages:
+Using a kernel boot parameter provides these advantages:
 
+- **Works for built-in drivers**: Since simpledrm is compiled into the kernel, only `initcall_blacklist` can prevent it from initializing
 - **Easier to override temporarily**: At the GRUB menu, press `e` to edit, remove the parameter, and boot
 - **More visible/discoverable**: Easier to find and understand than files scattered in `/etc/modprobe.d/`
 - **No initramfs update required**: Takes effect on next boot without needing to regenerate initramfs
@@ -142,8 +145,8 @@ If you need to temporarily re-enable simpledrm for troubleshooting (e.g., early 
 
 1. Reboot the node
 2. When the GRUB menu appears, press `e` to edit the boot entry
-3. Find the line starting with `linux` and locate `module_blacklist=simpledrm`
-4. Delete `module_blacklist=simpledrm` from the line
+3. Find the line starting with `linux` and locate `initcall_blacklist=simpledrm_platform_driver_init`
+4. Delete `initcall_blacklist=simpledrm_platform_driver_init` from the line
 5. Press `Ctrl+X` or `F10` to boot with the modified parameters
 
 This change is temporary and only affects the current boot. The blacklist will be restored on the next normal reboot.
@@ -156,7 +159,7 @@ To permanently re-enable simpledrm (not recommended unless you understand the im
 # Edit GRUB configuration
 sudo nano /etc/default/grub
 
-# Remove "module_blacklist=simpledrm" from GRUB_CMDLINE_LINUX_DEFAULT
+# Remove "initcall_blacklist=simpledrm_platform_driver_init" from GRUB_CMDLINE_LINUX_DEFAULT
 
 # Update GRUB
 sudo update-grub
