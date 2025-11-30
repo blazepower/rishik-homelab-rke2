@@ -39,7 +39,7 @@ spec:
               command:
                 - test
                 - -f
-                - /host/var/lib/gpu-bootstrap.done
+                - /host/var/lib/gpu-bootstrap-v3.done
             initialDelaySeconds: 120
             periodSeconds: 60
             failureThreshold: 5
@@ -48,7 +48,7 @@ spec:
               command:
                 - test
                 - -f
-                - /host/var/lib/gpu-bootstrap.done
+                - /host/var/lib/gpu-bootstrap-v3.done
             initialDelaySeconds: 60
             periodSeconds: 30
             failureThreshold: 10
