@@ -30,7 +30,8 @@ data:
     log "Checking GRUB configuration for simpledrm blacklist..."
     if [ -f "$GRUB_DEFAULT" ]; then
       # Check if module_blacklist=simpledrm is already in GRUB_CMDLINE_LINUX_DEFAULT line
-      if grep -E '^GRUB_CMDLINE_LINUX_DEFAULT=.*module_blacklist=simpledrm' "$GRUB_DEFAULT" >/dev/null 2>&1; then
+      # Use word boundary matching to avoid matching partial strings like simpledrmfoo
+      if grep -E '^GRUB_CMDLINE_LINUX_DEFAULT=.*module_blacklist=simpledrm([[:space:]]|"|'"'"'|$)' "$GRUB_DEFAULT" >/dev/null 2>&1; then
         log "GRUB already configured to blacklist simpledrm, skipping..."
       else
         log "Adding module_blacklist=simpledrm to GRUB configuration..."
@@ -38,10 +39,15 @@ data:
         cp "$GRUB_DEFAULT" "${GRUB_DEFAULT}.bak"
         # Append module_blacklist=simpledrm to GRUB_CMDLINE_LINUX_DEFAULT
         # Handle both double-quoted and single-quoted values
+        # Use sed to trim trailing space before closing quote and add the parameter
         if grep -E '^GRUB_CMDLINE_LINUX_DEFAULT="[^"]*"' "$GRUB_DEFAULT" >/dev/null 2>&1; then
-          sed -i 's/^GRUB_CMDLINE_LINUX_DEFAULT="\([^"]*\)"/GRUB_CMDLINE_LINUX_DEFAULT="\1 module_blacklist=simpledrm"/' "$GRUB_DEFAULT"
+          sed -i 's/^GRUB_CMDLINE_LINUX_DEFAULT="\([^"]*[^ ]\) *"/GRUB_CMDLINE_LINUX_DEFAULT="\1 module_blacklist=simpledrm"/' "$GRUB_DEFAULT"
+          # Handle empty value case
+          sed -i 's/^GRUB_CMDLINE_LINUX_DEFAULT=""/GRUB_CMDLINE_LINUX_DEFAULT="module_blacklist=simpledrm"/' "$GRUB_DEFAULT"
         elif grep -E "^GRUB_CMDLINE_LINUX_DEFAULT='[^']*'" "$GRUB_DEFAULT" >/dev/null 2>&1; then
-          sed -i "s/^GRUB_CMDLINE_LINUX_DEFAULT='\\([^']*\\)'/GRUB_CMDLINE_LINUX_DEFAULT='\\1 module_blacklist=simpledrm'/" "$GRUB_DEFAULT"
+          sed -i "s/^GRUB_CMDLINE_LINUX_DEFAULT='\\([^']*[^ ]\\) *'/GRUB_CMDLINE_LINUX_DEFAULT='\\1 module_blacklist=simpledrm'/" "$GRUB_DEFAULT"
+          # Handle empty value case
+          sed -i "s/^GRUB_CMDLINE_LINUX_DEFAULT=''/GRUB_CMDLINE_LINUX_DEFAULT='module_blacklist=simpledrm'/" "$GRUB_DEFAULT"
         else
           log "Warning: Could not parse GRUB_CMDLINE_LINUX_DEFAULT format, skipping"
         fi
