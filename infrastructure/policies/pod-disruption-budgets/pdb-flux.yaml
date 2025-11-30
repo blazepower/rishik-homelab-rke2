@@ -1,0 +1,43 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: source-controller-pdb
+  namespace: flux-system
+spec:
+  minAvailable: 50%
+  selector:
+    matchLabels:
+      app: source-controller
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: kustomize-controller-pdb
+  namespace: flux-system
+spec:
+  minAvailable: 50%
+  selector:
+    matchLabels:
+      app: kustomize-controller
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: helm-controller-pdb
+  namespace: flux-system
+spec:
+  minAvailable: 50%
+  selector:
+    matchLabels:
+      app: helm-controller
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: notification-controller-pdb
+  namespace: flux-system
+spec:
+  minAvailable: 50%
+  selector:
+    matchLabels:
+      app: notification-controller

@@ -1,0 +1,21 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: longhorn-manager-pdb
+  namespace: storage
+spec:
+  minAvailable: 50%
+  selector:
+    matchLabels:
+      app: longhorn-manager
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: longhorn-driver-pdb
+  namespace: storage
+spec:
+  minAvailable: 50%
+  selector:
+    matchLabels:
+      app: longhorn-csi-plugin

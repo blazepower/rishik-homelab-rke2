@@ -5,3 +5,4 @@ resources:
   - rwx-access
   - resource-defaults
   - priority-classes
+  - pod-disruption-budgets
