@@ -6,7 +6,8 @@ metadata:
 spec:
   podSelector:
     matchLabels:
-      app: plex
+      app.kubernetes.io/name: plex-media-server
+      app.kubernetes.io/instance: plex
   policyTypes:
     - Ingress
     - Egress

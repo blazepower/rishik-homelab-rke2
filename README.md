@@ -65,6 +65,7 @@ docs/                           # Detailed component documentation
 | **Node Bootstrap** | Automated iSCSI installation and GPU bootstrap DaemonSet for Intel QuickSync | [docs/node-bootstrap.md](docs/node-bootstrap.md) |
 | **GPU Acceleration** | Intel QuickSync hardware transcoding via GPU Device Plugin | [infrastructure/accelerators/intel-gpu/README.md](infrastructure/accelerators/intel-gpu/README.md) |
 | **CI/CD** | Comprehensive validation and security scanning pipeline | [docs/ci-cd.md](docs/ci-cd.md) |
+| **Plex** | Plex Media Server via official Helm chart with Intel QuickSync GPU transcoding | [apps/plex/](#plex-media-server) |
 
 ## Dependency Management
 
@@ -119,3 +120,34 @@ All components have explicit resource requests and limits to prevent runaway res
 
 - **Traefik replicas**: 1 (sufficient for homelab traffic)
 - **Service type**: LoadBalancer via MetalLB
+
+## Plex Media Server
+
+Plex is deployed using the official [plex-media-server Helm chart](https://github.com/plexinc/pms-docker/tree/master/charts/plex-media-server) from Plex Inc.
+
+### Configuration
+
+| Setting | Value |
+|---------|-------|
+| **Node** | `rishik-worker1` (pinned via nodeSelector) |
+| **Config Storage** | 20Gi Longhorn PVC |
+| **Media Path** | `/media/rishik/Expansion` (external HDD, hostPath) |
+| **GPU** | Intel QuickSync (`gpu.intel.com/i915: "1"`) for hardware transcoding |
+| **LoadBalancer IP** | `192.168.1.200` (MetalLB) |
+| **Ingress** | `plex.homelab` (Traefik with TLS) |
+| **Port** | 32400 |
+
+### Access
+
+- **Local HTTPS**: `https://plex.homelab` (via Traefik ingress)
+- **Remote/Direct**: `http://192.168.1.200:32400` (via LoadBalancer)
+
+### Files
+
+- `apps/plex/helmrelease.yaml` - HelmRelease configuration
+- `apps/plex/service.yaml` - LoadBalancer and ClusterIP services
+- `apps/plex/ingress.yaml` - Traefik ingress for plex.homelab
+- `apps/plex/certificate.yaml` - TLS certificate
+- `apps/plex/pvc.yaml` - Longhorn PVC for config storage
+- `apps/plex/networkpolicy.yaml` - Network policy for Plex pods
+- `infrastructure/crds/plex-helm-repo.yaml` - HelmRepository for Plex chart

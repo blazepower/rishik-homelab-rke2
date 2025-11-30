@@ -1,0 +1,93 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: plex
+  namespace: media
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: plex-media-server
+      sourceRef:
+        kind: HelmRepository
+        name: plex
+        namespace: flux-system
+      interval: 30m
+  install:
+    createNamespace: false
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+  values:
+    nodeSelector:
+      kubernetes.io/hostname: rishik-worker1
+
+    pms:
+      configExistingClaim: plex-config
+      resources:
+        requests:
+          cpu: "500m"
+          memory: "1Gi"
+        limits:
+          cpu: "4000m"
+          memory: "4Gi"
+          gpu.intel.com/i915: "1"
+      livenessProbe:
+        httpGet:
+          path: /identity
+          port: 32400
+        initialDelaySeconds: 120
+        periodSeconds: 30
+        timeoutSeconds: 10
+        failureThreshold: 3
+      readinessProbe:
+        httpGet:
+          path: /identity
+          port: 32400
+        initialDelaySeconds: 60
+        periodSeconds: 15
+        timeoutSeconds: 10
+        failureThreshold: 3
+
+    initContainer:
+      script: |-
+        #!/bin/sh
+        echo "waiting for pre-existing pms database to be uploaded..."
+
+        if [ -d "/config/Library" ]; then
+          echo "PMS library already exists, exiting."
+          exit 0
+        fi
+
+        # wait for the database archive to be manually copied to the server
+        while [ ! -f /pms.tgz ]; do sleep 2; done;
+
+        tar -xvzf /pms.tgz -C /config
+        rm /pms.tgz
+
+        echo "Done."
+
+    extraEnv:
+      TZ: "America/Los_Angeles"
+      PLEX_CLAIM: ""
+
+    extraVolumes:
+      - name: media
+        hostPath:
+          path: /media/rishik/Expansion
+          type: Directory
+      - name: transcode
+        emptyDir: {}
+
+    extraVolumeMounts:
+      - name: media
+        mountPath: /media
+        readOnly: true
+      - name: transcode
+        mountPath: /transcode
+
+    service:
+      type: ClusterIP
+      port: 32400
