@@ -61,7 +61,11 @@ data:
         log "Updated GRUB_CMDLINE_LINUX_DEFAULT with module_blacklist=simpledrm"
         # Run update-grub to apply changes
         log "Running update-grub to apply changes..."
-        chroot /host update-grub 2>&1 || log "Warning: update-grub encountered issues"
+        if ! output=$(chroot /host update-grub 2>&1); then
+          log "Warning: update-grub failed with output: $output"
+        else
+          log "update-grub completed successfully"
+        fi
         log "GRUB configuration updated. Reboot required for simpledrm blacklist to take effect."
       fi
     else
