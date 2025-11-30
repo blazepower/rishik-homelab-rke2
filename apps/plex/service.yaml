@@ -3,6 +3,23 @@ kind: Service
 metadata:
   name: plex
   namespace: media
+  annotations:
+    metallb.universe.tf/loadBalancerIPs: "192.168.1.200"
+spec:
+  selector:
+    app: plex
+  ports:
+    - port: 32400
+      targetPort: 32400
+      name: plex
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: plex-internal
+  namespace: media
 spec:
   selector:
     app: plex

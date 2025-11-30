@@ -3,8 +3,12 @@ kind: Deployment
 metadata:
   name: plex
   namespace: media
+  labels:
+    app: plex
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: plex
@@ -13,19 +17,65 @@ spec:
       labels:
         app: plex
     spec:
+      nodeSelector:
+        kubernetes.io/hostname: rishik-worker1
+      initContainers:
+        - name: wait-for-database
+          image: busybox:1.36
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "waiting for pre-existing pms database to be uploaded..."
+
+              if [ -d "/config/Library" ]; then
+                echo "PMS library already exists, exiting."
+                exit 0
+              fi
+
+              # wait for the database archive to be manually copied to the server
+              while [ ! -f /pms.tgz ]; do sleep 2; done;
+
+              tar -xvzf /pms.tgz -C /config
+              rm /pms.tgz
+
+              echo "Done."
+          volumeMounts:
+            - name: config
+              mountPath: /config
       containers:
         - name: plex
-          image: plexinc/pms-docker:1.41.0.8994-f2c27da23
+          image: lscr.io/linuxserver/plex:1.41.3
           ports:
             - containerPort: 32400
               name: plex
+          env:
+            - name: TZ
+              value: "America/Los_Angeles"
+            - name: PLEX_CLAIM
+              value: ""
+            - name: VERSION
+              value: "docker"
+            - name: PUID
+              value: "1000"
+            - name: PGID
+              value: "1000"
           resources:
             requests:
-              memory: "512Mi"
+              memory: "1Gi"
               cpu: "500m"
             limits:
-              memory: "2Gi"
-              cpu: "2000m"
+              memory: "4Gi"
+              cpu: "4000m"
+              gpu.intel.com/i915: "1"
+          volumeMounts:
+            - name: config
+              mountPath: /config
+            - name: media
+              mountPath: /media
+              readOnly: true
+            - name: transcode
+              mountPath: /transcode
           livenessProbe:
             httpGet:
               path: /identity
@@ -42,3 +92,13 @@ spec:
             periodSeconds: 15
             timeoutSeconds: 10
             failureThreshold: 3
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: plex-config
+        - name: media
+          hostPath:
+            path: /media/rishik/Expansion
+            type: Directory
+        - name: transcode
+          emptyDir: {}
