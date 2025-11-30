@@ -51,6 +51,15 @@ data:
         else
           log "Warning: Could not parse GRUB_CMDLINE_LINUX_DEFAULT format, skipping"
         fi
+        # Validate that module_blacklist=simpledrm was added successfully
+        if grep -qE '^GRUB_CMDLINE_LINUX_DEFAULT=.*module_blacklist=simpledrm([[:space:]]|"|'"'"'|$)' "$GRUB_DEFAULT"; then
+          log "Verified: module_blacklist=simpledrm was added to GRUB configuration"
+        else
+          log "Error: Failed to add module_blacklist=simpledrm to GRUB configuration"
+          # Optionally restore backup
+          mv "${GRUB_DEFAULT}.bak" "$GRUB_DEFAULT"
+          exit 1
+        fi
         log "Updated GRUB_CMDLINE_LINUX_DEFAULT with module_blacklist=simpledrm"
         # Run update-grub to apply changes
         log "Running update-grub to apply changes..."
