@@ -43,20 +43,20 @@ spec:
             deny:
               conditions:
                 all:
-                  - key: "{{ request.object.metadata.annotations[join('', ['container.apparmor.security.beta.kubernetes.io/', element.name])] || 'runtime/default' }}"
+                  - key: "{{ request.object.metadata.annotations.\"container.apparmor.security.beta.kubernetes.io/{{element.name}}\" || 'runtime/default' }}"
                     operator: Equals
                     value: "unconfined"
           - list: "request.object.spec.initContainers || []"
             deny:
               conditions:
                 all:
-                  - key: "{{ request.object.metadata.annotations[join('', ['container.apparmor.security.beta.kubernetes.io/', element.name])] || 'runtime/default' }}"
+                  - key: "{{ request.object.metadata.annotations.\"container.apparmor.security.beta.kubernetes.io/{{element.name}}\" || 'runtime/default' }}"
                     operator: Equals
                     value: "unconfined"
           - list: "request.object.spec.ephemeralContainers || []"
             deny:
               conditions:
                 all:
-                  - key: "{{ request.object.metadata.annotations[join('', ['container.apparmor.security.beta.kubernetes.io/', element.name])] || 'runtime/default' }}"
+                  - key: "{{ request.object.metadata.annotations.\"container.apparmor.security.beta.kubernetes.io/{{element.name}}\" || 'runtime/default' }}"
                     operator: Equals
                     value: "unconfined"
