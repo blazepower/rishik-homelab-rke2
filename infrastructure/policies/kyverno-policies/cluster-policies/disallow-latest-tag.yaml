@@ -32,8 +32,8 @@ spec:
                 - longhorn-system
       validate:
         message: >-
-          Images tagged ':latest' are not allowed. Please use a specific version tag.
-          Container '{{element.name}}' uses image '{{element.image}}'.
+          Images tagged ':latest' are not allowed. Please use a specific version tag
+          for all containers.
         foreach:
           - list: "request.object.spec.containers"
             deny:
@@ -83,9 +83,8 @@ spec:
                 - longhorn-system
       validate:
         message: >-
-          Images must come from trusted registries.
-          Container '{{element.name}}' uses image '{{element.image}}' which is not from
-          a trusted registry. Allowed registries: docker.io, ghcr.io, quay.io, gcr.io,
+          Images must come from trusted registries. All containers must use images from
+          an allowed registry: docker.io, ghcr.io, quay.io, gcr.io,
           registry.k8s.io, mcr.microsoft.com, lscr.io, or Docker Hub library images.
         foreach:
           - list: "request.object.spec.containers"
