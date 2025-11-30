@@ -44,10 +44,11 @@ data:
     # Attempt to unload simpledrm if currently loaded
     if chroot /host lsmod | grep -q "^simpledrm"; then
       log "simpledrm module is loaded, attempting to unload..."
-      if chroot /host modprobe -r simpledrm 2>/dev/null; then
+      MODPROBE_ERR=$(chroot /host modprobe -r simpledrm 2>&1)
+      if [ $? -eq 0 ]; then
         log "Successfully unloaded simpledrm module"
       else
-        log "Warning: Could not unload simpledrm module (in use). Will take effect after reboot."
+        log "Warning: Could not unload simpledrm module (in use). Will take effect after reboot. Error: $MODPROBE_ERR"
       fi
     else
       log "simpledrm module is not loaded"
@@ -55,10 +56,11 @@ data:
 
     # Update initramfs to apply blacklist persistently
     log "Updating initramfs to apply module blacklist..."
-    if chroot /host update-initramfs -u 2>/dev/null; then
+    INITRAMFS_ERR=$(chroot /host update-initramfs -u 2>&1)
+    if [ $? -eq 0 ]; then
       log "Successfully updated initramfs"
     else
-      log "Warning: Could not update initramfs. Blacklist may not persist after reboot."
+      log "Warning: Could not update initramfs. Blacklist may not persist after reboot. Error: $INITRAMFS_ERR"
     fi
 
     # Create modules-load.d config for Intel GPU
