@@ -1,0 +1,25 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: plex
+  namespace: media
+  annotations:
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: plex.homelab
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                # Service created by Helm chart: <release-name>-plex-media-server
+                name: plex-plex-media-server
+                port:
+                  number: 32400
+  tls:
+    - hosts:
+        - plex.homelab
+      secretName: plex-tls

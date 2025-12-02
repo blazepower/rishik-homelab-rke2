@@ -1,13 +1,17 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: plex
+  name: plex-lb
   namespace: media
+  annotations:
+    metallb.universe.tf/loadBalancerIPs: "192.168.1.200"
 spec:
   selector:
-    app: plex
+    app.kubernetes.io/name: plex-media-server
+    app.kubernetes.io/instance: plex
   ports:
     - port: 32400
       targetPort: 32400
       name: plex
-  type: ClusterIP
+  type: LoadBalancer
+  externalTrafficPolicy: Local
