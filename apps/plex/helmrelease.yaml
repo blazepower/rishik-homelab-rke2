@@ -70,9 +70,15 @@ spec:
 
         echo "Done."
 
+    # Environment variables loaded from ConfigMap for filesystem permissions
+    # PLEX_UID/PLEX_GID should match the ownership of the external HDD
     extraEnv:
-      TZ: "America/Los_Angeles"
       PLEX_CLAIM: ""
+
+    # Reference ConfigMap for configurable values
+    extraEnvFrom:
+      - configMapRef:
+          name: plex-config
 
     extraVolumes:
       - name: media
