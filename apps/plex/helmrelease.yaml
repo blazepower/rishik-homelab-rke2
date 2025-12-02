@@ -42,7 +42,7 @@ spec:
         initialDelaySeconds: 120
         periodSeconds: 30
         timeoutSeconds: 10
-        failureThreshold: 3
+        failureThreshold: 7
       readinessProbe:
         httpGet:
           path: /identity
