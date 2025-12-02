@@ -80,20 +80,8 @@ spec:
       - configMapRef:
           name: plex-config
 
-    extraVolumes:
-      - name: media
-        hostPath:
-          path: /media/rishik/Expansion
-          type: Directory
-      - name: transcode
-        emptyDir: {}
-
-    extraVolumeMounts:
-      - name: media
-        mountPath: /media
-        readOnly: true
-      - name: transcode
-        mountPath: /transcode
+    extraVolumes: []
+    extraVolumeMounts: []
 
     service:
       type: ClusterIP
