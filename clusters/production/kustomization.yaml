@@ -4,4 +4,5 @@ resources:
   - ../../infrastructure
   - kyverno-install.yaml
   - kyverno-policies.yaml
+  - apps.yaml
 
