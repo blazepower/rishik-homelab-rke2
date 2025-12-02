@@ -3,11 +3,9 @@ kind: Kustomization
 resources:
   - helmrepository-prometheus-community.yaml
   - helmrepository-grafana.yaml
-  - helmrepository-kubernetes-event-exporter.yaml
   - helmrepository-kured.yaml
   - helmrepository-node-problem-detector.yaml
   - helmrelease-kube-prometheus-stack.yaml
-  - helmrelease-kubernetes-event-exporter.yaml
   - helmrelease-kured.yaml
   - helmrelease-node-problem-detector.yaml
   - sealedsecret-grafana-admin-creds.yaml
