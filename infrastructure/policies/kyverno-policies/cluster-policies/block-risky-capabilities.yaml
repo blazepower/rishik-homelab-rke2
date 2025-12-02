@@ -101,6 +101,7 @@ spec:
                 - storage
                 - monitoring
                 - cert-manager
+                - media
       validate:
         message: "hostPath volumes are not allowed in user namespaces."
         pattern:
