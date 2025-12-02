@@ -82,8 +82,17 @@ spec:
       - configMapRef:
           name: plex-config
 
-    extraVolumes: []
-    extraVolumeMounts: []
+    extraVolumes:
+      - name: media
+        hostPath:
+          path: /media/rishik/Expansion
+          type: Directory
+
+    extraVolumeMounts:
+      - name: media
+        mountPath: /media
+        readOnly: true
+
 
     service:
       type: LoadBalancer
