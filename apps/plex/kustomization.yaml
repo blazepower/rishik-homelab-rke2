@@ -9,3 +9,4 @@ resources:
   - ingress.yaml
   - certificate.yaml
   - networkpolicy.yaml
+  - sealedsecret-plex-claim.yaml
