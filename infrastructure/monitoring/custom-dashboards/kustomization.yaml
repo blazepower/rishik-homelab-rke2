@@ -7,7 +7,6 @@ resources:
   - configmap-error-funnel.yaml
   - configmap-nfd-dashboard.yaml
   - configmap-intel-gpu-dashboard.yaml
-  - configmap-kubernetes-events-dashboard.yaml
   - configmap-node-health-dashboard.yaml
   - network-deep-dive-dashboard.yaml
   - gpu-transcoding-dashboard.yaml

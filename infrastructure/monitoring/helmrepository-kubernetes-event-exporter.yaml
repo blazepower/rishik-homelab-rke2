@@ -1,8 +1,0 @@
-apiVersion: source.toolkit.fluxcd.io/v1beta2
-kind: HelmRepository
-metadata:
-  name: kubernetes-event-exporter
-  namespace: flux-system
-spec:
-  interval: 1h
-  url: https://resmoio.github.io/kubernetes-event-exporter
