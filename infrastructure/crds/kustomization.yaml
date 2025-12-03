@@ -2,5 +2,6 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
+  - kaneo-helm-repo.yaml
   - plex-helm-repo.yaml
   - bjw-s-helm-repo.yaml

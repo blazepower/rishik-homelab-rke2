@@ -47,7 +47,8 @@ infrastructure/
 ├── sealed-secrets/             # GitOps-safe secret encryption
 └── kustomization.yaml
 apps/
-├── plex/                       # Plex media server application
+├── kaneo/                      # Kaneo project management application
+└── plex/                       # Plex media server application
 ├── prowlarr/                   # Prowlarr indexer manager
 ├── sonarr/                     # Sonarr TV shows manager
 ├── radarr/                     # Radarr movies manager
@@ -71,6 +72,7 @@ docs/                           # Detailed component documentation
 | **Node Bootstrap** | Automated iSCSI installation and GPU bootstrap DaemonSet for Intel QuickSync | [docs/node-bootstrap.md](docs/node-bootstrap.md) |
 | **GPU Acceleration** | Intel QuickSync hardware transcoding via GPU Device Plugin | [infrastructure/accelerators/intel-gpu/README.md](infrastructure/accelerators/intel-gpu/README.md) |
 | **CI/CD** | Comprehensive validation and security scanning pipeline | [docs/ci-cd.md](docs/ci-cd.md) |
+| **Kaneo** | Open-source project management tool via official Helm chart | [apps/kaneo/](#kaneo-project-management) |
 | **Plex** | Plex Media Server via official Helm chart with Intel QuickSync GPU transcoding | [apps/plex/](#plex-media-server) |
 | **Media Automation** | Complete *arr stack for media automation (Prowlarr, Sonarr, Radarr, SABnzbd, Bazarr, Overseerr) | [apps/](#media-automation-arr-stack) |
 
@@ -159,6 +161,57 @@ Plex is deployed using the official [plex-media-server Helm chart](https://githu
 - `apps/plex/networkpolicy.yaml` - Network policy for Plex pods
 - `infrastructure/crds/plex-helm-repo.yaml` - HelmRepository for Plex chart
 
+## Kaneo Project Management
+
+Kaneo is deployed using the official [Kaneo Helm chart](https://github.com/usekaneo/kaneo) from the Kaneo project.
+
+### Overview
+
+Kaneo is an open-source project management tool with three main components:
+- **API** - Backend service (ghcr.io/usekaneo/api) running on port 1337
+- **Web** - Frontend service (ghcr.io/usekaneo/web) running on port 80
+- **PostgreSQL** - Database (postgres:16-alpine) running on port 5432
+
+### Configuration
+
+| Setting | Value |
+|---------|-------|
+| **Namespace** | `kaneo` |
+| **Database Storage** | 8Gi Longhorn PVC |
+| **Ingress** | `kaneo.homelab` (Traefik with TLS) |
+| **Path Routing** | `/api/*` → API service, `/*` → Web service |
+| **API Port** | 1337 |
+| **Web Port** | 80 |
+
+### Resource Limits
+
+| Component | CPU Request | CPU Limit | Memory Request | Memory Limit |
+|-----------|-------------|-----------|----------------|--------------|
+| PostgreSQL | 50m | 200m | 128Mi | 256Mi |
+| API | 50m | 200m | 128Mi | 256Mi |
+| Web | 25m | 100m | 64Mi | 128Mi |
+
+### Access
+
+- **HTTPS**: `https://kaneo.homelab` (via Traefik ingress with TLS)
+- **API Endpoint**: `https://kaneo.homelab/api` (proxied to API service)
+
+### Files
+
+- `apps/kaneo/namespace.yaml` - Namespace definition
+- `apps/kaneo/helmrelease.yaml` - HelmRelease configuration
+- `apps/kaneo/ingress.yaml` - Traefik ingress with path-based routing
+- `apps/kaneo/networkpolicy.yaml` - Network policy for Kaneo pods
+- `apps/kaneo/kustomization.yaml` - Kustomize configuration
+- `infrastructure/crds/kaneo-helm-repo.yaml` - HelmRepository for Kaneo chart
+
+### Security Notes
+
+The initial deployment includes placeholder secrets for:
+- PostgreSQL password (`kaneo_password`)
+- JWT access secret (`change_me_to_secure_secret`)
+
+**TODO**: Replace these with SealedSecrets for production use.
 ## Media Automation (*arr Stack)
 
 The complete *arr stack for media automation is deployed in the `media` namespace. All applications use the [bjw-s app-template Helm chart](https://github.com/bjw-s/helm-charts/tree/main/charts/other/app-template) with linuxserver.io container images.
