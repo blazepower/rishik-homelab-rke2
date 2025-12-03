@@ -30,35 +30,6 @@ spec:
         annotations:
           reloader.stakater.com/auto: "true"
 
-        initContainers:
-          init-config:
-            image:
-              repository: busybox
-              tag: latest
-            command:
-              - /bin/sh
-              - -c
-              - |
-                echo "waiting for backup to be uploaded..."
-
-                if [ -f "/config/config.xml" ]; then
-                  echo "Config already exists, exiting."
-                  exit 0
-                fi
-
-                # wait for backup to be manually copied
-                while ! ls /config/*.tgz >/dev/null 2>&1; do sleep 2; done;
-
-                BACKUP_FILE=$(ls /config/*.tgz 2>/dev/null | head -n1)
-                if [ -z "$BACKUP_FILE" ]; then
-                  echo "Error: No backup file found"
-                  exit 1
-                fi
-                tar -xvzf "$BACKUP_FILE" -C /config
-                rm "$BACKUP_FILE"
-
-                echo "Done."
-
         containers:
           app:
             image:
