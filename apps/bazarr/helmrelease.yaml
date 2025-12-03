@@ -76,7 +76,6 @@ spec:
         hostPath: /media/rishik/Expansion
         globalMounts:
           - path: /media
-            readOnly: true
 
     defaultPodOptions:
       nodeSelector:
