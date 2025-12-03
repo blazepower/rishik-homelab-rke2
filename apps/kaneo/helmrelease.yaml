@@ -34,7 +34,9 @@ spec:
       auth:
         database: kaneo
         username: kaneo_user
-        password: kaneo_password  # TODO: Replace with sealed secret
+        existingSecret: kaneo-credentials
+        secretKeys:
+          userPasswordKey: postgres-password
       persistence:
         enabled: true
         size: 8Gi
@@ -65,7 +67,8 @@ spec:
           cpu: "200m"
           memory: "256Mi"
       env:
-        jwtAccess: change_me_to_secure_secret  # TODO: Replace with sealed secret
+        existingSecret: kaneo-credentials
+        jwtAccessSecretKey: jwt-secret
         disableRegistration: false
 
     web:

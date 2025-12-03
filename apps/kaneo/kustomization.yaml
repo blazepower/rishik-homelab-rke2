@@ -6,3 +6,4 @@ resources:
   - helmrelease.yaml
   - ingress.yaml
   - networkpolicy.yaml
+  - sealedsecret-kaneo-credentials.yaml
