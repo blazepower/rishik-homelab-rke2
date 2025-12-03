@@ -1,0 +1,92 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: kaneo
+  namespace: kaneo
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: kaneo
+      sourceRef:
+        kind: HelmRepository
+        name: kaneo
+        namespace: flux-system
+      interval: 30m
+  install:
+    createNamespace: false
+    remediation:
+      retries: 3
+    timeout: 10m
+  upgrade:
+    remediation:
+      retries: 3
+    timeout: 10m
+  values:
+    replicaCount: 1
+
+    postgresql:
+      enabled: true
+      image:
+        repository: postgres
+        tag: 16-alpine
+        pullPolicy: IfNotPresent
+      auth:
+        database: kaneo
+        username: kaneo_user
+        password: kaneo_password  # TODO: Replace with sealed secret
+      persistence:
+        enabled: true
+        size: 8Gi
+        storageClass: longhorn
+        accessMode: ReadWriteOnce
+      resources:
+        requests:
+          cpu: "50m"
+          memory: "128Mi"
+        limits:
+          cpu: "200m"
+          memory: "256Mi"
+
+    api:
+      image:
+        repository: ghcr.io/usekaneo/api
+        tag: latest
+        pullPolicy: IfNotPresent
+      service:
+        type: ClusterIP
+        port: 1337
+        targetPort: 1337
+      resources:
+        requests:
+          cpu: "50m"
+          memory: "128Mi"
+        limits:
+          cpu: "200m"
+          memory: "256Mi"
+      env:
+        jwtAccess: change_me_to_secure_secret  # TODO: Replace with sealed secret
+        disableRegistration: false
+
+    web:
+      image:
+        repository: ghcr.io/usekaneo/web
+        tag: latest
+        pullPolicy: IfNotPresent
+      env:
+        apiUrl: "https://kaneo.homelab/api"
+      service:
+        type: ClusterIP
+        port: 80
+        targetPort: 80
+      resources:
+        requests:
+          cpu: "25m"
+          memory: "64Mi"
+        limits:
+          cpu: "100m"
+          memory: "128Mi"
+
+    # Disable built-in ingress - we'll create our own for Traefik
+    ingress:
+      enabled: false
