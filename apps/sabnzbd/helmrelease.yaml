@@ -39,7 +39,6 @@ spec:
               - /bin/sh
               - -c
               - |
-                #!/bin/sh
                 echo "waiting for backup to be uploaded..."
 
                 if [ -f "/config/sabnzbd.ini" ]; then
@@ -48,10 +47,11 @@ spec:
                 fi
 
                 # wait for backup to be manually copied
-                while [ ! -f /config/*.tgz ]; do sleep 2; done;
+                while ! ls /config/*.tgz >/dev/null 2>&1; do sleep 2; done;
 
-                tar -xvzf /config/*.tgz -C /config
-                rm /config/*.tgz
+                BACKUP_FILE=$(ls /config/*.tgz 2>/dev/null | head -n1)
+                tar -xvzf "$BACKUP_FILE" -C /config
+                rm "$BACKUP_FILE"
 
                 echo "Done."
 
