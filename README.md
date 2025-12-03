@@ -49,6 +49,12 @@ infrastructure/
 apps/
 ├── kaneo/                      # Kaneo project management application
 └── plex/                       # Plex media server application
+├── prowlarr/                   # Prowlarr indexer manager
+├── sonarr/                     # Sonarr TV shows manager
+├── radarr/                     # Radarr movies manager
+├── sabnzbd/                    # SABnzbd NZB download client
+├── bazarr/                     # Bazarr subtitles manager
+└── overseerr/                  # Overseerr media request management
 docs/                           # Detailed component documentation
 ```
 
@@ -68,6 +74,7 @@ docs/                           # Detailed component documentation
 | **CI/CD** | Comprehensive validation and security scanning pipeline | [docs/ci-cd.md](docs/ci-cd.md) |
 | **Kaneo** | Open-source project management tool via official Helm chart | [apps/kaneo/](#kaneo-project-management) |
 | **Plex** | Plex Media Server via official Helm chart with Intel QuickSync GPU transcoding | [apps/plex/](#plex-media-server) |
+| **Media Automation** | Complete *arr stack for media automation (Prowlarr, Sonarr, Radarr, SABnzbd, Bazarr, Overseerr) | [apps/](#media-automation-arr-stack) |
 
 ## Dependency Management
 
@@ -205,3 +212,90 @@ The initial deployment includes placeholder secrets for:
 - JWT access secret (`change_me_to_secure_secret`)
 
 **TODO**: Replace these with SealedSecrets for production use.
+## Media Automation (*arr Stack)
+
+The complete *arr stack for media automation is deployed in the `media` namespace. All applications use the [bjw-s app-template Helm chart](https://github.com/bjw-s/helm-charts/tree/main/charts/other/app-template) with linuxserver.io container images.
+
+### Deployed Applications
+
+| Application | Port | Description | Migration |
+|-------------|------|-------------|-----------|
+| **Prowlarr** | 9696 | Indexer manager - central hub for managing indexers | Restore from backup |
+| **Sonarr** | 8989 | TV shows manager - automated TV show downloads | Restore from backup |
+| **Radarr** | 7878 | Movies manager - automated movie downloads | Restore from backup |
+| **SABnzbd** | 8080 | NZB download client - downloads from Usenet | Restore from backup |
+| **Bazarr** | 6767 | Subtitles manager - automated subtitle downloads | New setup |
+| **Overseerr** | 5055 | Media request management - user-friendly request interface | New setup |
+
+### Shared Configuration
+
+All apps in the *arr stack share common configuration:
+
+| Setting | Value |
+|---------|-------|
+| **Namespace** | `media` |
+| **Node** | `rishik-worker1` (pinned via nodeSelector) |
+| **Storage Class** | `longhorn` |
+| **Config PVC Size** | 1Gi per app |
+| **User/Group** | PUID=1000, PGID=1000 |
+| **Timezone** | America/Los_Angeles |
+| **Media Mount** | `/media/rishik/Expansion` → `/media` (hostPath) |
+| **Service Type** | ClusterIP (internal only) |
+| **Ingress** | `<app>.homelab` (e.g., `prowlarr.homelab`) |
+| **TLS** | Enabled via cert-manager with `cluster-ca` ClusterIssuer |
+
+### Resource Allocation
+
+#### Standard Apps (Prowlarr, Sonarr, Radarr, Bazarr, Overseerr)
+- **CPU Request**: 100m
+- **CPU Limit**: 1000m (1 core)
+- **Memory Request**: 256Mi
+- **Memory Limit**: 1Gi
+
+#### SABnzbd (Higher for unpacking)
+- **CPU Request**: 200m
+- **CPU Limit**: 2000m (2 cores)
+- **Memory Request**: 512Mi
+- **Memory Limit**: 2Gi
+
+### Migration Strategy
+
+Four apps (Prowlarr, Sonarr, Radarr, SABnzbd) include init containers that wait for backup archives to be manually uploaded to the config PVC:
+
+1. App starts with init container waiting for `*.tgz` file in `/config`
+2. Manually copy backup archive to the config PVC
+3. Init container extracts archive and removes it
+4. Main container starts with restored configuration
+
+Bazarr and Overseerr are new setups without init containers.
+
+### Directory Structure
+
+Download directories on the media mount:
+- `/media/downloads/complete/tv/` - Completed TV downloads
+- `/media/downloads/complete/movies/` - Completed movie downloads
+- `/media/downloads/incomplete/` - In-progress downloads
+
+### Access
+
+All apps are accessible via HTTPS ingress:
+- **Prowlarr**: `https://prowlarr.homelab`
+- **Sonarr**: `https://sonarr.homelab`
+- **Radarr**: `https://radarr.homelab`
+- **SABnzbd**: `https://sabnzbd.homelab`
+- **Bazarr**: `https://bazarr.homelab`
+- **Overseerr**: `https://overseerr.homelab`
+
+### Files Per App
+
+Each app follows the same structure under `apps/<app>/`:
+- `helmrelease.yaml` - HelmRelease using bjw-s app-template chart
+- `pvc.yaml` - 1Gi Longhorn PVC for config storage
+- `configmap.yaml` - Environment variables (PUID, PGID, TZ)
+- `ingress.yaml` - Traefik ingress for `<app>.homelab`
+- `certificate.yaml` - TLS certificate via cert-manager
+- `kustomization.yaml` - Kustomize configuration
+
+### Helm Repository
+
+- `infrastructure/crds/bjw-s-helm-repo.yaml` - HelmRepository for bjw-s charts

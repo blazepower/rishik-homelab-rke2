@@ -5,6 +5,7 @@ resources:
   - allow-dns.yaml
   - allow-ingress-controller.yaml
   - allow-monitoring.yaml
+  - allow-monitoring-ingress.yaml
   - allow-prometheus-internal.yaml
   - allow-sealed-secrets.yaml
   - allow-flux-system.yaml

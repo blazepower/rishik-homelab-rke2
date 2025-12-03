@@ -3,3 +3,9 @@ kind: Kustomization
 resources:
   - kaneo
   - plex
+  - prowlarr
+  - sonarr
+  - radarr
+  - sabnzbd
+  - bazarr
+  - overseerr
