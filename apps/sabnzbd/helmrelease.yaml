@@ -1,0 +1,107 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: sabnzbd
+  namespace: media
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: app-template
+      version: "3.5.1"
+      sourceRef:
+        kind: HelmRepository
+        name: bjw-s
+        namespace: flux-system
+      interval: 30m
+  install:
+    createNamespace: false
+    remediation:
+      retries: 3
+    timeout: 15m
+  upgrade:
+    remediation:
+      retries: 3
+    timeout: 15m
+  values:
+    controllers:
+      sabnzbd:
+        annotations:
+          reloader.stakater.com/auto: "true"
+
+        initContainers:
+          init-config:
+            image:
+              repository: busybox
+              tag: latest
+            command:
+              - /bin/sh
+              - -c
+              - |
+                #!/bin/sh
+                echo "waiting for backup to be uploaded..."
+
+                if [ -f "/config/sabnzbd.ini" ]; then
+                  echo "Config already exists, exiting."
+                  exit 0
+                fi
+
+                # wait for backup to be manually copied
+                while [ ! -f /config/*.tgz ]; do sleep 2; done;
+
+                tar -xvzf /config/*.tgz -C /config
+                rm /config/*.tgz
+
+                echo "Done."
+
+        containers:
+          app:
+            image:
+              repository: lscr.io/linuxserver/sabnzbd
+              tag: latest
+            env:
+              - name: PUID
+                valueFrom:
+                  configMapKeyRef:
+                    name: sabnzbd-config
+                    key: PUID
+              - name: PGID
+                valueFrom:
+                  configMapKeyRef:
+                    name: sabnzbd-config
+                    key: PGID
+              - name: TZ
+                valueFrom:
+                  configMapKeyRef:
+                    name: sabnzbd-config
+                    key: TZ
+            resources:
+              requests:
+                cpu: "200m"
+                memory: "512Mi"
+              limits:
+                cpu: "2000m"
+                memory: "2Gi"
+
+    service:
+      app:
+        controller: sabnzbd
+        ports:
+          http:
+            port: 8080
+
+    persistence:
+      config:
+        existingClaim: sabnzbd-config
+        globalMounts:
+          - path: /config
+      media:
+        type: hostPath
+        hostPath: /media/rishik/Expansion
+        globalMounts:
+          - path: /media
+
+    defaultPodOptions:
+      nodeSelector:
+        kubernetes.io/hostname: rishik-worker1
