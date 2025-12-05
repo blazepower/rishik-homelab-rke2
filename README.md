@@ -1,426 +1,290 @@
-# Gitleaks
+# rishik-homelab-rke2
+
+Kubernetes homelab configuration managed with RKE2 and Flux GitOps.
+
+## Flux GitOps
+
+This repository is managed by [Flux](https://fluxcd.io/), a GitOps tool that automatically synchronizes the cluster state with the configuration in this repository.
+
+- Flux monitors this Git repository for changes
+- When changes are detected, Flux automatically applies them to the cluster
+- The cluster state is continuously reconciled to match the repository
+
+**Deploying changes:** Simply commit and push changes to the `master` branch. Flux will automatically detect and apply them within the sync interval (10 minutes).
+
+## Directory Structure
 
 ```
-┌─○───┐
-│ │╲  │
-│ │ ○ │
-│ ○ ░ │
-└─░───┘
+clusters/
+└── production/
+    ├── flux-system/            # Flux GitOps components
+    └── kustomization.yaml      # Production cluster configuration
+infrastructure/
+├── accelerators/               # Hardware accelerator plugins (Intel GPU)
+├── crds/                       # Custom Resource Definitions
+├── namespaces/                 # Namespace definitions
+├── networking/                 # Network configuration
+│   ├── traefik/                # Traefik ingress controller
+│   └── metallb/                # MetalLB load balancer
+├── node-bootstrap/             # Node bootstrap automation
+│   ├── iscsi/                  # iSCSI installation
+│   └── gpu/                    # GPU bootstrap DaemonSet for Intel QuickSync
+├── node-config/                # Node labels and configuration
+├── policies/                   # Kyverno policy engine and cluster policies
+│   ├── kyverno-install/        # Kyverno installation (namespace, HelmRelease)
+│   ├── kyverno-policies/       # ClusterPolicy resources (applied after Kyverno is ready)
+│   │   ├── cluster-policies/   # Custom validation and mutation policies
+│   │   └── pss-baseline/       # Pod Security Standards Baseline policies
+│   ├── network-policies/       # Kubernetes NetworkPolicy resources
+│   └── rwx-access/             # RBAC for RWX storage management
+├── rbac/                       # Role-based access control
+├── storage/                    # Storage configuration (Longhorn)
+├── monitoring/                 # Monitoring stack (Prometheus, Grafana, Alertmanager)
+│   ├── dashboards/             # Standard Grafana dashboards
+│   └── custom-dashboards/      # Custom dashboards (observability, hardware monitoring)
+├── logging/                    # Logging stack (Loki, Promtail)
+├── cert-manager/               # TLS certificate management
+├── sealed-secrets/             # GitOps-safe secret encryption
+└── kustomization.yaml
+apps/
+├── kaneo/                      # Kaneo project management application
+└── plex/                       # Plex media server application
+├── prowlarr/                   # Prowlarr indexer manager
+├── sonarr/                     # Sonarr TV shows manager
+├── radarr/                     # Radarr movies manager
+├── sabnzbd/                    # SABnzbd NZB download client
+├── bazarr/                     # Bazarr subtitles manager
+└── overseerr/                  # Overseerr media request management
+docs/                           # Detailed component documentation
 ```
 
-<p align="left">
-  <p align="left">
-	  <a href="https://github.com/zricethezav/gitleaks/actions/workflows/test.yml">
-		  <img alt="Github Test" src="https://github.com/zricethezav/gitleaks/actions/workflows/test.yml/badge.svg">
-	  </a>
-	  <a href="https://hub.docker.com/r/zricethezav/gitleaks">
-		  <img src="https://img.shields.io/docker/pulls/zricethezav/gitleaks.svg" />
-	  </a>
-	  <a href="https://github.com/zricethezav/gitleaks-action">
-        	<img alt="gitleaks badge" src="https://img.shields.io/badge/protected%20by-gitleaks-blue">
-    	 </a>
-	  <a href="https://twitter.com/intent/follow?screen_name=zricethezav">
-		  <img src="https://img.shields.io/twitter/follow/zricethezav?label=Follow%20zricethezav&style=social&color=blue" alt="Follow @zricethezav" />
-	  </a>
-  </p>
-</p>
-
-### Join our Discord! [![Discord](https://img.shields.io/discord/1102689410522284044.svg?label=&logo=discord&logoColor=ffffff&color=7389D8&labelColor=6A7EC2)](https://discord.gg/8Hzbrnkr7E)
-
-Gitleaks is a SAST tool for **detecting** and **preventing** hardcoded secrets like passwords, api keys, and tokens in git repos. Gitleaks is an **easy-to-use, all-in-one solution** for detecting secrets, past or present, in your code.
-
-```
-➜  ~/code(master) gitleaks detect --source . -v
-
-    ○
-    │╲
-    │ ○
-    ○ ░
-    ░    gitleaks
-
-
-Finding:     "export BUNDLE_ENTERPRISE__CONTRIBSYS__COM=cafebabe:deadbeef",
-Secret:      cafebabe:deadbeef
-RuleID:      sidekiq-secret
-Entropy:     2.609850
-File:        cmd/generate/config/rules/sidekiq.go
-Line:        23
-Commit:      cd5226711335c68be1e720b318b7bc3135a30eb2
-Author:      John
-Email:       john@users.noreply.github.com
-Date:        2022-08-03T12:31:40Z
-Fingerprint: cd5226711335c68be1e720b318b7bc3135a30eb2:cmd/generate/config/rules/sidekiq.go:sidekiq-secret:23
-```
-
-## Getting Started
-
-Gitleaks can be installed using Homebrew, Docker, or Go. Gitleaks is also available in binary form for many popular platforms and OS types on the [releases page](https://github.com/zricethezav/gitleaks/releases). In addition, Gitleaks can be implemented as a pre-commit hook directly in your repo or as a GitHub action using [Gitleaks-Action](https://github.com/gitleaks/gitleaks-action).
-
-### Installing
-
-```bash
-# MacOS
-brew install gitleaks
-
-# Docker (DockerHub)
-docker pull zricethezav/gitleaks:latest
-docker run -v ${path_to_host_folder_to_scan}:/path zricethezav/gitleaks:latest [COMMAND] --source="/path" [OPTIONS]
-
-# Docker (ghcr.io)
-docker pull ghcr.io/gitleaks/gitleaks:latest
-docker run -v ${path_to_host_folder_to_scan}:/path ghcr.io/gitleaks/gitleaks:latest [COMMAND] --source="/path" [OPTIONS]
-
-# From Source
-git clone https://github.com/gitleaks/gitleaks.git
-cd gitleaks
-make build
-```
-
-### GitHub Action
-
-Check out the official [Gitleaks GitHub Action](https://github.com/gitleaks/gitleaks-action)
-
-```
-name: gitleaks
-on: [pull_request, push, workflow_dispatch]
-jobs:
-  scan:
-    name: gitleaks
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-      - uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE}} # Only required for Organizations, not personal accounts.
-```
-
-### Pre-Commit
-
-1. Install pre-commit from https://pre-commit.com/#install
-2. Create a `.pre-commit-config.yaml` file at the root of your repository with the following content:
-
-   ```
-   repos:
-     - repo: https://github.com/gitleaks/gitleaks
-       rev: v8.16.1
-       hooks:
-         - id: gitleaks
-   ```
-
-   for a [native execution of GitLeaks](https://github.com/zricethezav/gitleaks/releases) or use the [`gitleaks-docker` pre-commit ID](https://github.com/zricethezav/gitleaks/blob/master/.pre-commit-hooks.yaml) for executing GitLeaks using the [official Docker images](#docker)
+## Components
 
-3. Auto-update the config to the latest repos' versions by executing `pre-commit autoupdate`
-4. Install with `pre-commit install`
-5. Now you're all set!
+| Component | Description | Documentation |
+|-----------|-------------|---------------|
+| **Monitoring** | Prometheus, Grafana, and Alertmanager via kube-prometheus-stack with custom dashboards | [docs/monitoring.md](docs/monitoring.md) |
+| **Logging** | Loki and Promtail for centralized log aggregation | [docs/logging.md](docs/logging.md) |
+| **Storage** | Longhorn distributed storage as default StorageClass | [docs/storage.md](docs/storage.md) |
+| **Networking** | Traefik ingress controller and MetalLB load balancer | [docs/networking.md](docs/networking.md) |
+| **TLS** | cert-manager for TLS certificate management | [docs/tls.md](docs/tls.md) |
+| **Sealed Secrets** | Bitnami Sealed Secrets for GitOps-safe secret management | [docs/sealed-secrets.md](docs/sealed-secrets.md) |
+| **Policies** | Kyverno policy engine for admission control and policy enforcement | [docs/policies.md](docs/policies.md) |
+| **Node Bootstrap** | Automated iSCSI installation and GPU bootstrap DaemonSet for Intel QuickSync | [docs/node-bootstrap.md](docs/node-bootstrap.md) |
+| **GPU Acceleration** | Intel QuickSync hardware transcoding via GPU Device Plugin | [infrastructure/accelerators/intel-gpu/README.md](infrastructure/accelerators/intel-gpu/README.md) |
+| **CI/CD** | Comprehensive validation and security scanning pipeline | [docs/ci-cd.md](docs/ci-cd.md) |
+| **Kaneo** | Open-source project management tool via official Helm chart | [apps/kaneo/](#kaneo-project-management) |
+| **Plex** | Plex Media Server via official Helm chart with Intel QuickSync GPU transcoding | [apps/plex/](#plex-media-server) |
+| **Media Automation** | Complete *arr stack for media automation (Prowlarr, Sonarr, Radarr, SABnzbd, Bazarr, Overseerr) | [apps/](#media-automation-arr-stack) |
 
-```
-➜ git commit -m "this commit contains a secret"
-Detect hardcoded secrets.................................................Failed
-```
+## Dependency Management
 
-Note: to disable the gitleaks pre-commit hook you can prepend `SKIP=gitleaks` to the commit command
-and it will skip running gitleaks
+This repository uses [Dependabot](https://docs.github.com/en/code-security/dependabot) to automatically check for and create pull requests for GitHub Actions dependency updates.
 
-```
-➜ SKIP=gitleaks git commit -m "skip gitleaks check"
-Detect hardcoded secrets................................................Skipped
-```
-
-## Usage
-
-```
-Usage:
-  gitleaks [command]
-
-Available Commands:
-  completion  generate the autocompletion script for the specified shell
-  detect      detect secrets in code
-  help        Help about any command
-  protect     protect secrets in code
-  version     display gitleaks version
-
-Flags:
-  -b, --baseline-path string       path to baseline with issues that can be ignored
-  -c, --config string              config file path
-                                   order of precedence:
-                                   1. --config/-c
-                                   2. env var GITLEAKS_CONFIG
-                                   3. (--source/-s)/.gitleaks.toml
-                                   If none of the three options are used, then gitleaks will use the default config
-      --exit-code int              exit code when leaks have been encountered (default 1)
-  -h, --help                       help for gitleaks
-  -l, --log-level string           log level (trace, debug, info, warn, error, fatal) (default "info")
-      --max-target-megabytes int   files larger than this will be skipped
-      --no-color                   turn off color for verbose output
-      --no-banner                  suppress banner
-      --redact                     redact secrets from logs and stdout
-  -f, --report-format string       output format (json, csv, junit, sarif) (default "json")
-  -r, --report-path string         report file
-  -s, --source string              path to source (default ".")
-  -v, --verbose                    show verbose output from scan
+- **Update schedule:** Weekly on Mondays at 06:00 UTC
+- **Configuration:** `.github/dependabot.yml`
 
-Use "gitleaks [command] --help" for more information about a command.
-```
+**Note:** Helm chart updates are managed via Flux HelmReleases, not Dependabot.
 
-### Commands
+## Performance Tuning
 
-There are two commands you will use to detect secrets; `detect` and `protect`.
+This cluster is optimized for a resource-constrained homelab environment (2-node RKE2 cluster). Key optimizations include:
 
-#### Detect
+### Resource Limits
 
-The `detect` command is used to scan repos, directories, and files. This command can be used on developer machines and in CI environments.
+All components have explicit resource requests and limits to prevent runaway resource consumption:
 
-When running `detect` on a git repository, gitleaks will parse the output of a `git log -p` command (you can see how this executed
-[here](https://github.com/zricethezav/gitleaks/blob/7240e16769b92d2a1b137c17d6bf9d55a8562899/git/git.go#L17-L25)).
-[`git log -p` generates patches](https://git-scm.com/docs/git-log#_generating_patch_text_with_p) which gitleaks will use to detect secrets.
-You can configure what commits `git log` will range over by using the `--log-opts` flag. `--log-opts` accepts any option for `git log -p`.
-For example, if you wanted to run gitleaks on a range of commits you could use the following command: `gitleaks detect --source . --log-opts="--all commitA..commitB"`.
-See the `git log` [documentation](https://git-scm.com/docs/git-log) for more information.
+| Component | CPU Request | CPU Limit | Memory Request | Memory Limit |
+|-----------|-------------|-----------|----------------|--------------|
+| Prometheus | 100m | 500m | 256Mi | 1Gi |
+| Grafana | 50m | 200m | 128Mi | 256Mi |
+| Alertmanager | 25m | 100m | 64Mi | 128Mi |
+| Loki | 100m | 500m | 256Mi | 512Mi |
+| Promtail | 50m | 200m | 64Mi | 128Mi |
+| Traefik | 50m | 200m | 64Mi | 128Mi |
+| Longhorn Manager | 25m | 200m | 64Mi | 256Mi |
+| cert-manager | 25m | 100m | 64Mi | 128Mi |
+| MetalLB Controller | 10m | 100m | 32Mi | 128Mi |
 
-You can scan files and directories by using the `--no-git` option.
+### Monitoring Optimizations
 
-If you want to run only specific rules you can do so by using the `--enable-rule` option (with a rule ID as a parameter), this flag can be used multiple times. For example: `--enable-rule=atlassian-api-token` will only apply that rule. You can find a list of rules [here](config/gitleaks.toml).
+- **Scrape interval**: 60s (reduced from default 30s) to lower CPU/memory usage
+- **Evaluation interval**: 60s for rule evaluation
+- **Retention**: 7 days for Prometheus metrics
+- **Disabled components**: kubeControllerManager, kubeScheduler, kubeProxy, kubeEtcd, coreDns monitoring (RKE2 manages these internally)
 
-#### Protect
-
-The `protect` command is used to scan uncommitted changes in a git repo. This command should be used on developer machines in accordance with
-[shifting left on security](https://cloud.google.com/architecture/devops/devops-tech-shifting-left-on-security).
-When running `protect` on a git repository, gitleaks will parse the output of a `git diff` command (you can see how this executed
-[here](https://github.com/zricethezav/gitleaks/blob/7240e16769b92d2a1b137c17d6bf9d55a8562899/git/git.go#L48-L49)). You can set the
-`--staged` flag to check for changes in commits that have been `git add`ed. The `--staged` flag should be used when running Gitleaks
-as a pre-commit.
-
-**NOTE**: the `protect` command can only be used on git repos, running `protect` on files or directories will result in an error message.
-
-### Creating a baseline
+### Logging Optimizations
 
-When scanning large repositories or repositories with a long history, it can be convenient to use a baseline. When using a baseline,
-gitleaks will ignore any old findings that are present in the baseline. A baseline can be any gitleaks report. To create a gitleaks report, run gitleaks with the `--report-path` parameter.
+- **Log retention**: 14 days (336 hours) for Loki
+- **Ingestion limits**: Rate-limited to 4MB/s with 6MB burst
+- **Stream limits**: Maximum 5000 streams per user
 
-```
-gitleaks detect --report-path gitleaks-report.json # This will save the report in a file called gitleaks-report.json
-```
+### Storage Optimizations
 
-Once as baseline is created it can be applied when running the detect command again:
-
-```
-gitleaks detect --baseline-path gitleaks-report.json --report-path findings.json
-```
-
-After running the detect command with the --baseline-path parameter, report output (findings.json) will only contain new issues.
+- **Replica count**: 1 (single replica for homelab - no HA needed)
+- **Replica auto-balance**: Disabled to reduce background I/O
+- **Orphan auto-deletion**: Enabled to clean up unused resources
+- **Minimal storage threshold**: 15% reserved for safety
 
-### Verify Findings
-
-You can verify a finding found by gitleaks using a `git log` command.
-Example output:
+### Networking Optimizations
 
-```
-Finding:     aws_secret="AKIAIMNOJVGFDXXXE4OA"
-RuleID:      aws-access-token
-Secret       AKIAIMNOJVGFDXXXE4OA
-Entropy:     3.65
-File:        checks_test.go
-Line:        37
-Commit:      ec2fc9d6cb0954fb3b57201cf6133c48d8ca0d29
-Author:      Zachary Rice
-Email:       z@email.com
-Date:        2018-01-28T17:39:00Z
-Fingerprint: ec2fc9d6cb0954fb3b57201cf6133c48d8ca0d29:checks_test.go:aws-access-token:37
-```
-
-We can use the following format to verify the leak:
-
-```
-git log -L {StartLine,EndLine}:{File} {Commit}
-```
-
-So in this example it would look like:
-
-```
-git log -L 37,37:checks_test.go ec2fc9d6cb0954fb3b57201cf6133c48d8ca0d29
-```
-
-Which gives us:
-
-```
-commit ec2fc9d6cb0954fb3b57201cf6133c48d8ca0d29
-Author: zricethezav <thisispublicanyways@gmail.com>
-Date:   Sun Jan 28 17:39:00 2018 -0500
-
-    [update] entropy check
-
-diff --git a/checks_test.go b/checks_test.go
---- a/checks_test.go
-+++ b/checks_test.go
-@@ -28,0 +37,1 @@
-+               "aws_secret= \"AKIAIMNOJVGFDXXXE4OA\"":          true,
-
-```
-
-## Pre-Commit hook
-
-You can run Gitleaks as a pre-commit hook by copying the example `pre-commit.py` script into
-your `.git/hooks/` directory.
-
-## Configuration
-
-Gitleaks offers a configuration format you can follow to write your own secret detection rules:
-
-```toml
-# Title for the gitleaks configuration file.
-title = "Gitleaks title"
-
-# Extend the base (this) configuration. When you extend a configuration
-# the base rules take precedence over the extended rules. I.e., if there are
-# duplicate rules in both the base configuration and the extended configuration
-# the base rules will override the extended rules.
-# Another thing to know with extending configurations is you can chain together
-# multiple configuration files to a depth of 2. Allowlist arrays are appended
-# and can contain duplicates.
-# useDefault and path can NOT be used at the same time. Choose one.
-[extend]
-# useDefault will extend the base configuration with the default gitleaks config:
-# https://github.com/zricethezav/gitleaks/blob/master/config/gitleaks.toml
-useDefault = true
-# or you can supply a path to a configuration. Path is relative to where gitleaks
-# was invoked, not the location of the base config.
-path = "common_config.toml"
-
-# An array of tables that contain information that define instructions
-# on how to detect secrets
-[[rules]]
-
-# Unique identifier for this rule
-id = "awesome-rule-1"
-
-# Short human readable description of the rule.
-description = "awesome rule 1"
-
-# Golang regular expression used to detect secrets. Note Golang's regex engine
-# does not support lookaheads.
-regex = '''one-go-style-regex-for-this-rule'''
-
-# Golang regular expression used to match paths. This can be used as a standalone rule or it can be used
-# in conjunction with a valid `regex` entry.
-path = '''a-file-path-regex'''
-
-# Array of strings used for metadata and reporting purposes.
-tags = ["tag","another tag"]
-
-# Int used to extract secret from regex match and used as the group that will have
-# its entropy checked if `entropy` is set.
-secretGroup = 3
-
-# Float representing the minimum shannon entropy a regex group must have to be considered a secret.
-entropy = 3.5
-
-# Keywords are used for pre-regex check filtering. Rules that contain
-# keywords will perform a quick string compare check to make sure the
-# keyword(s) are in the content being scanned. Ideally these values should
-# either be part of the idenitifer or unique strings specific to the rule's regex
-# (introduced in v8.6.0)
-keywords = [
-  "auth",
-  "password",
-  "token",
-]
-
-# You can include an allowlist table for a single rule to reduce false positives or ignore commits
-# with known/rotated secrets
-[rules.allowlist]
-description = "ignore commit A"
-commits = [ "commit-A", "commit-B"]
-paths = [
-  '''go\.mod''',
-  '''go\.sum'''
-]
-# note: (rule) regexTarget defaults to check the _Secret_ in the finding.
-# if regexTarget is not specified then _Secret_ will be used.
-# Acceptable values for regexTarget are "match" and "line"
-regexTarget = "match"
-regexes = [
-  '''process''',
-  '''getenv''',
-]
-# note: stopwords targets the extracted secret, not the entire regex match
-# like 'regexes' does. (stopwords introduced in 8.8.0)
-stopwords = [
-  '''client''',
-  '''endpoint''',
-]
-
-
-# This is a global allowlist which has a higher order of precedence than rule-specific allowlists.
-# If a commit listed in the `commits` field below is encountered then that commit will be skipped and no
-# secrets will be detected for said commit. The same logic applies for regexes and paths.
-[allowlist]
-description = "global allow list"
-commits = [ "commit-A", "commit-B", "commit-C"]
-paths = [
-  '''gitleaks\.toml''',
-  '''(.*?)(jpg|gif|doc)'''
-]
-
-# note: (global) regexTarget defaults to check the _Secret_ in the finding.
-# if regexTarget is not specified then _Secret_ will be used.
-# Acceptable values for regexTarget are "match" and "line"
-regexTarget = "match"
-
-regexes = [
-  '''219-09-9999''',
-  '''078-05-1120''',
-  '''(9[0-9]{2}|666)-\d{2}-\d{4}''',
-]
-# note: stopwords targets the extracted secret, not the entire regex match
-# like 'regexes' does. (stopwords introduced in 8.8.0)
-stopwords = [
-  '''client''',
-  '''endpoint''',
-]
-```
-
-Refer to the default [gitleaks config](https://github.com/zricethezav/gitleaks/blob/master/config/gitleaks.toml) for examples or follow the [contributing guidelines](https://github.com/gitleaks/gitleaks/blob/master/CONTRIBUTING.md) if you would like to contribute to the default configuration. Additionally, you can check out [this gitleaks blog post](https://blog.gitleaks.io/stop-leaking-secrets-configuration-2-3-aeed293b1fbf) which covers advanced configuration setups.
-
-### Additional Configuration
-
-#### gitleaks:allow
-
-If you are knowingly committing a test secret that gitleaks will catch you can add a `gitleaks:allow` comment to that line which will instruct gitleaks
-to ignore that secret. Ex:
-
-```
-class CustomClass:
-    discord_client_secret = '8dyfuiRyq=vVc3RRr_edRk-fK__JItpZ'  #gitleaks:allow
-
-```
-
-#### .gitleaksignore
-
-You can ignore specific findings by creating a `.gitleaksignore` file at the root of your repo. In release v8.10.0 Gitleaks added a `Fingerprint` value to the Gitleaks report. Each leak, or finding, has a Fingerprint that uniquely identifies a secret. Add this fingerprint to the `.gitleaksignore` file to ignore that specific secret. See Gitleaks' [.gitleaksignore](https://github.com/zricethezav/gitleaks/blob/master/.gitleaksignore) for an example. Note: this feature is experimental and is subject to change in the future.
-
-## Sponsorships
-<p align="left">
-	<h3><a href="https://coderabbit.ai/?utm_source=oss&utm_medium=sponsorship&utm_campaign=gitleaks">coderabbit.ai</h3>
-	  <a href="https://coderabbit.ai/?utm_source=oss&utm_medium=sponsorship&utm_campaign=gitleaks">
-		  <img alt="CodeRabbit.ai Sponsorship" src="https://github.com/gitleaks/gitleaks/assets/15034943/76c30a85-887b-47ca-9956-17a8e55c6c41" width=200>
-	  </a>
-</p>
-<p align="left">
-	  <a href="https://www.tines.com/?utm_source=oss&utm_medium=sponsorship&utm_campaign=gitleaks">
-		  <img alt="Tines Sponsorship" src="https://user-images.githubusercontent.com/15034943/146411864-4878f936-b4f7-49a0-b625-f9f40c704bfa.png" width=200>
-	  </a>
-  </p>
-
-
-## Exit Codes
-
-You can always set the exit code when leaks are encountered with the --exit-code flag. Default exit codes below:
-
-```
-0 - no leaks present
-1 - leaks or error encountered
-126 - unknown flag
-```
+- **Traefik replicas**: 1 (sufficient for homelab traffic)
+- **Service type**: LoadBalancer via MetalLB
+
+## Plex Media Server
+
+Plex is deployed using the official [plex-media-server Helm chart](https://github.com/plexinc/pms-docker/tree/master/charts/plex-media-server) from Plex Inc.
+
+### Configuration
+
+| Setting | Value |
+|---------|-------|
+| **Node** | `rishik-worker1` (pinned via nodeSelector) |
+| **Config Storage** | 20Gi Longhorn PVC |
+| **Media Path** | `/media/rishik/Expansion` (external HDD, hostPath) |
+| **GPU** | Intel QuickSync (`gpu.intel.com/i915: "1"`) for hardware transcoding |
+| **LoadBalancer IP** | `192.168.1.200` (MetalLB) |
+| **Ingress** | `plex.homelab` (Traefik with TLS) |
+| **Port** | 32400 |
+
+### Access
+
+- **Local HTTPS**: `https://plex.homelab` (via Traefik ingress)
+- **Remote/Direct**: `http://192.168.1.200:32400` (via LoadBalancer)
+
+### Files
+
+- `apps/plex/helmrelease.yaml` - HelmRelease configuration
+- `apps/plex/service.yaml` - LoadBalancer and ClusterIP services
+- `apps/plex/ingress.yaml` - Traefik ingress for plex.homelab
+- `apps/plex/certificate.yaml` - TLS certificate
+- `apps/plex/pvc.yaml` - Longhorn PVC for config storage
+- `apps/plex/networkpolicy.yaml` - Network policy for Plex pods
+- `infrastructure/crds/plex-helm-repo.yaml` - HelmRepository for Plex chart
+
+## Kaneo Project Management
+
+Kaneo is deployed using the official [Kaneo Helm chart](https://github.com/usekaneo/kaneo) from the Kaneo project.
+
+### Overview
+
+Kaneo is an open-source project management tool with three main components:
+- **API** - Backend service (ghcr.io/usekaneo/api) running on port 1337
+- **Web** - Frontend service (ghcr.io/usekaneo/web) running on port 80
+- **PostgreSQL** - Database (postgres:16-alpine) running on port 5432
+
+### Configuration
+
+| Setting | Value |
+|---------|-------|
+| **Namespace** | `kaneo` |
+| **Database Storage** | 8Gi Longhorn PVC |
+| **Ingress** | `kaneo.homelab` (Traefik with TLS) |
+| **Path Routing** | `/api/*` → API service, `/*` → Web service |
+| **API Port** | 1337 |
+| **Web Port** | 80 |
+
+### Resource Limits
+
+| Component | CPU Request | CPU Limit | Memory Request | Memory Limit |
+|-----------|-------------|-----------|----------------|--------------|
+| PostgreSQL | 50m | 200m | 128Mi | 256Mi |
+| API | 50m | 200m | 128Mi | 256Mi |
+| Web | 25m | 100m | 64Mi | 128Mi |
+
+### Access
+
+- **HTTPS**: `https://kaneo.homelab` (via Traefik ingress with TLS)
+- **API Endpoint**: `https://kaneo.homelab/api` (proxied to API service)
+
+### Files
+
+- `apps/kaneo/namespace.yaml` - Namespace definition
+- `apps/kaneo/helmrelease.yaml` - HelmRelease configuration
+- `apps/kaneo/ingress.yaml` - Traefik ingress with path-based routing
+- `apps/kaneo/networkpolicy.yaml` - Network policy for Kaneo pods
+- `apps/kaneo/kustomization.yaml` - Kustomize configuration
+- `infrastructure/crds/kaneo-helm-repo.yaml` - HelmRepository for Kaneo chart
+
+### Security Notes
+
+The initial deployment includes placeholder secrets for:
+- PostgreSQL password (`kaneo_password`)
+- JWT access secret (`change_me_to_secure_secret`)
+
+**TODO**: Replace these with SealedSecrets for production use.
+## Media Automation (*arr Stack)
+
+The complete *arr stack for media automation is deployed in the `media` namespace. All applications use the [bjw-s app-template Helm chart](https://github.com/bjw-s/helm-charts/tree/main/charts/other/app-template) with linuxserver.io container images.
+
+### Deployed Applications
+
+| Application | Port | Description | Migration |
+|-------------|------|-------------|-----------|
+| **Prowlarr** | 9696 | Indexer manager - central hub for managing indexers | Restore from backup |
+| **Sonarr** | 8989 | TV shows manager - automated TV show downloads | Restore from backup |
+| **Radarr** | 7878 | Movies manager - automated movie downloads | Restore from backup |
+| **SABnzbd** | 8080 | NZB download client - downloads from Usenet | Restore from backup |
+| **Bazarr** | 6767 | Subtitles manager - automated subtitle downloads | New setup |
+| **Overseerr** | 5055 | Media request management - user-friendly request interface | New setup |
+
+### Shared Configuration
+
+All apps in the *arr stack share common configuration:
+
+| Setting | Value |
+|---------|-------|
+| **Namespace** | `media` |
+| **Node** | `rishik-worker1` (pinned via nodeSelector) |
+| **Storage Class** | `longhorn` |
+| **Config PVC Size** | 1Gi per app |
+| **User/Group** | PUID=1000, PGID=1000 |
+| **Timezone** | America/Los_Angeles |
+| **Media Mount** | `/media/rishik/Expansion` → `/media` (hostPath) |
+| **Service Type** | ClusterIP (internal only) |
+| **Ingress** | `<app>.homelab` (e.g., `prowlarr.homelab`) |
+| **TLS** | Enabled via cert-manager with `cluster-ca` ClusterIssuer |
+
+### Resource Allocation
+
+#### Standard Apps (Prowlarr, Sonarr, Radarr, Bazarr, Overseerr)
+- **CPU Request**: 100m
+- **CPU Limit**: 1000m (1 core)
+- **Memory Request**: 256Mi
+- **Memory Limit**: 1Gi
+
+#### SABnzbd (Higher for unpacking)
+- **CPU Request**: 200m
+- **CPU Limit**: 2000m (2 cores)
+- **Memory Request**: 512Mi
+- **Memory Limit**: 2Gi
+
+### Directory Structure
+
+Download directories on the media mount:
+- `/media/downloads/complete/tv/` - Completed TV downloads
+- `/media/downloads/complete/movies/` - Completed movie downloads
+- `/media/downloads/incomplete/` - In-progress downloads
+
+### Access
+
+All apps are accessible via HTTPS ingress:
+- **Prowlarr**: `https://prowlarr.homelab`
+- **Sonarr**: `https://sonarr.homelab`
+- **Radarr**: `https://radarr.homelab`
+- **SABnzbd**: `https://sabnzbd.homelab`
+- **Bazarr**: `https://bazarr.homelab`
+- **Overseerr**: `https://overseerr.homelab`
+
+### Files Per App
+
+Each app follows the same structure under `apps/<app>/`:
+- `helmrelease.yaml` - HelmRelease using bjw-s app-template chart
+- `pvc.yaml` - 1Gi Longhorn PVC for config storage
+- `configmap.yaml` - Environment variables (PUID, PGID, TZ)
+- `ingress.yaml` - Traefik ingress for `<app>.homelab`
+- `certificate.yaml` - TLS certificate via cert-manager
+- `kustomization.yaml` - Kustomize configuration
+
+### Helm Repository
+
+- `infrastructure/crds/bjw-s-helm-repo.yaml` - HelmRepository for bjw-s charts
