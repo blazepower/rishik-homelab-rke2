@@ -76,6 +76,7 @@ spec:
     # PLEX_UID/PLEX_GID should match the ownership of the external HDD
     extraEnv:
       PLEX_CLAIM: ""
+      ALLOWED_NETWORKS: "192.168.1.0/24,10.42.0.0/16,10.43.0.0/16"
 
     # Reference ConfigMap for configurable values
     extraEnvFrom:
@@ -87,12 +88,17 @@ spec:
         hostPath:
           path: /media/rishik/Expansion
           type: Directory
+      - name: dri
+        hostPath:
+          path: /dev/dri
+          type: Directory
 
     extraVolumeMounts:
       - name: media
         mountPath: /media
         readOnly: true
-
+      - name: dri
+        mountPath: /dev/dri
 
     service:
       type: LoadBalancer
