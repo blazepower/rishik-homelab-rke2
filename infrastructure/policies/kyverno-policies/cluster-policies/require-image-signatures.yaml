@@ -35,6 +35,7 @@ spec:
                 - longhorn-system
                 - storage
                 - monitoring
+                - media
       verifyImages:
         - imageReferences:
             - "*"
