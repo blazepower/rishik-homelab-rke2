@@ -258,17 +258,6 @@ All apps in the *arr stack share common configuration:
 - **Memory Request**: 512Mi
 - **Memory Limit**: 2Gi
 
-### Migration Strategy
-
-Four apps (Prowlarr, Sonarr, Radarr, SABnzbd) include init containers that wait for backup archives to be manually uploaded to the config PVC:
-
-1. App starts with init container waiting for `*.tgz` file in `/config`
-2. Manually copy backup archive to the config PVC
-3. Init container extracts archive and removes it
-4. Main container starts with restored configuration
-
-Bazarr and Overseerr are new setups without init containers.
-
 ### Directory Structure
 
 Download directories on the media mount:
