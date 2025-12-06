@@ -72,6 +72,17 @@ spec:
           name: kaneo-credentials
           key: jwt-secret
         disableRegistration: false
+        database:
+          external:
+            enabled: true
+            host: kaneo-postgresql
+            port: 5432
+            database: kaneo
+            username: kaneo_user
+            existingSecret:
+              enabled: true
+              name: kaneo-credentials
+              passwordKey: postgres-password
 
     web:
       image:
