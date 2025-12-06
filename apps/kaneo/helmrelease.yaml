@@ -108,7 +108,7 @@ spec:
       service:
         type: ClusterIP
         port: 80
-        targetPort: 80
+        targetPort: 5173
       resources:
         requests:
           cpu: "25m"
