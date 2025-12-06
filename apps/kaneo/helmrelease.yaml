@@ -67,8 +67,10 @@ spec:
           cpu: "200m"
           memory: "256Mi"
       env:
-        existingSecret: kaneo-credentials
-        jwtAccessSecretKey: jwt-secret
+        existingSecret:
+          enabled: true
+          name: kaneo-credentials
+          key: jwt-secret
         disableRegistration: false
 
     web:
