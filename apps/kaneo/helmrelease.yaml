@@ -84,7 +84,7 @@ spec:
         existingSecret:
           enabled: true
           name: kaneo-credentials
-          key: jwt-access
+          key: jwt-secret
         disableRegistration: false
         database:
           external:
@@ -134,3 +134,31 @@ spec:
     # Disable built-in ingress - we'll create our own for Traefik
     ingress:
       enabled: false
+
+  # Patch to add AUTH_SECRET, KANEO_API_URL, KANEO_CLIENT_URL environment variables
+  # The Helm chart only sets JWT_ACCESS but the API expects AUTH_SECRET
+  postRenderers:
+    - kustomize:
+        patches:
+          - target:
+              kind: Deployment
+              name: kaneo
+            patch: |
+              - op: add
+                path: /spec/template/spec/containers/0/env/-
+                value:
+                  name: AUTH_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: kaneo-credentials
+                      key: jwt-secret
+              - op: add
+                path: /spec/template/spec/containers/0/env/-
+                value:
+                  name: KANEO_API_URL
+                  value: "https://kaneo.homelab"
+              - op: add
+                path: /spec/template/spec/containers/0/env/-
+                value:
+                  name: KANEO_CLIENT_URL
+                  value: "https://kaneo.homelab"
