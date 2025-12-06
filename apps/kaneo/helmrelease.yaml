@@ -66,6 +66,20 @@ spec:
         limits:
           cpu: "200m"
           memory: "256Mi"
+      livenessProbe:
+        httpGet:
+          path: /api/health
+          port: 1337
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        failureThreshold: 3
+      readinessProbe:
+        httpGet:
+          path: /api/health
+          port: 1337
+        initialDelaySeconds: 5
+        periodSeconds: 10
+        failureThreshold: 3
       env:
         existingSecret:
           enabled: true
