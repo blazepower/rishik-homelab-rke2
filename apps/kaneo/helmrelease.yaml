@@ -104,7 +104,7 @@ spec:
         tag: latest
         pullPolicy: IfNotPresent
       env:
-        apiUrl: "https://kaneo.homelab/api"
+        apiUrl: "https://kaneo.homelab"
       service:
         type: ClusterIP
         port: 80
