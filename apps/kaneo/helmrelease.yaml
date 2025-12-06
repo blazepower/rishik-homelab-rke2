@@ -7,9 +7,9 @@ spec:
   interval: 30m
   chart:
     spec:
-      chart: kaneo
+      chart: charts/kaneo
       sourceRef:
-        kind: HelmRepository
+        kind: GitRepository
         name: kaneo
         namespace: flux-system
       interval: 30m

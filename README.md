@@ -203,7 +203,7 @@ Kaneo is an open-source project management tool with three main components:
 - `apps/kaneo/ingress.yaml` - Traefik ingress with path-based routing
 - `apps/kaneo/networkpolicy.yaml` - Network policy for Kaneo pods
 - `apps/kaneo/kustomization.yaml` - Kustomize configuration
-- `infrastructure/crds/kaneo-helm-repo.yaml` - HelmRepository for Kaneo chart
+- `infrastructure/crds/kaneo-git-repo.yaml` - GitRepository for Kaneo chart
 
 ### Security Notes
 
