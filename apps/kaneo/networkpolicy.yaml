@@ -18,7 +18,7 @@ spec:
               app.kubernetes.io/name: traefik
       ports:
         - protocol: TCP
-          port: 80
+          port: 5173
         - protocol: TCP
           port: 1337
     # Allow internal communication within namespace
@@ -28,7 +28,7 @@ spec:
               kubernetes.io/metadata.name: kaneo
       ports:
         - protocol: TCP
-          port: 80
+          port: 5173
         - protocol: TCP
           port: 1337
         - protocol: TCP
