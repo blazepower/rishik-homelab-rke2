@@ -109,13 +109,27 @@ spec:
         type: ClusterIP
         port: 80
         targetPort: 5173
+      livenessProbe:
+        httpGet:
+          path: /
+          port: 5173
+        initialDelaySeconds: 120
+        periodSeconds: 10
+        failureThreshold: 3
+      readinessProbe:
+        httpGet:
+          path: /
+          port: 5173
+        initialDelaySeconds: 60
+        periodSeconds: 10
+        failureThreshold: 3
       resources:
         requests:
-          cpu: "25m"
-          memory: "64Mi"
-        limits:
-          cpu: "100m"
+          cpu: "50m"
           memory: "128Mi"
+        limits:
+          cpu: "200m"
+          memory: "256Mi"
 
     # Disable built-in ingress - we'll create our own for Traefik
     ingress:
