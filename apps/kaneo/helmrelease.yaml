@@ -84,7 +84,7 @@ spec:
         existingSecret:
           enabled: true
           name: kaneo-credentials
-          key: jwt-secret
+          key: jwt-access
         disableRegistration: false
         database:
           external:
