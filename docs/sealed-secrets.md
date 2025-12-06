@@ -21,6 +21,17 @@
 
 ## Configuration
 
+### Important: Controller Configuration
+
+When using the `kubeseal` CLI tool, you **must** specify the controller name and namespace for this cluster:
+
+- **Controller Name**: `sealed-secrets`
+- **Controller Namespace**: `flux-system`
+
+All `kubeseal` commands in this documentation use these values via the flags:
+- `--controller-name=sealed-secrets`
+- `--controller-namespace=flux-system`
+
 ### Deployment Details
 
 - **Chart**: sealed-secrets from bitnami-labs
