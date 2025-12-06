@@ -36,6 +36,24 @@ Kaneo consists of three main components:
 - **HTTPS**: `https://kaneo.homelab` (via Traefik ingress with TLS)
 - **API Endpoint**: `https://kaneo.homelab/api` (proxied to API service)
 
+## Port Forwarding (for debugging)
+
+To access Kaneo components directly via port forwarding:
+```bash
+# Web interface
+kubectl port-forward -n kaneo svc/kaneo-web 8080:80
+
+# API
+kubectl port-forward -n kaneo svc/kaneo-api 1337:1337
+
+# PostgreSQL
+kubectl port-forward -n kaneo svc/kaneo-postgresql 5432:5432
+```
+Then access at:
+- Web: `http://localhost:8080`
+- API: `http://localhost:1337`
+- PostgreSQL: `localhost:5432`
+
 ## Files
 
 - `namespace.yaml` - Namespace definition

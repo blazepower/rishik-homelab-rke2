@@ -32,6 +32,14 @@ This deployment uses the [bjw-s app-template Helm chart](https://github.com/bjw-
 
 - **HTTPS**: `https://radarr.homelab` (via Traefik ingress with TLS)
 
+## Port Forwarding (for debugging)
+
+To access Radarr directly via port forwarding:
+```bash
+kubectl port-forward -n media svc/radarr 7878:7878
+```
+Then access at: `http://localhost:7878`
+
 ## Files
 
 - `helmrelease.yaml` - HelmRelease using bjw-s app-template chart

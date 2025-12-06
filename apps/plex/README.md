@@ -37,6 +37,14 @@ Plex is configured with Intel QuickSync hardware transcoding support:
 - **Local HTTPS**: `https://plex.homelab` (via Traefik ingress)
 - **Remote/Direct**: `http://192.168.1.200:32400` (via LoadBalancer)
 
+## Port Forwarding (for debugging)
+
+To access Plex directly via port forwarding:
+```bash
+kubectl port-forward -n media svc/plex 32400:32400
+```
+Then access at: `http://localhost:32400`
+
 ## Files
 
 - `helmrelease.yaml` - HelmRelease configuration

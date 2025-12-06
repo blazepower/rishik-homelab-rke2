@@ -31,6 +31,14 @@ This deployment uses the [bjw-s app-template Helm chart](https://github.com/bjw-
 
 - **HTTPS**: `https://overseerr.homelab` (via Traefik ingress with TLS)
 
+## Port Forwarding (for debugging)
+
+To access Overseerr directly via port forwarding:
+```bash
+kubectl port-forward -n media svc/overseerr 5055:5055
+```
+Then access at: `http://localhost:5055`
+
 ## Files
 
 - `helmrelease.yaml` - HelmRelease using bjw-s app-template chart

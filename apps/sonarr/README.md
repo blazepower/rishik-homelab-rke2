@@ -32,6 +32,14 @@ This deployment uses the [bjw-s app-template Helm chart](https://github.com/bjw-
 
 - **HTTPS**: `https://sonarr.homelab` (via Traefik ingress with TLS)
 
+## Port Forwarding (for debugging)
+
+To access Sonarr directly via port forwarding:
+```bash
+kubectl port-forward -n media svc/sonarr 8989:8989
+```
+Then access at: `http://localhost:8989`
+
 ## Files
 
 - `helmrelease.yaml` - HelmRelease using bjw-s app-template chart

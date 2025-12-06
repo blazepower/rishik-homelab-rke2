@@ -34,6 +34,14 @@ This deployment uses the [bjw-s app-template Helm chart](https://github.com/bjw-
 
 - **HTTPS**: `https://sabnzbd.homelab` (via Traefik ingress with TLS)
 
+## Port Forwarding (for debugging)
+
+To access SABnzbd directly via port forwarding:
+```bash
+kubectl port-forward -n media svc/sabnzbd 8080:8080
+```
+Then access at: `http://localhost:8080`
+
 ## Files
 
 - `helmrelease.yaml` - HelmRelease using bjw-s app-template chart
