@@ -82,7 +82,7 @@ spec:
             existingSecret:
               enabled: true
               name: kaneo-credentials
-              passwordKey: postgres-password
+              passwordKey: database-url
 
     web:
       image:
