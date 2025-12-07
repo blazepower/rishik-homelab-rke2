@@ -137,6 +137,7 @@ spec:
 
   # Patch to add AUTH_SECRET, KANEO_API_URL, KANEO_CLIENT_URL environment variables
   # The Helm chart only sets JWT_ACCESS but the API expects AUTH_SECRET
+  # Also override KANEO_API_URL on web container - Helm chart appends /api but auth client needs base URL
   postRenderers:
     - kustomize:
         patches:
@@ -162,4 +163,8 @@ spec:
                           - name: KANEO_API_URL
                             value: "https://kaneo.homelab"
                           - name: KANEO_CLIENT_URL
+                            value: "https://kaneo.homelab"
+                      - name: web
+                        env:
+                          - name: KANEO_API_URL
                             value: "https://kaneo.homelab"
