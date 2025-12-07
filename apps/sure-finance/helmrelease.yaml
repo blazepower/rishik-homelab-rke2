@@ -75,7 +75,8 @@ spec:
           enabled: true
           size: 1Gi
           storageClass: longhorn
-          accessMode: ReadWriteOnce
+          accessModes:
+            - ReadWriteOnce
         resources:
           requests:
             cpu: "25m"
@@ -88,7 +89,8 @@ spec:
     storage:
       enabled: true
       storageClass: longhorn
-      accessModes: ReadWriteOnce
+      accessModes:
+        - ReadWriteOnce
       size: 2Gi
 
     # Disable built-in ingress - we'll create our own
