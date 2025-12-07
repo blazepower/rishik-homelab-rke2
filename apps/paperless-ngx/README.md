@@ -50,34 +50,16 @@ All volumes use the Longhorn storage class with ReadWriteOnce access mode.
 
 ### 1. Create and Seal Secrets
 
-Before deploying, you need to create a SealedSecret with the required credentials:
+Before deploying, you need to create a SealedSecret with the required credentials. The sealed secret must contain three keys:
 
-```bash
-# Generate a strong secret key (64+ characters recommended)
-SECRET_KEY=$(openssl rand -base64 64 | tr -d '\n')
+- **postgres-password**: Password for the PostgreSQL database
+- **PAPERLESS_ADMIN_PASSWORD**: Admin credentials for the Paperless-ngx web interface
+- **PAPERLESS_SECRET_KEY**: Django secret key (64+ characters recommended)
 
-# Create a temporary secret file
-cat <<EOF > /tmp/paperless-credentials.yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: paperless-credentials
-  namespace: paperless
-type: Opaque
-stringData:
-  postgres-password: "YOUR_SECURE_POSTGRES_PASSWORD"
-  PAPERLESS_ADMIN_PASSWORD: "YOUR_ADMIN_PASSWORD"
-  PAPERLESS_SECRET_KEY: "$SECRET_KEY"
-EOF
+**Instructions:**
 
-# Seal the secret using kubeseal
-kubeseal --format=yaml --cert=pub-sealed-secrets.pem \
-  < /tmp/paperless-credentials.yaml \
-  > apps/paperless-ngx/sealedsecret-paperless-credentials.yaml
-
-# Clean up the temporary file
-rm /tmp/paperless-credentials.yaml
-```
+1. See the comments in `sealedsecret-paperless-credentials.yaml` for the exact command to generate and seal secrets
+2. Refer to [Sealed Secrets Documentation](../../docs/sealed-secrets.md) for detailed information on working with sealed secrets
 
 ### 2. Commit and Deploy
 
