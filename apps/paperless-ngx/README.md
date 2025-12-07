@@ -52,7 +52,7 @@ All volumes use the Longhorn storage class with ReadWriteOnce access mode.
 
 Before deploying, you need to create a SealedSecret with the required credentials. The sealed secret must contain three keys:
 
-- **postgres-password**: Password for the PostgreSQL database
+- **PAPERLESS_DBPASS**: Password for the PostgreSQL database
 - **PAPERLESS_ADMIN_PASSWORD**: Admin credentials for the Paperless-ngx web interface
 - **PAPERLESS_SECRET_KEY**: Django secret key (64+ characters recommended)
 
@@ -89,7 +89,7 @@ kubectl logs -n paperless -l app.kubernetes.io/name=paperless -f
 ### 4. First Login
 
 Once deployed, navigate to `https://paperless.homelab` and log in with:
-- **Username**: `admin` (or the username you configured)
+- **Username**: `admin` (default; to customize, set `PAPERLESS_ADMIN_USER` in your HelmRelease)
 - **Password**: The password you set in `PAPERLESS_ADMIN_PASSWORD`
 
 ## Post-Deployment Configuration
@@ -142,7 +142,7 @@ Then access at:
 ## Security
 
 The deployment uses SealedSecrets for:
-- PostgreSQL password (`postgres-password`)
+- PostgreSQL password (`PAPERLESS_DBPASS`)
 - Paperless admin password (`PAPERLESS_ADMIN_PASSWORD`)
 - Django secret key (`PAPERLESS_SECRET_KEY`)
 

@@ -49,7 +49,7 @@ infrastructure/
 apps/
 ├── kaneo/                      # Kaneo project management application
 ├── paperless-ngx/              # Paperless-ngx document management system
-└── plex/                       # Plex media server application
+├── plex/                       # Plex media server application
 ├── prowlarr/                   # Prowlarr indexer manager
 ├── sonarr/                     # Sonarr TV shows manager
 ├── radarr/                     # Radarr movies manager
