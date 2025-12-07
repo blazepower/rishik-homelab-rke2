@@ -139,23 +139,27 @@ spec:
   # The Helm chart only sets JWT_ACCESS but the API expects AUTH_SECRET
   postRenderers:
     - kustomize:
-        patchesStrategicMerge:
-          - apiVersion: apps/v1
-            kind: Deployment
-            metadata:
+        patches:
+          - target:
+              kind: Deployment
               name: kaneo
-            spec:
-              template:
-                spec:
-                  containers:
-                    - name: api
-                      env:
-                        - name: AUTH_SECRET
-                          valueFrom:
-                            secretKeyRef:
-                              name: kaneo-credentials
-                              key: jwt-secret
-                        - name: KANEO_API_URL
-                          value: "https://kaneo.homelab"
-                        - name: KANEO_CLIENT_URL
-                          value: "https://kaneo.homelab"
+            patch: |-
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: kaneo
+              spec:
+                template:
+                  spec:
+                    containers:
+                      - name: api
+                        env:
+                          - name: AUTH_SECRET
+                            valueFrom:
+                              secretKeyRef:
+                                name: kaneo-credentials
+                                key: jwt-secret
+                          - name: KANEO_API_URL
+                            value: "https://kaneo.homelab"
+                          - name: KANEO_CLIENT_URL
+                            value: "https://kaneo.homelab"
