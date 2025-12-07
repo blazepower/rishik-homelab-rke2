@@ -48,6 +48,7 @@ infrastructure/
 └── kustomization.yaml
 apps/
 ├── kaneo/                      # Kaneo project management application
+├── paperless-ngx/              # Paperless-ngx document management system
 └── plex/                       # Plex media server application
 ├── prowlarr/                   # Prowlarr indexer manager
 ├── sonarr/                     # Sonarr TV shows manager
@@ -73,6 +74,7 @@ docs/                           # Detailed component documentation
 | **GPU Acceleration** | Intel QuickSync hardware transcoding via GPU Device Plugin | [infrastructure/accelerators/intel-gpu/README.md](infrastructure/accelerators/intel-gpu/README.md) |
 | **CI/CD** | Comprehensive validation and security scanning pipeline | [docs/ci-cd.md](docs/ci-cd.md) |
 | **Kaneo** | Open-source project management tool via official Helm chart | [apps/kaneo/](#kaneo-project-management) |
+| **Paperless-ngx** | Document management system for digitizing and organizing paper documents | [apps/paperless-ngx/README.md](apps/paperless-ngx/README.md) |
 | **Plex** | Plex Media Server via official Helm chart with Intel QuickSync GPU transcoding | [apps/plex/](#plex-media-server) |
 | **Media Automation** | Complete *arr stack for media automation (Prowlarr, Sonarr, Radarr, SABnzbd, Bazarr, Overseerr) | [apps/](#media-automation-arr-stack) |
 

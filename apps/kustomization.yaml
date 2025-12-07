@@ -9,3 +9,4 @@ resources:
   - sabnzbd
   - bazarr
   - overseerr
+  - paperless-ngx
