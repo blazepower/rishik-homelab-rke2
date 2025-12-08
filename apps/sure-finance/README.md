@@ -77,16 +77,17 @@ The application requires several secrets to be created and sealed before deploym
 
 ### 1. Generate Required Values
 
-Generate a secure SECRET_KEY_BASE (128 characters):
+Generate secure values for all secrets:
 ```bash
-openssl rand -hex 64
+POSTGRES_ADMIN_PASSWORD=$(openssl rand -base64 32)
+POSTGRES_USER_PASSWORD=$(openssl rand -base64 32)
+REDIS_PASSWORD=$(openssl rand -base64 32)
+SECRET_KEY_BASE=$(openssl rand -hex 64)
 ```
-
-Choose secure passwords for PostgreSQL and Redis.
 
 ### 2. Create a Temporary Secret
 
-Create a temporary secret file with all required values:
+Create a temporary secret file using the generated values:
 ```bash
 cat <<EOF > /tmp/sure-credentials.yaml
 apiVersion: v1
@@ -96,14 +97,10 @@ metadata:
   namespace: sure-finance
 type: Opaque
 stringData:
-  # PostgreSQL admin password
-  postgres-password: "your-secure-postgres-admin-password"
-  # PostgreSQL user password
-  password: "your-secure-postgres-user-password"
-  # Redis password
-  redis-password: "your-secure-redis-password"
-  # Rails secret key base (generate with: openssl rand -hex 64)
-  SECRET_KEY_BASE: "your-128-character-secret-key-base-generated-above"
+  postgres-password: "\${POSTGRES_ADMIN_PASSWORD}"
+  password: "\${POSTGRES_USER_PASSWORD}"
+  redis-password: "\${REDIS_PASSWORD}"
+  SECRET_KEY_BASE: "\${SECRET_KEY_BASE}"
 EOF
 ```
 
