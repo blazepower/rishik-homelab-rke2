@@ -104,8 +104,6 @@ stringData:
   redis-password: "your-secure-redis-password"
   # Rails secret key base (generate with: openssl rand -hex 64)
   SECRET_KEY_BASE: "your-128-character-secret-key-base-generated-above"
-  # Self-hosting enabled flag
-  SELF_HOSTING_ENABLED: "true"
 EOF
 ```
 
