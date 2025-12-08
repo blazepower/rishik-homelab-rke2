@@ -54,9 +54,20 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.existingSecret }}
                   key: secret-key-base
+          {{- if .Values.persistence.appStorage.enabled }}
+          volumeMounts:
+            - name: storage
+              mountPath: /rails/storage
+          {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
           readinessProbe:
             {{- toYaml .Values.readinessProbe | nindent 12 }}
+      {{- if .Values.persistence.appStorage.enabled }}
+      volumes:
+        - name: storage
+          persistentVolumeClaim:
+            claimName: {{ include "maybe-finance.fullname" . }}-storage
+      {{- end }}
