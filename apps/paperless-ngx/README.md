@@ -50,9 +50,10 @@ All volumes use the Longhorn storage class with ReadWriteOnce access mode.
 
 ### 1. Create and Seal Secrets
 
-Before deploying, you need to create a SealedSecret with the required credentials. The sealed secret must contain three keys:
+Before deploying, you need to create a SealedSecret with the required credentials. The sealed secret must contain four keys:
 
-- **PAPERLESS_DBPASS**: Password for the PostgreSQL database
+- **PAPERLESS_DBPASS**: Password for the PostgreSQL database (used by Paperless-ngx application)
+- **postgres-password**: Password for the PostgreSQL database (used by PostgreSQL subchart - must match PAPERLESS_DBPASS)
 - **PAPERLESS_ADMIN_PASSWORD**: Admin credentials for the Paperless-ngx web interface
 - **PAPERLESS_SECRET_KEY**: Django secret key (64+ characters recommended)
 
