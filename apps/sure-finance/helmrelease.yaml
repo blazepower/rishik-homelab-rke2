@@ -66,7 +66,7 @@ spec:
         cpu: "200m"
         memory: "512Mi"
 
-  # Inject database environment variables pointing to external PostgreSQL and Redis
+  # Replace database environment variables to point to external PostgreSQL and Redis
   postRenderers:
     - kustomize:
         patches:
@@ -74,36 +74,35 @@ spec:
               kind: Deployment
               name: sure-finance
             patch: |
-              - op: add
-                path: /spec/template/spec/containers/0/env/-
-                value:
-                  name: DB_HOST
-                  value: "sure-finance-postgresql"
-              - op: add
-                path: /spec/template/spec/containers/0/env/-
-                value:
-                  name: DB_PORT
-                  value: "5432"
-              - op: add
-                path: /spec/template/spec/containers/0/env/-
-                value:
-                  name: DB_NAME
-                  value: "maybe"
-              - op: add
-                path: /spec/template/spec/containers/0/env/-
-                value:
-                  name: DB_USER
-                  value: "maybe"
-              - op: add
-                path: /spec/template/spec/containers/0/env/-
-                value:
-                  name: DB_PASSWORD
-                  valueFrom:
-                    secretKeyRef:
-                      name: sure-credentials
-                      key: postgres-password
-              - op: add
-                path: /spec/template/spec/containers/0/env/-
-                value:
-                  name: REDIS_URL
-                  value: "redis://sure-finance-redis:6379/0"
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: sure-finance
+              spec:
+                template:
+                  spec:
+                    containers:
+                      - name: sure-finance
+                        env:
+                          - name: SELF_HOSTING_ENABLED
+                            value: "true"
+                          - name: DB_HOST
+                            value: "sure-finance-postgresql"
+                          - name: DB_PORT
+                            value: "5432"
+                          - name: POSTGRES_DB
+                            value: "maybe"
+                          - name: POSTGRES_USER
+                            value: "maybe"
+                          - name: POSTGRES_PASSWORD
+                            valueFrom:
+                              secretKeyRef:
+                                name: sure-credentials
+                                key: postgres-password
+                          - name: SECRET_KEY_BASE
+                            valueFrom:
+                              secretKeyRef:
+                                name: sure-credentials
+                                key: secret-key-base
+                          - name: REDIS_URL
+                            value: "redis://sure-finance-redis:6379/0"
