@@ -27,11 +27,6 @@ spec:
     image:
       tag: "0.1.0-alpha.17"
     
-    # Persistence sizes match current deployment
-    persistence:
-      appStorage:
-        size: 2Gi
-    
     # PostgreSQL configuration
     postgresql:
       persistence:

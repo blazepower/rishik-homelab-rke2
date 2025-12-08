@@ -51,9 +51,10 @@ env:
 existingSecret: sure-credentials
 
 ## Persistence configuration
+## Note: Maybe Finance stores all data in PostgreSQL, no app-level persistence needed
 persistence:
   appStorage:
-    enabled: true
+    enabled: false
     size: 2Gi
     storageClass: longhorn
     accessMode: ReadWriteOnce
