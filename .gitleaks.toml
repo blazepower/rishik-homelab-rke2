@@ -95,4 +95,5 @@ commits = [
   "29aa84dac11bbcf8d1504261000d584d86817042",  # Initial plan commit with accidental gitleaks README
   "9f17e2bd5c085473c88c16b4fccf2ece3cfe1f00",  # Gitleaks fix commit with accidental README/LICENSE overwrite
   "182ec137d6cddb1e4af02765bf1f5b871179ce85",  # Old kaneo commit with placeholder password
+  "739d97ee5d27c5fe8fd6aeae066c77ec659bc380",  # Paperless-ngx initial commit with example passwords (fixed in da05a94)
 ]
