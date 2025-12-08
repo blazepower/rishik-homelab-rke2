@@ -9,4 +9,5 @@ resources:
   - sabnzbd
   - bazarr
   - overseerr
+  - sure-finance
   - paperless-ngx

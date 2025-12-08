@@ -1,0 +1,108 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: sure-finance
+  namespace: sure-finance
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: maybe-finance
+      version: 0.2.7
+      sourceRef:
+        kind: HelmRepository
+        name: vicsufer
+        namespace: flux-system
+      interval: 30m
+  install:
+    createNamespace: false
+    remediation:
+      retries: 3
+    timeout: 10m
+  upgrade:
+    remediation:
+      retries: 3
+    timeout: 10m
+  values:
+    replicaCount: 1
+
+    service:
+      type: ClusterIP
+
+    deployment:
+      repository: ghcr.io/maybe-finance/maybe
+      tag: 0.5.0
+      port: 3000
+      pullPolicy: IfNotPresent
+      extraEnvVarsSecret: sure-credentials
+      env:
+        - name: SELF_HOSTING_ENABLED
+          value: "true"
+
+    # PostgreSQL configuration with Longhorn storage
+    postgresql:
+      enabled: true
+      primary:
+        persistence:
+          enabled: true
+          size: 4Gi
+          storageClass: longhorn
+          accessModes:
+            - ReadWriteOnce
+      auth:
+        username: maybe
+        database: maybe
+        existingSecret: sure-credentials
+        secretKeys:
+          adminPasswordKey: postgres-password
+          userPasswordKey: password
+      resources:
+        requests:
+          cpu: "50m"
+          memory: "128Mi"
+        limits:
+          cpu: "200m"
+          memory: "256Mi"
+
+    # Redis configuration with Longhorn storage
+    redis:
+      enabled: true
+      auth:
+        enabled: true
+        existingSecret: sure-credentials
+        existingSecretPasswordKey: redis-password
+      architecture: standalone
+      master:
+        persistence:
+          enabled: true
+          size: 1Gi
+          storageClass: longhorn
+          accessModes:
+            - ReadWriteOnce
+        resources:
+          requests:
+            cpu: "25m"
+            memory: "64Mi"
+          limits:
+            cpu: "100m"
+            memory: "128Mi"
+
+    # Application storage with Longhorn
+    storage:
+      enabled: true
+      storageClass: longhorn
+      accessModes:
+        - ReadWriteOnce
+      size: 2Gi
+
+    # Disable built-in ingress - we'll create our own
+    ingress:
+      create: false
+
+    resources:
+      requests:
+        cpu: "50m"
+        memory: "256Mi"
+      limits:
+        cpu: "200m"
+        memory: "512Mi"

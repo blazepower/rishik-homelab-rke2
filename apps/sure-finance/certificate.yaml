@@ -1,0 +1,13 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: sure-finance-tls
+  namespace: sure-finance
+spec:
+  commonName: sure.homelab
+  dnsNames:
+    - sure.homelab
+  issuerRef:
+    kind: ClusterIssuer
+    name: cluster-ca
+  secretName: sure-finance-tls
