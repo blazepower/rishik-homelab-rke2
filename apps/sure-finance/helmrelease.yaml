@@ -97,6 +97,8 @@ spec:
               kind: Deployment
               name: sure-finance
             patch: |
+              - op: remove
+                path: /spec/template/spec/containers/0/env/4
               - op: add
                 path: /spec/template/spec/containers/0/env/-
                 value:
