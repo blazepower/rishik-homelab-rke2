@@ -8,5 +8,3 @@ resources:
   - certificate.yaml
   - networkpolicy.yaml
   - sealedsecret-sure-credentials.yaml
-  - postgresql.yaml
-  - redis.yaml
