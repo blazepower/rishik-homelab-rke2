@@ -121,7 +121,7 @@ spec:
                             valueFrom:
                               secretKeyRef:
                                 name: paperless-credentials
-                                key: postgres-password
+                                key: postgresql-password
                           - name: PAPERLESS_SECRET_KEY
                             valueFrom:
                               secretKeyRef:

@@ -37,7 +37,7 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: paperless-credentials
-                  key: postgres-password
+                  key: postgresql-password
             - name: PGDATA
               value: /var/lib/postgresql/data/pgdata
           volumeMounts:
