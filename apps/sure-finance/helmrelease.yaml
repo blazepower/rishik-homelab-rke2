@@ -8,7 +8,7 @@ spec:
   chart:
     spec:
       chart: maybe-finance
-      version: 0.2.7
+      version: 0.2.1
       sourceRef:
         kind: HelmRepository
         name: vicsufer
@@ -38,10 +38,6 @@ spec:
       env:
         - name: SELF_HOSTING_ENABLED
           value: "true"
-        - name: REDIS_HOST
-          value: "sure-finance-redis"
-        - name: REDIS_PORT
-          value: "6379"
 
     # PostgreSQL configuration with Longhorn storage
     postgresql:
@@ -67,9 +63,25 @@ spec:
           cpu: "200m"
           memory: "256Mi"
 
-    # Redis - disabled, using external Redis deployment due to chart bug
+    # Redis configuration with Longhorn storage
     redis:
-      enabled: false
+      enabled: true
+      architecture: standalone
+      auth:
+        enabled: true
+        password: redis-secure-password
+      master:
+        persistence:
+          enabled: true
+          size: 1Gi
+          storageClass: longhorn
+      resources:
+        requests:
+          cpu: 25m
+          memory: 64Mi
+        limits:
+          cpu: 100m
+          memory: 128Mi
 
     # Application storage with Longhorn
     storage:
@@ -89,18 +101,3 @@ spec:
       limits:
         cpu: "200m"
         memory: "512Mi"
-
-  postRenderers:
-    - kustomize:
-        patches:
-          - target:
-              kind: Deployment
-              name: sure-finance
-            patch: |
-              - op: remove
-                path: /spec/template/spec/containers/0/env/4
-              - op: add
-                path: /spec/template/spec/containers/0/env/-
-                value:
-                  name: REDIS_URL
-                  value: "redis://sure-finance-redis:6379/0"
