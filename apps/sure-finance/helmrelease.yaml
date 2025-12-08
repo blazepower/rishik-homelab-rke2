@@ -35,7 +35,9 @@ spec:
       port: 3000
       pullPolicy: IfNotPresent
       extraEnvVarsSecret: sure-credentials
-      env: []
+      env:
+        - name: SELF_HOSTING_ENABLED
+          value: "true"
 
     # PostgreSQL configuration with Longhorn storage
     postgresql:
