@@ -38,6 +38,10 @@ spec:
       env:
         - name: SELF_HOSTING_ENABLED
           value: "true"
+        - name: REDIS_HOST
+          value: "sure-finance-redis"
+        - name: REDIS_PORT
+          value: "6379"
 
     # PostgreSQL configuration with Longhorn storage
     postgresql:
@@ -63,27 +67,9 @@ spec:
           cpu: "200m"
           memory: "256Mi"
 
-    # Redis configuration with Longhorn storage
+    # Redis - disabled, using external Redis deployment due to chart bug
     redis:
-      enabled: true
-      auth:
-        enabled: true
-        existingSecret: sure-credentials
-        existingSecretPasswordKey: redis-password
-      architecture: standalone
-      master:
-        persistence:
-          enabled: true
-          size: 1Gi
-          storageClass: longhorn
-          accessMode: ReadWriteOnce
-        resources:
-          requests:
-            cpu: "25m"
-            memory: "64Mi"
-          limits:
-            cpu: "100m"
-            memory: "128Mi"
+      enabled: false
 
     # Application storage with Longhorn
     storage:
@@ -103,3 +89,16 @@ spec:
       limits:
         cpu: "200m"
         memory: "512Mi"
+
+  postRenderers:
+    - kustomize:
+        patches:
+          - target:
+              kind: Deployment
+              name: sure-finance
+            patch: |
+              - op: add
+                path: /spec/template/spec/containers/0/env/-
+                value:
+                  name: REDIS_URL
+                  value: "redis://sure-finance-redis:6379/0"

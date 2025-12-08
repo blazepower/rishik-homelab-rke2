@@ -3,6 +3,7 @@ kind: Kustomization
 namespace: sure-finance
 resources:
   - namespace.yaml
+  - redis.yaml
   - helmrelease.yaml
   - ingress.yaml
   - certificate.yaml
