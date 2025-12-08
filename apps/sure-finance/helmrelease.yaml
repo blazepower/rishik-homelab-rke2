@@ -7,11 +7,10 @@ spec:
   interval: 30m
   chart:
     spec:
-      chart: maybe-finance
-      version: 0.2.1
+      chart: charts/maybe-finance
       sourceRef:
-        kind: HelmRepository
-        name: vicsufer
+        kind: GitRepository
+        name: flux-system
         namespace: flux-system
       interval: 30m
   install:
@@ -24,40 +23,21 @@ spec:
       retries: 3
     timeout: 10m
   values:
-    replicaCount: 1
-
-    service:
-      type: ClusterIP
-
-    deployment:
-      repository: ghcr.io/maybe-finance/maybe
-      tag: 0.5.0
-      port: 3000
-      pullPolicy: IfNotPresent
-      extraEnvVarsSecret: sure-credentials
-      env:
-        - name: SELF_HOSTING_ENABLED
-          value: "true"
-
-    # Disable built-in PostgreSQL - using external deployment with official postgres image
+    # Use pinned version
+    image:
+      tag: "0.1.0-alpha.17"
+    
+    # Persistence sizes match current deployment
+    persistence:
+      appStorage:
+        size: 2Gi
+    
+    # PostgreSQL configuration
     postgresql:
-      enabled: false
-
-    # Disable built-in Redis - using external deployment with official redis image
-    redis:
-      enabled: false
-
-    # Application storage with Longhorn
-    storage:
-      enabled: true
-      storageClass: longhorn
-      accessMode: ReadWriteOnce
-      size: 2Gi
-
-    # Disable built-in ingress - we'll create our own
-    ingress:
-      create: false
-
+      persistence:
+        size: 4Gi
+    
+    # Resource limits
     resources:
       requests:
         cpu: "50m"
@@ -65,44 +45,3 @@ spec:
       limits:
         cpu: "200m"
         memory: "512Mi"
-
-  # Replace database environment variables to point to external PostgreSQL and Redis
-  postRenderers:
-    - kustomize:
-        patches:
-          - target:
-              kind: Deployment
-              name: sure-finance
-            patch: |
-              apiVersion: apps/v1
-              kind: Deployment
-              metadata:
-                name: sure-finance
-              spec:
-                template:
-                  spec:
-                    containers:
-                      - name: sure-finance
-                        env:
-                          - name: SELF_HOSTING_ENABLED
-                            value: "true"
-                          - name: DB_HOST
-                            value: "sure-finance-postgresql"
-                          - name: DB_PORT
-                            value: "5432"
-                          - name: POSTGRES_DB
-                            value: "maybe"
-                          - name: POSTGRES_USER
-                            value: "maybe"
-                          - name: POSTGRES_PASSWORD
-                            valueFrom:
-                              secretKeyRef:
-                                name: sure-credentials
-                                key: postgres-password
-                          - name: SECRET_KEY_BASE
-                            valueFrom:
-                              secretKeyRef:
-                                name: sure-credentials
-                                key: secret-key-base
-                          - name: REDIS_URL
-                            value: "redis://sure-finance-redis:6379/0"

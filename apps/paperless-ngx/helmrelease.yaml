@@ -7,14 +7,12 @@ spec:
   interval: 30m
   chart:
     spec:
-      chart: paperless
-      version: "10.8.0"
+      chart: charts/paperless-ngx
       sourceRef:
-        kind: HelmRepository
-        name: zekker6
+        kind: GitRepository
+        name: flux-system
         namespace: flux-system
       interval: 30m
-      reconcileStrategy: ChartVersion
   install:
     createNamespace: false
     remediation:
@@ -25,66 +23,35 @@ spec:
       retries: 3
     timeout: 10m
   values:
-    # Main paperless-ngx application
+    # Use pinned version, not latest
     image:
-      repository: ghcr.io/paperless-ngx/paperless-ngx
-      tag: latest
-      pullPolicy: IfNotPresent
-
-    env:
-      # Database configuration - pointing to our external PostgreSQL
-      PAPERLESS_DBENGINE: postgresql
-      PAPERLESS_DBHOST: paperless-postgresql
-      PAPERLESS_DBPORT: "5432"
-      PAPERLESS_DBNAME: paperless
-      PAPERLESS_DBUSER: paperless_user
-      # Redis configuration - pointing to our external Redis
-      PAPERLESS_REDIS: redis://paperless-redis:6379
-      # Application settings
-      PAPERLESS_URL: https://paperless.homelab
-      PAPERLESS_ALLOWED_HOSTS: paperless.homelab
-      PAPERLESS_OCR_LANGUAGE: eng
-
-    service:
-      main:
-        type: ClusterIP
-        ports:
-          http:
-            port: 8000
-            targetPort: 8000
-
-    # Persistence for documents, data, media, and export
+      tag: "2.13.5"
+    
+    # Environment variables are already set in chart defaults
+    # No need to override unless different from defaults
+    
+    # Persistence sizes match current deployment
     persistence:
       data:
-        enabled: true
-        type: pvc
-        storageClass: longhorn
-        accessMode: ReadWriteOnce
         size: 5Gi
-        mountPath: /usr/src/paperless/data
       media:
-        enabled: true
-        type: pvc
-        storageClass: longhorn
-        accessMode: ReadWriteOnce
         size: 20Gi
-        mountPath: /usr/src/paperless/media
       export:
-        enabled: true
-        type: pvc
-        storageClass: longhorn
-        accessMode: ReadWriteOnce
         size: 5Gi
-        mountPath: /usr/src/paperless/export
       consume:
-        enabled: true
-        type: pvc
-        storageClass: longhorn
-        accessMode: ReadWriteOnce
         size: 5Gi
-        mountPath: /usr/src/paperless/consume
-
-    # Resource limits - increased for OCR processing
+    
+    # PostgreSQL configuration
+    postgresql:
+      persistence:
+        size: 8Gi
+    
+    # Redis configuration
+    redis:
+      persistence:
+        size: 1Gi
+    
+    # Resource limits
     resources:
       requests:
         cpu: 100m
@@ -92,45 +59,3 @@ spec:
       limits:
         cpu: "1"
         memory: 2Gi
-
-    # Disable built-in ingress - we use our own with Traefik
-    ingress:
-      main:
-        enabled: false
-
-  # Patch to add environment variables from secrets with correct names
-  # The secret keys don't match the expected env var names
-  postRenderers:
-    - kustomize:
-        patches:
-          - target:
-              kind: Deployment
-              name: paperless
-            patch: |-
-              apiVersion: apps/v1
-              kind: Deployment
-              metadata:
-                name: paperless
-              spec:
-                template:
-                  spec:
-                    containers:
-                      - name: paperless
-                        env:
-                          - name: PAPERLESS_DBPASS
-                            valueFrom:
-                              secretKeyRef:
-                                name: paperless-credentials
-                                key: postgresql-password
-                          - name: PAPERLESS_SECRET_KEY
-                            valueFrom:
-                              secretKeyRef:
-                                name: paperless-credentials
-                                key: paperless-secret-key
-                          - name: PAPERLESS_ADMIN_PASSWORD
-                            valueFrom:
-                              secretKeyRef:
-                                name: paperless-credentials
-                                key: paperless-admin-password
-                          - name: PAPERLESS_ADMIN_USER
-                            value: "admin"

@@ -1,0 +1,112 @@
+## Maybe Finance Configuration
+
+## Image configuration
+image:
+  repository: ghcr.io/maybe-finance/maybe
+  tag: "0.1.0-alpha.17"
+  pullPolicy: IfNotPresent
+
+## Replica count
+replicaCount: 1
+
+## Service configuration
+service:
+  type: ClusterIP
+  port: 3000
+  targetPort: 3000
+
+## Resource limits
+resources:
+  requests:
+    cpu: 50m
+    memory: 256Mi
+  limits:
+    cpu: 200m
+    memory: 512Mi
+
+## Security context for pod
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+
+## Security context for container
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+## Environment variables
+env:
+  SELF_HOSTING_ENABLED: "true"
+  RAILS_FORCE_SSL: "false"
+  RAILS_ASSUME_SSL: "false"
+  GOOD_JOB_EXECUTION_MODE: "async"
+  POSTGRES_DB: maybe_production
+  POSTGRES_USER: maybe_user
+
+## Secret reference for sensitive values
+existingSecret: sure-credentials
+
+## Persistence configuration
+persistence:
+  appStorage:
+    enabled: true
+    size: 2Gi
+    storageClass: longhorn
+    accessMode: ReadWriteOnce
+
+## PostgreSQL configuration
+postgresql:
+  enabled: true
+  image:
+    repository: docker.io/library/postgres
+    tag: "16-alpine"
+    pullPolicy: IfNotPresent
+  auth:
+    database: maybe_production
+    username: maybe_user
+    existingSecret: sure-credentials
+    secretKeys:
+      passwordKey: postgres-password
+  persistence:
+    enabled: true
+    size: 4Gi
+    storageClass: longhorn
+    accessMode: ReadWriteOnce
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+
+## Probes
+livenessProbe:
+  httpGet:
+    path: /
+    port: 3000
+  initialDelaySeconds: 60
+  periodSeconds: 10
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /
+    port: 3000
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  failureThreshold: 3
