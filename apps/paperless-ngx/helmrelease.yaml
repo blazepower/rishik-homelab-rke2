@@ -1,0 +1,132 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: paperless
+  namespace: paperless
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: paperless
+      version: 10.8.0
+      sourceRef:
+        kind: HelmRepository
+        name: zekker6
+        namespace: flux-system
+      interval: 30m
+  install:
+    createNamespace: false
+    remediation:
+      retries: 3
+    timeout: 10m
+  upgrade:
+    remediation:
+      retries: 3
+    timeout: 10m
+  values:
+    # Main paperless-ngx application
+    image:
+      repository: ghcr.io/paperless-ngx/paperless-ngx
+      tag: latest
+      pullPolicy: IfNotPresent
+
+    env:
+      # Use dedicated PostgreSQL database
+      PAPERLESS_DBENGINE: postgresql
+      PAPERLESS_DBHOST: paperless-postgresql
+      PAPERLESS_DBNAME: paperless
+      PAPERLESS_DBUSER: paperless_user
+      PAPERLESS_DBPORT: "5432"
+      # URL configuration
+      PAPERLESS_URL: https://paperless.homelab
+      PAPERLESS_ALLOWED_HOSTS: paperless.homelab
+      # Disable Redis (paperless-ngx can run without it)
+      PAPERLESS_REDIS: ""
+      # OCR language (default to English, add more as needed)
+      PAPERLESS_OCR_LANGUAGE: eng
+
+    envFrom:
+      - secretRef:
+          name: paperless-credentials
+
+    service:
+      main:
+        type: ClusterIP
+        ports:
+          http:
+            port: 8000
+            targetPort: 8000
+
+    # Persistence for documents, data, media, and export
+    persistence:
+      data:
+        enabled: true
+        type: pvc
+        storageClass: longhorn
+        accessMode: ReadWriteOnce
+        size: 5Gi
+        mountPath: /usr/src/paperless/data
+      media:
+        enabled: true
+        type: pvc
+        storageClass: longhorn
+        accessMode: ReadWriteOnce
+        size: 20Gi
+        mountPath: /usr/src/paperless/media
+      export:
+        enabled: true
+        type: pvc
+        storageClass: longhorn
+        accessMode: ReadWriteOnce
+        size: 5Gi
+        mountPath: /usr/src/paperless/export
+      consume:
+        enabled: true
+        type: pvc
+        storageClass: longhorn
+        accessMode: ReadWriteOnce
+        size: 5Gi
+        mountPath: /usr/src/paperless/consume
+
+    resources:
+      requests:
+        cpu: "50m"
+        memory: "128Mi"
+      limits:
+        cpu: "200m"
+        memory: "256Mi"
+
+    # Disable built-in ingress - we'll create our own for Traefik
+    ingress:
+      main:
+        enabled: false
+
+    # Redis configuration - disable it
+    redis:
+      enabled: false
+
+    # PostgreSQL configuration
+    postgresql:
+      enabled: true
+      image:
+        repository: postgres
+        tag: 16-alpine
+        pullPolicy: IfNotPresent
+      auth:
+        database: paperless
+        username: paperless_user
+        existingSecret: paperless-credentials
+        secretKeys:
+          userPasswordKey: postgres-password
+      persistence:
+        enabled: true
+        size: 8Gi
+        storageClass: longhorn
+        accessMode: ReadWriteOnce
+      resources:
+        requests:
+          cpu: "50m"
+          memory: "128Mi"
+        limits:
+          cpu: "200m"
+          memory: "256Mi"

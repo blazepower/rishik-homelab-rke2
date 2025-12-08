@@ -6,3 +6,4 @@ resources:
   - plex-helm-repo.yaml
   - bjw-s-helm-repo.yaml
   - vicsufer-helm-repo.yaml
+  - zekker6-helm-repo.yaml

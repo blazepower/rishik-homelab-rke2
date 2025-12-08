@@ -10,3 +10,4 @@ resources:
   - bazarr
   - overseerr
   - sure-finance
+  - paperless-ngx
