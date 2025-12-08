@@ -3,6 +3,8 @@ kind: Kustomization
 namespace: paperless
 resources:
   - namespace.yaml
+  - postgresql.yaml
+  - redis.yaml
   - helmrelease.yaml
   - ingress.yaml
   - certificate.yaml

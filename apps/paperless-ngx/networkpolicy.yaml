@@ -19,7 +19,7 @@ spec:
       ports:
         - protocol: TCP
           port: 8000
-    # Allow internal communication within namespace
+    # Allow internal communication within namespace (paperless, postgresql, redis)
     - from:
         - namespaceSelector:
             matchLabels:
@@ -29,3 +29,5 @@ spec:
           port: 8000
         - protocol: TCP
           port: 5432
+        - protocol: TCP
+          port: 6379
