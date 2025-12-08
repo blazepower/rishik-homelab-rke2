@@ -4,10 +4,10 @@ metadata:
   name: sure-finance
   namespace: sure-finance
   annotations:
-    kubernetes.io/ingress.class: traefik
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
     traefik.ingress.kubernetes.io/router.tls: "true"
 spec:
+  ingressClassName: traefik
   rules:
     - host: sure.homelab
       http:
