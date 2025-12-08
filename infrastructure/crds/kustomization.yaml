@@ -5,3 +5,4 @@ resources:
   - kaneo-git-repo.yaml
   - plex-helm-repo.yaml
   - bjw-s-helm-repo.yaml
+  - zekker6-helm-repo.yaml
