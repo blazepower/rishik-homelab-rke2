@@ -143,7 +143,7 @@ Then access at:
 ## Security
 
 The deployment uses SealedSecrets for:
-- PostgreSQL password (`PAPERLESS_DBPASS`)
+- PostgreSQL password (`PAPERLESS_DBPASS` and `postgres-password` - both use the same value)
 - Paperless admin password (`PAPERLESS_ADMIN_PASSWORD`)
 - Django secret key (`PAPERLESS_SECRET_KEY`)
 
