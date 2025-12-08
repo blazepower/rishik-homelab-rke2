@@ -98,7 +98,7 @@ type: Opaque
 stringData:
   # PostgreSQL admin password
   postgres-password: "your-secure-postgres-admin-password"
-  # PostgreSQL user password  
+  # PostgreSQL user password
   password: "your-secure-postgres-user-password"
   # Redis password
   redis-password: "your-secure-redis-password"
