@@ -1,0 +1,10 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rreading-glasses-config
+  namespace: media
+data:
+  # Configuration for rreading-glasses service
+  # Database connection is handled via secret
+  # Additional config can be added here if needed

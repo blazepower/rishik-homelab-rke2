@@ -1,0 +1,130 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: kindle-sender
+  namespace: media
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: app-template
+      version: "3.5.1"
+      sourceRef:
+        kind: HelmRepository
+        name: bjw-s
+        namespace: flux-system
+      interval: 30m
+  install:
+    createNamespace: false
+    remediation:
+      retries: 3
+    timeout: 15m
+  upgrade:
+    remediation:
+      retries: 3
+    timeout: 15m
+  values:
+    controllers:
+      kindle-sender:
+        annotations:
+          reloader.stakater.com/auto: "true"
+
+        containers:
+          app:
+            image:
+              repository: ghcr.io/blazepower/kindle-sender
+              tag: v1.0.0
+            env:
+              - name: WATCH_PATH
+                valueFrom:
+                  configMapKeyRef:
+                    name: kindle-sender-config
+                    key: WATCH_PATH
+              - name: SCAN_INTERVAL
+                valueFrom:
+                  configMapKeyRef:
+                    name: kindle-sender-config
+                    key: SCAN_INTERVAL
+              - name: MAX_FILE_SIZE_MB
+                valueFrom:
+                  configMapKeyRef:
+                    name: kindle-sender-config
+                    key: MAX_FILE_SIZE_MB
+              - name: FILE_EXTENSIONS
+                valueFrom:
+                  configMapKeyRef:
+                    name: kindle-sender-config
+                    key: FILE_EXTENSIONS
+              - name: DATABASE_PATH
+                valueFrom:
+                  configMapKeyRef:
+                    name: kindle-sender-config
+                    key: DATABASE_PATH
+              - name: SMTP_HOST
+                valueFrom:
+                  secretKeyRef:
+                    name: kindle-sender
+                    key: SMTP_HOST
+              - name: SMTP_PORT
+                valueFrom:
+                  secretKeyRef:
+                    name: kindle-sender
+                    key: SMTP_PORT
+              - name: SMTP_USER
+                valueFrom:
+                  secretKeyRef:
+                    name: kindle-sender
+                    key: SMTP_USER
+              - name: SMTP_PASSWORD
+                valueFrom:
+                  secretKeyRef:
+                    name: kindle-sender
+                    key: SMTP_PASSWORD
+              - name: KINDLE_EMAIL
+                valueFrom:
+                  secretKeyRef:
+                    name: kindle-sender
+                    key: KINDLE_EMAIL
+              - name: SENDER_EMAIL
+                valueFrom:
+                  secretKeyRef:
+                    name: kindle-sender
+                    key: SENDER_EMAIL
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              runAsNonRoot: true
+              runAsUser: 1000
+              runAsGroup: 1000
+              capabilities:
+                drop:
+                  - ALL
+            resources:
+              requests:
+                cpu: "25m"
+                memory: "32Mi"
+              limits:
+                cpu: "100m"
+                memory: "64Mi"
+
+    persistence:
+      data:
+        existingClaim: kindle-sender-data
+        globalMounts:
+          - path: /data
+      media:
+        type: hostPath
+        hostPath: /media/rishik/Expansion
+        globalMounts:
+          - path: /media
+            readOnly: true
+
+    defaultPodOptions:
+      nodeSelector:
+        kubernetes.io/hostname: rishik-worker1
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000

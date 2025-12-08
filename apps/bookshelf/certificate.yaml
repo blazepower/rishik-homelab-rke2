@@ -1,0 +1,14 @@
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: bookshelf-tls
+  namespace: media
+spec:
+  secretName: bookshelf-tls
+  issuerRef:
+    name: cluster-ca
+    kind: ClusterIssuer
+  commonName: bookshelf.homelab
+  dnsNames:
+    - bookshelf.homelab
