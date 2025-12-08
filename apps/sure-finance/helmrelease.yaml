@@ -39,49 +39,13 @@ spec:
         - name: SELF_HOSTING_ENABLED
           value: "true"
 
-    # PostgreSQL configuration with Longhorn storage
+    # Disable built-in PostgreSQL - using external deployment with official postgres image
     postgresql:
-      enabled: true
-      primary:
-        persistence:
-          enabled: true
-          size: 4Gi
-          storageClass: longhorn
-          accessMode: ReadWriteOnce
-      auth:
-        username: maybe
-        database: maybe
-        existingSecret: sure-credentials
-        secretKeys:
-          adminPasswordKey: postgres-password
-          userPasswordKey: postgres-password
-      resources:
-        requests:
-          cpu: "50m"
-          memory: "128Mi"
-        limits:
-          cpu: "200m"
-          memory: "256Mi"
+      enabled: false
 
-    # Redis configuration with Longhorn storage
+    # Disable built-in Redis - using external deployment with official redis image
     redis:
-      enabled: true
-      architecture: standalone
-      auth:
-        enabled: true
-        password: redis-secure-password
-      master:
-        persistence:
-          enabled: true
-          size: 1Gi
-          storageClass: longhorn
-      resources:
-        requests:
-          cpu: 25m
-          memory: 64Mi
-        limits:
-          cpu: 100m
-          memory: 128Mi
+      enabled: false
 
     # Application storage with Longhorn
     storage:
@@ -101,3 +65,45 @@ spec:
       limits:
         cpu: "200m"
         memory: "512Mi"
+
+  # Inject database environment variables pointing to external PostgreSQL and Redis
+  postRenderers:
+    - kustomize:
+        patches:
+          - target:
+              kind: Deployment
+              name: sure-finance
+            patch: |
+              - op: add
+                path: /spec/template/spec/containers/0/env/-
+                value:
+                  name: DB_HOST
+                  value: "sure-finance-postgresql"
+              - op: add
+                path: /spec/template/spec/containers/0/env/-
+                value:
+                  name: DB_PORT
+                  value: "5432"
+              - op: add
+                path: /spec/template/spec/containers/0/env/-
+                value:
+                  name: DB_NAME
+                  value: "maybe"
+              - op: add
+                path: /spec/template/spec/containers/0/env/-
+                value:
+                  name: DB_USER
+                  value: "maybe"
+              - op: add
+                path: /spec/template/spec/containers/0/env/-
+                value:
+                  name: DB_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: sure-credentials
+                      key: postgres-password
+              - op: add
+                path: /spec/template/spec/containers/0/env/-
+                value:
+                  name: REDIS_URL
+                  value: "redis://sure-finance-redis:6379/0"
