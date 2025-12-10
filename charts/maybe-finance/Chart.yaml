@@ -1,0 +1,15 @@
+apiVersion: v2
+name: maybe-finance
+description: A Helm chart for Maybe Finance personal finance management application
+type: application
+version: 1.0.0
+appVersion: "0.1.0-alpha.17"
+keywords:
+  - finance
+  - personal-finance
+  - budgeting
+home: https://github.com/maybe-finance/maybe
+sources:
+  - https://github.com/maybe-finance/maybe
+maintainers:
+  - name: homelab

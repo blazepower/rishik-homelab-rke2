@@ -7,11 +7,10 @@ spec:
   interval: 30m
   chart:
     spec:
-      chart: maybe-finance
-      version: 0.2.1
+      chart: charts/maybe-finance
       sourceRef:
-        kind: HelmRepository
-        name: vicsufer
+        kind: GitRepository
+        name: flux-system
         namespace: flux-system
       interval: 30m
   install:
@@ -24,40 +23,16 @@ spec:
       retries: 3
     timeout: 10m
   values:
-    replicaCount: 1
+    # Use pinned version
+    image:
+      tag: "0.1.0-alpha.17"
 
-    service:
-      type: ClusterIP
-
-    deployment:
-      repository: ghcr.io/maybe-finance/maybe
-      tag: 0.5.0
-      port: 3000
-      pullPolicy: IfNotPresent
-      extraEnvVarsSecret: sure-credentials
-      env:
-        - name: SELF_HOSTING_ENABLED
-          value: "true"
-
-    # Disable built-in PostgreSQL - using external deployment with official postgres image
+    # PostgreSQL configuration
     postgresql:
-      enabled: false
+      persistence:
+        size: 4Gi
 
-    # Disable built-in Redis - using external deployment with official redis image
-    redis:
-      enabled: false
-
-    # Application storage with Longhorn
-    storage:
-      enabled: true
-      storageClass: longhorn
-      accessMode: ReadWriteOnce
-      size: 2Gi
-
-    # Disable built-in ingress - we'll create our own
-    ingress:
-      create: false
-
+    # Resource limits
     resources:
       requests:
         cpu: "50m"
@@ -65,37 +40,3 @@ spec:
       limits:
         cpu: "200m"
         memory: "512Mi"
-
-  # Replace database environment variables to point to external PostgreSQL and Redis
-  # The chart creates POSTGRES_PASSWORD (index 4), REDIS_PASSWORD (index 5), REDIS_URL (index 6)
-  # We need to replace POSTGRES_PASSWORD and REDIS_PASSWORD with our secrets, and fix REDIS_URL
-  postRenderers:
-    - kustomize:
-        patches:
-          - target:
-              kind: Deployment
-              name: sure-finance
-            patch: |
-              - op: replace
-                path: /spec/template/spec/containers/0/env/4
-                value:
-                  name: POSTGRES_PASSWORD
-                  valueFrom:
-                    secretKeyRef:
-                      name: sure-credentials
-                      key: postgres-password
-              - op: replace
-                path: /spec/template/spec/containers/0/env/5
-                value:
-                  name: REDIS_URL
-                  value: "redis://sure-finance-redis:6379/0"
-              - op: remove
-                path: /spec/template/spec/containers/0/env/6
-              - op: add
-                path: /spec/template/spec/containers/0/env/-
-                value:
-                  name: SECRET_KEY_BASE
-                  valueFrom:
-                    secretKeyRef:
-                      name: sure-credentials
-                      key: secret-key-base

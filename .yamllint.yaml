@@ -42,3 +42,4 @@ ignore: |
   clusters/production/flux-system/gotk-components.yaml
   node_modules/
   vendor/
+  charts/*/templates/
