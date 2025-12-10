@@ -2,8 +2,8 @@ apiVersion: v2
 name: maybe-finance
 description: A Helm chart for Sure Finance (community fork of Maybe Finance with SimpleFIN support)
 type: application
-version: 2.0.0
-appVersion: "0.6.5"
+version: 2.0.1
+appVersion: "0.6.6-alpha.2"
 keywords:
   - finance
   - personal-finance
