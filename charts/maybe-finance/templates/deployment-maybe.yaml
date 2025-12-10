@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "maybe-finance.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "maybe-finance.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "maybe-finance.selectorLabels" . | nindent 6 }}
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        {{- include "maybe-finance.selectorLabels" . | nindent 8 }}
+    spec:
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: maybe
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.targetPort }}
+              protocol: TCP
+          env:
+            - name: SELF_HOSTING_ENABLED
+              value: {{ .Values.env.SELF_HOSTING_ENABLED | quote }}
+            - name: RAILS_FORCE_SSL
+              value: {{ .Values.env.RAILS_FORCE_SSL | quote }}
+            - name: RAILS_ASSUME_SSL
+              value: {{ .Values.env.RAILS_ASSUME_SSL | quote }}
+            - name: GOOD_JOB_EXECUTION_MODE
+              value: {{ .Values.env.GOOD_JOB_EXECUTION_MODE | quote }}
+            - name: DB_HOST
+              value: {{ include "maybe-finance.postgresql.fullname" . }}
+            - name: POSTGRES_DB
+              value: {{ .Values.env.POSTGRES_DB | quote }}
+            - name: POSTGRES_USER
+              value: {{ .Values.env.POSTGRES_USER | quote }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: postgres-password
+            - name: SECRET_KEY_BASE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: secret-key-base
+          {{- if .Values.persistence.appStorage.enabled }}
+          volumeMounts:
+            - name: storage
+              mountPath: /rails/storage
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+      {{- if .Values.persistence.appStorage.enabled }}
+      volumes:
+        - name: storage
+          persistentVolumeClaim:
+            claimName: {{ include "maybe-finance.fullname" . }}-storage
+      {{- end }}

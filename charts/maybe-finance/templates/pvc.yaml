@@ -1,0 +1,34 @@
+{{- if .Values.persistence.appStorage.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "maybe-finance.fullname" . }}-storage
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "maybe-finance.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.persistence.appStorage.accessMode }}
+  storageClassName: {{ .Values.persistence.appStorage.storageClass }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.appStorage.size }}
+{{- end }}
+{{- if .Values.postgresql.persistence.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "maybe-finance.postgresql.fullname" . }}-data
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "maybe-finance.postgresql.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.postgresql.persistence.accessMode }}
+  storageClassName: {{ .Values.postgresql.persistence.storageClass }}
+  resources:
+    requests:
+      storage: {{ .Values.postgresql.persistence.size }}
+{{- end }}

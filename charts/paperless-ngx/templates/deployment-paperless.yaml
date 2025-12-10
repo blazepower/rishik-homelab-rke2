@@ -1,0 +1,95 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "paperless-ngx.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "paperless-ngx.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "paperless-ngx.selectorLabels" . | nindent 6 }}
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        {{- include "paperless-ngx.selectorLabels" . | nindent 8 }}
+    spec:
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: paperless
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.targetPort }}
+              protocol: TCP
+          env:
+            - name: PAPERLESS_DBENGINE
+              value: {{ .Values.env.PAPERLESS_DBENGINE | quote }}
+            - name: PAPERLESS_DBHOST
+              value: {{ include "paperless-ngx.postgresql.fullname" . }}
+            - name: PAPERLESS_DBPORT
+              value: {{ .Values.env.PAPERLESS_DBPORT | quote }}
+            - name: PAPERLESS_DBNAME
+              value: {{ .Values.env.PAPERLESS_DBNAME | quote }}
+            - name: PAPERLESS_DBUSER
+              value: {{ .Values.env.PAPERLESS_DBUSER | quote }}
+            - name: PAPERLESS_DBPASS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: postgresql-password
+            - name: PAPERLESS_REDIS
+              value: "redis://{{ include "paperless-ngx.redis.fullname" . }}:6379"
+            - name: PAPERLESS_URL
+              value: {{ .Values.env.PAPERLESS_URL | quote }}
+            - name: PAPERLESS_ALLOWED_HOSTS
+              value: {{ .Values.env.PAPERLESS_ALLOWED_HOSTS | quote }}
+            - name: PAPERLESS_OCR_LANGUAGE
+              value: {{ .Values.env.PAPERLESS_OCR_LANGUAGE | quote }}
+            - name: PAPERLESS_ADMIN_USER
+              value: {{ .Values.env.PAPERLESS_ADMIN_USER | quote }}
+            - name: PAPERLESS_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: paperless-secret-key
+            - name: PAPERLESS_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: paperless-admin-password
+          volumeMounts:
+            - name: data
+              mountPath: /usr/src/paperless/data
+            - name: media
+              mountPath: /usr/src/paperless/media
+            - name: export
+              mountPath: /usr/src/paperless/export
+            - name: consume
+              mountPath: /usr/src/paperless/consume
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "paperless-ngx.fullname" . }}-data
+        - name: media
+          persistentVolumeClaim:
+            claimName: {{ include "paperless-ngx.fullname" . }}-media
+        - name: export
+          persistentVolumeClaim:
+            claimName: {{ include "paperless-ngx.fullname" . }}-export
+        - name: consume
+          persistentVolumeClaim:
+            claimName: {{ include "paperless-ngx.fullname" . }}-consume

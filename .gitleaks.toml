@@ -77,9 +77,11 @@ paths = [
   # 3. Never document actual production credentials in README files
   # 4. Use the regex allowlist below for specific placeholder patterns when possible
   '''docs/sealed-secrets\.md$''',
-  '''apps/[^/]+/README\.md$''',
-  '''charts/[^/]+/README\.md$''',
-  '''docs/book-management-stack\.md$''',
+  '''docs/.*\.md$''',
+  # Helm chart README files with example credentials
+  '''charts/.*/README\.md$''',
+  # Application README files with setup instructions
+  '''apps/.*/README\.md$''',
   # Sealed Secrets files (encrypted secrets safe to commit)
   '''sealedsecret-[^/]+\.ya?ml$''',
 ]

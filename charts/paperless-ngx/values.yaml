@@ -1,0 +1,159 @@
+## Paperless-ngx Configuration
+
+## Image configuration
+image:
+  repository: ghcr.io/paperless-ngx/paperless-ngx
+  tag: "2.13.5"
+  pullPolicy: IfNotPresent
+
+## Replica count
+replicaCount: 1
+
+## Service configuration
+service:
+  type: ClusterIP
+  port: 8000
+  targetPort: 8000
+
+## Resource limits
+resources:
+  requests:
+    cpu: 100m
+    memory: 512Mi
+  limits:
+    cpu: "1"
+    memory: 2Gi
+
+## Security context for pod
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+
+## Security context for container
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+## Environment variables
+env:
+  PAPERLESS_DBENGINE: postgresql
+  PAPERLESS_DBPORT: "5432"
+  PAPERLESS_DBNAME: paperless
+  PAPERLESS_DBUSER: paperless_user
+  PAPERLESS_URL: https://paperless.homelab
+  PAPERLESS_ALLOWED_HOSTS: paperless.homelab
+  PAPERLESS_OCR_LANGUAGE: eng
+  PAPERLESS_ADMIN_USER: admin
+
+## Secret reference for sensitive values
+existingSecret: paperless-credentials
+
+## Persistence configuration
+persistence:
+  data:
+    enabled: true
+    size: 5Gi
+    storageClass: longhorn
+    accessMode: ReadWriteOnce
+  media:
+    enabled: true
+    size: 20Gi
+    storageClass: longhorn
+    accessMode: ReadWriteOnce
+  export:
+    enabled: true
+    size: 5Gi
+    storageClass: longhorn
+    accessMode: ReadWriteOnce
+  consume:
+    enabled: true
+    size: 5Gi
+    storageClass: longhorn
+    accessMode: ReadWriteOnce
+
+## PostgreSQL configuration
+postgresql:
+  enabled: true
+  image:
+    repository: docker.io/library/postgres
+    tag: "16-alpine"
+    pullPolicy: IfNotPresent
+  auth:
+    database: paperless
+    username: paperless_user
+    existingSecret: paperless-credentials
+    secretKeys:
+      passwordKey: postgresql-password
+  persistence:
+    enabled: true
+    size: 8Gi
+    storageClass: longhorn
+    accessMode: ReadWriteOnce
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 999
+    runAsGroup: 999
+    fsGroup: 999
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+
+## Redis configuration
+redis:
+  enabled: true
+  image:
+    repository: docker.io/library/redis
+    tag: "7-alpine"
+    pullPolicy: IfNotPresent
+  persistence:
+    enabled: true
+    size: 1Gi
+    storageClass: longhorn
+    accessMode: ReadWriteOnce
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 999
+    runAsGroup: 999
+    fsGroup: 999
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+
+## Probes
+livenessProbe:
+  httpGet:
+    path: /api/
+    port: 8000
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /api/
+    port: 8000
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  failureThreshold: 3
