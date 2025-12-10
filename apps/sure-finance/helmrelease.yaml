@@ -27,6 +27,11 @@ spec:
     image:
       tag: "0.1.0-alpha.17"
 
+    # Enable OpenAI integration
+    openai:
+      enabled: true
+      secretKey: openai-api-key
+
     # PostgreSQL configuration
     postgresql:
       persistence:

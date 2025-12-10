@@ -50,6 +50,11 @@ env:
 ## Secret reference for sensitive values
 existingSecret: sure-credentials
 
+## OpenAI Configuration
+openai:
+  enabled: false
+  secretKey: openai-api-key
+
 ## Persistence configuration
 ## Note: Maybe Finance stores all data in PostgreSQL, no app-level persistence needed
 persistence:
