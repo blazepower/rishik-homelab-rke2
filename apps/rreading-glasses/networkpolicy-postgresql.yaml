@@ -1,0 +1,35 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: rreading-glasses-postgresql
+  namespace: media
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: postgresql
+      app.kubernetes.io/instance: rreading-glasses-postgresql
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow ingress only from rreading-glasses pods
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: rreading-glasses
+              app.kubernetes.io/instance: rreading-glasses
+      ports:
+        - protocol: TCP
+          port: 5432
+  egress:
+    # Allow DNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

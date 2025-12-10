@@ -1,0 +1,14 @@
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: calibre-web-tls
+  namespace: media
+spec:
+  secretName: calibre-web-tls
+  issuerRef:
+    name: cluster-ca
+    kind: ClusterIssuer
+  commonName: calibre.homelab
+  dnsNames:
+    - calibre.homelab

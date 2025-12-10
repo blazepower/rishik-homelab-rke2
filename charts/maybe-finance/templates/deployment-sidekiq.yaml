@@ -1,49 +1,41 @@
+{{- if .Values.redis.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "maybe-finance.fullname" . }}
-  namespace: {{ .Release.Namespace }}
+  name: {{ include "maybe-finance.fullname" . }}-sidekiq
   labels:
     {{- include "maybe-finance.labels" . | nindent 4 }}
+    app.kubernetes.io/component: sidekiq
 spec:
-  replicas: {{ .Values.replicaCount }}
+  replicas: 1
   selector:
     matchLabels:
       {{- include "maybe-finance.selectorLabels" . | nindent 6 }}
-  strategy:
-    type: Recreate
+      app.kubernetes.io/component: sidekiq
   template:
     metadata:
       labels:
         {{- include "maybe-finance.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: sidekiq
     spec:
-      securityContext:
-        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
-        - name: maybe
+        - name: sidekiq
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          securityContext:
-            {{- toYaml .Values.securityContext | nindent 12 }}
-          ports:
-            - name: http
-              containerPort: {{ .Values.service.targetPort }}
-              protocol: TCP
+          command: ["bundle", "exec", "sidekiq"]
           env:
-            - name: SELF_HOSTING_ENABLED
-              value: {{ .Values.env.SELF_HOSTING_ENABLED | quote }}
-            - name: RAILS_FORCE_SSL
-              value: {{ .Values.env.RAILS_FORCE_SSL | quote }}
-            - name: RAILS_ASSUME_SSL
-              value: {{ .Values.env.RAILS_ASSUME_SSL | quote }}
-            - name: GOOD_JOB_EXECUTION_MODE
-              value: {{ .Values.env.GOOD_JOB_EXECUTION_MODE | quote }}
+            - name: RAILS_ENV
+              value: production
             - name: DB_HOST
-              value: {{ include "maybe-finance.postgresql.fullname" . }}
-            - name: POSTGRES_DB
-              value: {{ .Values.env.POSTGRES_DB | quote }}
+              value: {{ include "maybe-finance.fullname" . }}-postgresql
             - name: POSTGRES_USER
-              value: {{ .Values.env.POSTGRES_USER | quote }}
+              value: {{ .Values.postgresql.user | quote }}
+            - name: POSTGRES_DB
+              value: {{ .Values.postgresql.database | quote }}
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
@@ -74,20 +66,11 @@ spec:
             - name: REDIS_URL
               value: "redis://{{ include "maybe-finance.fullname" . }}-redis:6379/1"
             {{- end }}
-          {{- if .Values.persistence.appStorage.enabled }}
-          volumeMounts:
-            - name: storage
-              mountPath: /rails/storage
-          {{- end }}
           resources:
-            {{- toYaml .Values.resources | nindent 12 }}
-          livenessProbe:
-            {{- toYaml .Values.livenessProbe | nindent 12 }}
-          readinessProbe:
-            {{- toYaml .Values.readinessProbe | nindent 12 }}
-      {{- if .Values.persistence.appStorage.enabled }}
-      volumes:
-        - name: storage
-          persistentVolumeClaim:
-            claimName: {{ include "maybe-finance.fullname" . }}-storage
-      {{- end }}
+            requests:
+              cpu: 25m
+              memory: 128Mi
+            limits:
+              cpu: 200m
+              memory: 384Mi
+{{- end }}

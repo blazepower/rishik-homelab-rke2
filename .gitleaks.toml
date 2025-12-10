@@ -66,6 +66,16 @@ paths = [
   '''package-lock\.json$''',
   '''yarn\.lock$''',
   # Documentation files with example credentials
+  # SECURITY NOTE: These files are allowlisted because they contain documentation with example
+  # commands showing how to create sealed secrets. The patterns below (admin123, your-app-password,
+  # openssl rand commands) are intentionally generic placeholders for documentation purposes.
+  # 
+  # RISK: Real credentials accidentally placed in these README files will NOT be detected.
+  # MITIGATION: 
+  # 1. All READMEs are code-reviewed before merge
+  # 2. Real secrets should ONLY be in SealedSecret files (which are encrypted)
+  # 3. Never document actual production credentials in README files
+  # 4. Use the regex allowlist below for specific placeholder patterns when possible
   '''docs/sealed-secrets\.md$''',
   '''docs/.*\.md$''',
   # Helm chart README files with example credentials
@@ -85,14 +95,28 @@ regexes = [
   # Allow documentation examples
   '''example\.com''',
   '''placeholder''',
+  '''PLACEHOLDER''',
   '''your-.*-here''',
   '''<.*>''',
+  '''<sealed-value>''',
+  '''redis-secure-password''',
   # Allow Helm values references
   '''\{\{.*\}\}''',
   # Allow base64 encoded empty/example values
   '''YWRtaW4=''',  # "admin" in base64
   # Allow image digests
   '''sha256:[a-f0-9]{64}''',
+  # Allow openssl rand command examples in documentation (matches the actual command pattern)
+  '''="?\$\(openssl rand -base64''',
+  '''=\$\(openssl rand -base64''',
+  # Allow placeholder password patterns in docs
+  '''[pP]assword.*"your-app-password"''',
+  '''[pP]assword.*`admin123`''',
+  '''API_KEY.*"your-hardcover-api-key-here"''',
+  # Allow shell variable references in documentation
+  '''"\$\{[A-Z_]+PASSWORD\}"''',
+  '''"\$\{POSTGRES_[A-Z_]+\}"''',
+  '''"\$\{REDIS_[A-Z_]+\}"''',
 ]
 
 # Commits to ignore (add commit hashes of known false positives)
@@ -101,5 +125,5 @@ commits = [
   "9f17e2bd5c085473c88c16b4fccf2ece3cfe1f00",  # Gitleaks fix commit with accidental README/LICENSE overwrite
   "182ec137d6cddb1e4af02765bf1f5b871179ce85",  # Old kaneo commit with placeholder password
   "739d97ee5d27c5fe8fd6aeae066c77ec659bc380",  # Paperless-ngx initial commit with example passwords (fixed in da05a94)
-  "a0e4f6ac993523d2f719addf6271e32e30db37ff",  # Sure-finance old commit with example password (removed in later commits)
+  "a0e4f6ac993523d2f719addf6271e32e30db37ff",  # Sure-finance commit with redis-secure-password placeholder (before Helm chart conversion)
 ]

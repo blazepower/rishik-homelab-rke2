@@ -1,0 +1,54 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: rreading-glasses-network-policy
+  namespace: media
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: rreading-glasses
+      app.kubernetes.io/instance: rreading-glasses
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow from Bookshelf within media namespace
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: media
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: bookshelf
+              app.kubernetes.io/instance: bookshelf
+      ports:
+        - protocol: TCP
+          port: 8080
+  egress:
+    # Allow DNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Allow connection to PostgreSQL within media namespace
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: media
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgresql
+              app.kubernetes.io/instance: rreading-glasses-postgresql
+      ports:
+        - protocol: TCP
+          port: 5432
+    # Allow HTTPS for Hardcover API access
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 443

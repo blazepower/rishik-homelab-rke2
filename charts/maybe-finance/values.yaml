@@ -1,9 +1,9 @@
-## Maybe Finance Configuration
+## Sure Finance Configuration (community fork of Maybe Finance with SimpleFIN support)
 
 ## Image configuration
 image:
-  repository: ghcr.io/maybe-finance/maybe
-  tag: "0.1.0-alpha.17"
+  repository: ghcr.io/we-promise/sure
+  tag: "0.6.6-alpha.2"
   pullPolicy: IfNotPresent
 
 ## Replica count
@@ -49,6 +49,32 @@ env:
 
 ## Secret reference for sensitive values
 existingSecret: sure-credentials
+
+## OpenAI Configuration
+openai:
+  enabled: false
+  secretKey: openai-api-key
+  model: gpt-5-mini
+
+## SimpleFIN Configuration (for bank sync)
+simplefin:
+  enabled: false
+  secretKey: simplefin-access-url
+
+## Redis configuration (required for Sidekiq background jobs)
+redis:
+  enabled: true
+  image:
+    repository: docker.io/library/redis
+    tag: "7-alpine"
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
 
 ## Persistence configuration
 ## Note: Maybe Finance stores all data in PostgreSQL, no app-level persistence needed
