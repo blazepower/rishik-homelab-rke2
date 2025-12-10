@@ -39,14 +39,20 @@ spec:
               - /main
             args:
               - "serve"
-              - "--hardcover-auth=$(HARDCOVER_API_KEY)"
+              - "--verbose"
             env:
-              - name: RG_DATABASE_URL
+              - name: POSTGRES_HOST
+                value: "rreading-glasses-postgresql"
+              - name: POSTGRES_DATABASE
+                value: "rreading_glasses"
+              - name: POSTGRES_USER
+                value: "rreading_user"
+              - name: POSTGRES_PASSWORD
                 valueFrom:
                   secretKeyRef:
                     name: rreading-glasses-credentials
-                    key: RG_DATABASE_URL
-              - name: HARDCOVER_API_KEY
+                    key: POSTGRES_PASSWORD
+              - name: HARDCOVER_AUTH
                 valueFrom:
                   secretKeyRef:
                     name: rreading-glasses-credentials
