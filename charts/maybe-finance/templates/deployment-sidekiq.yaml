@@ -1,0 +1,76 @@
+{{- if .Values.redis.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "maybe-finance.fullname" . }}-sidekiq
+  labels:
+    {{- include "maybe-finance.labels" . | nindent 4 }}
+    app.kubernetes.io/component: sidekiq
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "maybe-finance.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: sidekiq
+  template:
+    metadata:
+      labels:
+        {{- include "maybe-finance.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: sidekiq
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: sidekiq
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["bundle", "exec", "sidekiq"]
+          env:
+            - name: RAILS_ENV
+              value: production
+            - name: DB_HOST
+              value: {{ include "maybe-finance.fullname" . }}-postgresql
+            - name: POSTGRES_USER
+              value: {{ .Values.postgresql.user | quote }}
+            - name: POSTGRES_DB
+              value: {{ .Values.postgresql.database | quote }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: postgres-password
+            - name: SECRET_KEY_BASE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: secret-key-base
+            {{- if .Values.openai.enabled }}
+            - name: OPENAI_ACCESS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: {{ .Values.openai.secretKey }}
+            - name: OPENAI_MODEL
+              value: {{ .Values.openai.model | quote }}
+            {{- end }}
+            {{- if .Values.simplefin.enabled }}
+            - name: SIMPLE_FIN_ACCESS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: {{ .Values.simplefin.secretKey }}
+            {{- end }}
+            {{- if .Values.redis.enabled }}
+            - name: REDIS_URL
+              value: "redis://{{ include "maybe-finance.fullname" . }}-redis:6379/1"
+            {{- end }}
+          resources:
+            requests:
+              cpu: 25m
+              memory: 128Mi
+            limits:
+              cpu: 200m
+              memory: 384Mi
+{{- end }}
