@@ -54,6 +54,7 @@ existingSecret: sure-credentials
 openai:
   enabled: false
   secretKey: openai-api-key
+  model: gpt-4o-mini
 
 ## Persistence configuration
 ## Note: Maybe Finance stores all data in PostgreSQL, no app-level persistence needed

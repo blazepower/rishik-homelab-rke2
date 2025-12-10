@@ -60,6 +60,8 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.existingSecret }}
                   key: {{ .Values.openai.secretKey }}
+            - name: OPENAI_MODEL
+              value: {{ .Values.openai.model | quote }}
             {{- end }}
           {{- if .Values.persistence.appStorage.enabled }}
           volumeMounts:

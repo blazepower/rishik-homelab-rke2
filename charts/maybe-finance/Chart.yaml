@@ -2,7 +2,7 @@ apiVersion: v2
 name: maybe-finance
 description: A Helm chart for Maybe Finance personal finance management application
 type: application
-version: 1.0.0
+version: 1.0.2
 appVersion: "0.1.0-alpha.17"
 keywords:
   - finance
