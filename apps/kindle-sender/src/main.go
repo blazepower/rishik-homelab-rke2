@@ -283,6 +283,33 @@ func scanDirectory(watchPath string, config *Config, db *sql.DB) error {
 	})
 }
 
+// waitForFileWriteComplete waits for a file's size to remain stable, indicating write completion
+func waitForFileWriteComplete(filepath string, timeout time.Duration, checkInterval time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	var lastSize int64 = -1
+	
+	for time.Now().Before(deadline) {
+		fileInfo, err := os.Stat(filepath)
+		if err != nil {
+			// File may not exist yet or was deleted
+			time.Sleep(checkInterval)
+			continue
+		}
+		
+		currentSize := fileInfo.Size()
+		if currentSize == lastSize && currentSize > 0 {
+			// Size is stable, file write is complete
+			return true
+		}
+		
+		lastSize = currentSize
+		time.Sleep(checkInterval)
+	}
+	
+	// Timeout reached
+	return false
+}
+
 func watchDirectory(watchPath string, config *Config, db *sql.DB) error {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -314,8 +341,11 @@ func watchDirectory(watchPath string, config *Config, db *sql.DB) error {
 			}
 
 			if event.Op&fsnotify.Create == fsnotify.Create {
-				// Wait a bit for file to be fully written
-				time.Sleep(2 * time.Second)
+				// Wait for file to be fully written by checking size stability
+				if !waitForFileWriteComplete(event.Name, 3*time.Second, 500*time.Millisecond) {
+					log.Printf("File write timeout or error for %s, skipping", event.Name)
+					continue
+				}
 
 				fileInfo, err := os.Stat(event.Name)
 				if err != nil {

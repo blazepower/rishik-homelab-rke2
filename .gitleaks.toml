@@ -66,9 +66,20 @@ paths = [
   '''package-lock\.json$''',
   '''yarn\.lock$''',
   # Documentation files with example credentials
+  # SECURITY NOTE: These files are allowlisted because they contain documentation with example
+  # commands showing how to create sealed secrets. The patterns below (admin123, your-app-password,
+  # openssl rand commands) are intentionally generic placeholders for documentation purposes.
+  # 
+  # RISK: Real credentials accidentally placed in these README files will NOT be detected.
+  # MITIGATION: 
+  # 1. All READMEs are code-reviewed before merge
+  # 2. Real secrets should ONLY be in SealedSecret files (which are encrypted)
+  # 3. Never document actual production credentials in README files
+  # 4. Use the regex allowlist below for specific placeholder patterns when possible
   '''docs/sealed-secrets\.md$''',
+  '''apps/[^/]+/README\.md$''',
+  '''charts/[^/]+/README\.md$''',
   '''docs/book-management-stack\.md$''',
-  '''apps/.*/README\.md$''',
   # Sealed Secrets files (encrypted secrets safe to commit)
   '''sealedsecret-[^/]+\.ya?ml$''',
 ]
@@ -85,12 +96,25 @@ regexes = [
   '''PLACEHOLDER''',
   '''your-.*-here''',
   '''<.*>''',
+  '''<sealed-value>''',
+  '''redis-secure-password''',
   # Allow Helm values references
   '''\{\{.*\}\}''',
   # Allow base64 encoded empty/example values
   '''YWRtaW4=''',  # "admin" in base64
   # Allow image digests
   '''sha256:[a-f0-9]{64}''',
+  # Allow openssl rand command examples in documentation (matches the actual command pattern)
+  '''="?\$\(openssl rand -base64''',
+  '''=\$\(openssl rand -base64''',
+  # Allow placeholder password patterns in docs
+  '''[pP]assword.*"your-app-password"''',
+  '''[pP]assword.*`admin123`''',
+  '''API_KEY.*"your-hardcover-api-key-here"''',
+  # Allow shell variable references in documentation
+  '''"\$\{[A-Z_]+PASSWORD\}"''',
+  '''"\$\{POSTGRES_[A-Z_]+\}"''',
+  '''"\$\{REDIS_[A-Z_]+\}"''',
 ]
 
 # Commits to ignore (add commit hashes of known false positives)

@@ -1,5 +1,5 @@
 # Multi-stage build for Kindle Sender
-FROM golang:1.21-alpine AS builder
+FROM golang:1.21.13-alpine AS builder
 
 # Install build dependencies
 RUN apk add --no-cache gcc musl-dev sqlite-dev
@@ -19,7 +19,7 @@ COPY main.go ./
 RUN CGO_ENABLED=1 GOOS=linux go build -a -ldflags '-extldflags "-static"' -o kindle-sender .
 
 # Final stage
-FROM alpine:3.19
+FROM alpine:3.19.4
 
 # Install runtime dependencies
 RUN apk add --no-cache ca-certificates tzdata
