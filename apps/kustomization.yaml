@@ -11,6 +11,7 @@ resources:
   - overseerr
   - sure-finance
   - paperless-ngx
+  - homebox
   - bookshelf
   - rreading-glasses
   - calibre-web
