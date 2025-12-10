@@ -35,8 +35,10 @@ spec:
             image:
               repository: docker.io/blampe/rreading-glasses
               tag: hardcover
+            command:
+              - /rreading-glasses
             args:
-              - serve
+              - "serve"
             env:
               - name: RG_DATABASE_URL
                 valueFrom:
