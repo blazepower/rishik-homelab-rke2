@@ -23,15 +23,21 @@ spec:
       retries: 3
     timeout: 10m
   values:
-    # Use pinned version
+    # Use Sure fork (community fork with SimpleFIN support)
     image:
-      tag: "0.1.0-alpha.17"
+      repository: ghcr.io/we-promise/sure
+      tag: "v0.6.5-hotfix.1"
 
     # Enable OpenAI integration
     openai:
       enabled: true
       secretKey: openai-api-key
       model: gpt-5-mini
+
+    # Enable SimpleFIN for bank sync
+    simplefin:
+      enabled: true
+      secretKey: simplefin-access-url
 
     # PostgreSQL configuration
     postgresql:
