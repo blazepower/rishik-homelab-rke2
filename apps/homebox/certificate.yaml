@@ -1,0 +1,13 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: homebox-tls
+  namespace: homebox
+spec:
+  commonName: homebox.homelab
+  dnsNames:
+    - homebox.homelab
+  issuerRef:
+    kind: ClusterIssuer
+    name: cluster-ca
+  secretName: homebox-tls
