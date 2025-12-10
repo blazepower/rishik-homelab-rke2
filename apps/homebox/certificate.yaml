@@ -7,7 +7,7 @@ spec:
   commonName: homebox.homelab
   dnsNames:
     - homebox.homelab
+  secretName: homebox-tls
   issuerRef:
     kind: ClusterIssuer
     name: cluster-ca
-  secretName: homebox-tls
