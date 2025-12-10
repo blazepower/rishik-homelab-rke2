@@ -36,9 +36,10 @@ spec:
               repository: docker.io/blampe/rreading-glasses
               tag: hardcover
             command:
-              - /rreading-glasses
+              - /main
             args:
               - "serve"
+              - "--hardcover-auth=$(HARDCOVER_API_KEY)"
             env:
               - name: RG_DATABASE_URL
                 valueFrom:
