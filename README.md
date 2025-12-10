@@ -55,7 +55,11 @@ apps/
 ├── radarr/                     # Radarr movies manager
 ├── sabnzbd/                    # SABnzbd NZB download client
 ├── bazarr/                     # Bazarr subtitles manager
-└── overseerr/                  # Overseerr media request management
+├── overseerr/                  # Overseerr media request management
+├── bookshelf/                  # Bookshelf book management (Readarr fork)
+├── rreading-glasses/           # rreading-glasses metadata backend with PostgreSQL
+├── calibre-web/                # Calibre-Web library browser
+└── kindle-sender/              # Kindle Sender automatic eBook delivery
 docs/                           # Detailed component documentation
 ```
 
@@ -77,6 +81,7 @@ docs/                           # Detailed component documentation
 | **Paperless-ngx** | Document management system for digitizing and organizing paper documents | [apps/paperless-ngx/README.md](apps/paperless-ngx/README.md) |
 | **Plex** | Plex Media Server via official Helm chart with Intel QuickSync GPU transcoding | [apps/plex/](#plex-media-server) |
 | **Media Automation** | Complete *arr stack for media automation (Prowlarr, Sonarr, Radarr, SABnzbd, Bazarr, Overseerr) | [apps/](#media-automation-arr-stack) |
+| **Book Management** | Complete book management stack with Bookshelf, rreading-glasses, Calibre-Web, and Kindle Sender | [apps/](#book-management-stack) |
 
 ## Dependency Management
 
@@ -290,3 +295,245 @@ Each app follows the same structure under `apps/<app>/`:
 ### Helm Repository
 
 - `infrastructure/crds/bjw-s-helm-repo.yaml` - HelmRepository for bjw-s charts
+
+## Book Management Stack
+
+A complete, production-quality book management ecosystem for personal library automation, reading, and Kindle delivery.
+
+### Overview
+
+The book management stack consists of four integrated components:
+
+1. **Bookshelf** - Main book management interface (Readarr fork)
+2. **rreading-glasses** - Metadata backend with PostgreSQL
+3. **Calibre-Web** - Web-based library browser
+4. **Kindle Sender** - Automatic eBook delivery microservice
+
+All components run in the `media` namespace on `rishik-worker1` and share the `/media/rishik/Expansion/books` directory.
+
+### Components
+
+#### Bookshelf
+
+- **Description**: Readarr fork optimized for book management
+- **Image**: `ghcr.io/pennydreadful/bookshelf:hardcover-v0.4.10.2765`
+- **Chart**: bjw-s app-template v3.5.1
+- **Port**: 8787
+- **Access**: https://bookshelf.homelab
+- **Storage**: 
+  - Config: 1Gi Longhorn PVC
+  - Media: hostPath `/media/rishik/Expansion` → `/media`
+- **Books Path**: `/media/books`
+- **Resources**: 100m-1000m CPU, 256Mi-1Gi memory
+- **Features**:
+  - Book acquisition and organization
+  - Metadata enrichment via rreading-glasses
+  - Library management and tracking
+- **Documentation**: [apps/bookshelf/README.md](apps/bookshelf/README.md)
+
+#### rreading-glasses
+
+- **Description**: Metadata backend service integrating with Hardcover.app API
+- **Image**: `docker.io/blampe/rreading-glasses:hardcover`
+- **Chart**: bjw-s app-template v3.5.1
+- **Port**: 8080 (ClusterIP only, no ingress)
+- **Storage**: 
+  - PostgreSQL: 8Gi Longhorn PVC
+- **Resources**: 50m-200m CPU, 128Mi-256Mi memory
+- **Database**: PostgreSQL 16-alpine
+  - Database: `rreading_glasses`
+  - User: `rreading_user`
+- **Features**:
+  - Enhanced book metadata from Hardcover.app
+  - PostgreSQL-backed caching
+  - Internal-only service for Bookshelf
+- **Secrets**: HARDCOVER_API_KEY, POSTGRES_PASSWORD, RG_DATABASE_URL
+- **Documentation**: [apps/rreading-glasses/README.md](apps/rreading-glasses/README.md)
+
+#### Calibre-Web
+
+- **Description**: Web-based eBook library browser
+- **Image**: `lscr.io/linuxserver/calibre-web:0.6.24`
+- **Chart**: bjw-s app-template v3.5.1
+- **Port**: 8083
+- **Access**: https://calibre.homelab
+- **Storage**: 
+  - Config: 1Gi Longhorn PVC
+  - Media: hostPath `/media/rishik/Expansion` → `/media` (READ-ONLY)
+- **Calibre Library**: `/media/books/calibre-library`
+- **Resources**: 100m-500m CPU, 256Mi-512Mi memory
+- **Features**:
+  - Online eBook reading (EPUB, PDF, etc.)
+  - Book browsing and search
+  - Manual email to Kindle
+  - User management
+  - Metadata editing
+- **Secrets**: SMTP credentials for Kindle email delivery
+- **Documentation**: [apps/calibre-web/README.md](apps/calibre-web/README.md)
+
+#### Kindle Sender
+
+- **Description**: Custom Go microservice for automatic Kindle delivery
+- **Image**: `ghcr.io/blazepower/kindle-sender:v1.0.0`
+- **Chart**: bjw-s app-template v3.5.1
+- **Storage**: 
+  - Data: 100Mi Longhorn PVC (SQLite database)
+  - Media: hostPath `/media/rishik/Expansion` → `/media` (READ-ONLY)
+- **Watch Path**: `/media/books`
+- **Resources**: 25m-100m CPU, 32Mi-64Mi memory
+- **Features**:
+  - Real-time file watching (fsnotify)
+  - Periodic scanning (5 minutes)
+  - Duplicate prevention (SQLite tracking)
+  - Automatic email delivery to Kindle
+  - Support: .epub, .mobi, .azw3, .pdf
+  - Max file size: 50MB (configurable)
+- **Secrets**: SMTP credentials, KINDLE_EMAIL, SENDER_EMAIL
+- **Source Code**: [apps/kindle-sender/src/](apps/kindle-sender/src/)
+- **Documentation**: [apps/kindle-sender/README.md](apps/kindle-sender/README.md)
+
+### Security
+
+All components follow strict security practices:
+
+#### Pod Security
+- Run as non-root user (UID 1000, GID 1000)
+- FSGroup set to 1000 for volume permissions
+- All capabilities dropped
+- Read-only root filesystem (where possible)
+- No privilege escalation
+
+#### Network Policies
+- **Bookshelf**: Ingress from Traefik (8787), egress to rreading-glasses (8080) and HTTPS
+- **rreading-glasses**: Ingress from Bookshelf only (8080), egress to PostgreSQL (5432) and HTTPS
+- **Calibre-Web**: Ingress from Traefik (8083), egress to SMTP and HTTPS
+- **Kindle Sender**: No ingress, egress to SMTP and DNS only
+
+#### Secret Management
+All sensitive credentials stored as Bitnami SealedSecrets:
+- rreading-glasses: Hardcover API key, PostgreSQL credentials
+- Calibre-Web: SMTP credentials
+- Kindle Sender: SMTP credentials, Kindle email address
+
+### Resource Allocation
+
+| Component | CPU Request | CPU Limit | Memory Request | Memory Limit |
+|-----------|-------------|-----------|----------------|--------------|
+| Bookshelf | 100m | 1000m | 256Mi | 1Gi |
+| rreading-glasses | 50m | 200m | 128Mi | 256Mi |
+| PostgreSQL | 50m | 200m | 128Mi | 256Mi |
+| Calibre-Web | 100m | 500m | 256Mi | 512Mi |
+| Kindle Sender | 25m | 100m | 32Mi | 64Mi |
+
+### Shared Storage
+
+All components share the media directory:
+- **Host Path**: `/media/rishik/Expansion`
+- **Container Mount**: `/media`
+- **Books Directory**: `/media/books/`
+- **Calibre Library**: `/media/books/calibre-library/`
+
+Access modes:
+- **Bookshelf**: Read-Write (manages files)
+- **Calibre-Web**: Read-Only (browsing only)
+- **Kindle Sender**: Read-Only (monitoring only)
+
+### Access URLs
+
+- **Bookshelf**: https://bookshelf.homelab
+- **Calibre-Web**: https://calibre.homelab
+- **rreading-glasses**: Internal only (no ingress)
+- **Kindle Sender**: No web interface (background service)
+
+### Configuration Requirements
+
+#### Before Deployment
+
+1. **Create books directory on host**:
+   ```bash
+   sudo mkdir -p /media/rishik/Expansion/books
+   sudo chown 1000:1000 /media/rishik/Expansion/books
+   ```
+
+2. **Initialize Calibre library** (optional):
+   ```bash
+   # Create directory - Calibre-Web will initialize it on first run
+   sudo mkdir -p /media/rishik/Expansion/books/calibre-library
+   sudo chown 1000:1000 /media/rishik/Expansion/books/calibre-library
+   ```
+
+3. **Seal secrets** for each component:
+   - rreading-glasses: Hardcover API key, PostgreSQL password
+   - Calibre-Web: SMTP credentials
+   - Kindle Sender: SMTP credentials, Kindle email
+
+4. **Configure Kindle email**:
+   - Find your Kindle email in Amazon account settings
+   - Add sender email to approved list in Amazon
+
+5. **SMTP setup** (Gmail example):
+   - Enable 2FA
+   - Generate App Password
+   - Use in sealed secrets
+
+### Workflow
+
+1. **Acquisition**: Bookshelf downloads and organizes books to `/media/books/`
+2. **Metadata**: Bookshelf enriches metadata via rreading-glasses API
+3. **Browsing**: Users browse books via Calibre-Web at https://calibre.homelab
+4. **Delivery**: Kindle Sender automatically emails new books to Kindle device
+5. **Manual Send**: Users can also manually send books via Calibre-Web interface
+
+### Integration
+
+- **Bookshelf ↔ rreading-glasses**: Network policy allows direct connection for metadata
+- **Bookshelf → Books**: Writes to `/media/books/` for organization
+- **Calibre-Web → Books**: Reads from `/media/books/calibre-library/` for browsing
+- **Kindle Sender → Books**: Monitors `/media/books/` for new files
+
+### Files Per Component
+
+Each component follows GitOps best practices:
+
+```
+apps/<component>/
+├── helmrelease.yaml          # HelmRelease using bjw-s app-template
+├── configmap.yaml            # Environment variables
+├── pvc.yaml                  # Longhorn PVC (if needed)
+├── ingress.yaml              # Traefik ingress (if web UI)
+├── certificate.yaml          # TLS certificate (if ingress)
+├── networkpolicy.yaml        # Network security policies
+├── sealedsecret-*.yaml       # Sealed secrets (if needed)
+├── kustomization.yaml        # Kustomize configuration
+└── README.md                 # Component documentation
+```
+
+Additional for rreading-glasses:
+- `postgresql.yaml` - PostgreSQL Deployment, Service, and PVC
+
+Additional for Kindle Sender:
+- `src/` - Go application source code
+  - `main.go` - Application logic
+  - `go.mod` - Go dependencies
+  - `Dockerfile` - Multi-stage container build
+
+### Troubleshooting
+
+See individual component READMEs for detailed troubleshooting:
+- [Bookshelf README](apps/bookshelf/README.md)
+- [rreading-glasses README](apps/rreading-glasses/README.md)
+- [Calibre-Web README](apps/calibre-web/README.md)
+- [Kindle Sender README](apps/kindle-sender/README.md)
+
+Quick checks:
+```bash
+# Check all book stack pods
+kubectl get pods -n media -l 'app.kubernetes.io/name in (bookshelf,rreading-glasses,calibre-web,kindle-sender)'
+
+# View logs
+kubectl logs -n media -l app.kubernetes.io/name=bookshelf -f
+kubectl logs -n media -l app.kubernetes.io/name=kindle-sender -f
+
+# Verify media mount
+kubectl exec -n media -it <pod-name> -- ls -la /media/books
+```
