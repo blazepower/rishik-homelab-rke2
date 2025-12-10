@@ -274,11 +274,12 @@ kubectl apply -k apps/kindle-sender/
 1. Access https://calibre.homelab
 2. Login with default credentials: `admin` / `admin123`
 3. **IMPORTANT**: Change admin password immediately
-4. Configure database location: `/config`
-5. Set Calibre library: `/media/books/calibre-library`
-6. Configure email server:
-   - Admin → Settings → E-Mail
-   - Use values from sealed secret
+4. Set Calibre library path: `/media/books/calibre-library`
+5. Configure email server for Send-to-Kindle:
+   - Navigate to **Admin → Email Server Settings**
+   - Enter SMTP server details (hostname, port, credentials)
+   - Enable SSL/TLS as required
+   - Test email delivery
 
 ## Verification
 

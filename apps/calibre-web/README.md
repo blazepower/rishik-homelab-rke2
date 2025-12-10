@@ -32,9 +32,11 @@ Calibre-Web provides:
 - `PGID`: 1000
 - `TZ`: America/Los_Angeles
 
-### SMTP Configuration (via SealedSecret)
+### SMTP Configuration
 
-For Kindle email delivery, configure SMTP credentials:
+**Note**: The LinuxServer.io Calibre-Web image does not support SMTP configuration via environment variables. SMTP must be configured manually through the web UI after deployment.
+
+For Kindle email delivery, you'll need the following information:
 - `SMTP_HOST`: SMTP server hostname (e.g., smtp.gmail.com)
 - `SMTP_PORT`: SMTP server port (587 for STARTTLS, 465 for TLS/SSL)
 - `SMTP_USER`: SMTP authentication username
@@ -45,13 +47,30 @@ For Kindle email delivery, configure SMTP credentials:
 
 1. Access https://calibre.homelab
 2. Default credentials: `admin` / `admin123` (change immediately!)
-3. Configure database location: `/config`
-4. Set Calibre library path: `/media/books/calibre-library`
-5. Configure email settings for Kindle delivery
+3. Set Calibre library path: `/media/books/calibre-library`
+4. Configure email settings for Kindle delivery via **Admin > Email Server** in the web UI
 
-## Sealing SMTP Secrets
+## SMTP Setup
 
-To create and seal the SMTP credentials:
+**Important**: SMTP credentials must be entered manually through the Calibre-Web web UI. The sealed secret file (`sealedsecret-calibre-smtp.yaml`) is provided as a template but is not used by the application.
+
+To configure email for Send-to-Kindle:
+
+1. Access https://calibre.homelab and login as admin
+2. Navigate to **Admin > Email Server Settings**
+3. Enter your SMTP configuration:
+   - SMTP hostname: e.g., smtp.gmail.com
+   - SMTP port: 587 (STARTTLS) or 465 (SSL/TLS)
+   - From email: Your email address
+   - SMTP login: Your SMTP username
+   - SMTP password: Your SMTP password
+4. Enable "Use SSL/TLS"
+5. Save settings
+6. Test by sending a book to your Kindle email
+
+## Alternative: If Using Environment Variables (Future Enhancement)
+
+If you need to manage SMTP credentials as Kubernetes secrets for reference purposes:
 
 ```bash
 kubectl create secret generic calibre-smtp \
@@ -139,10 +158,13 @@ kubectl exec -n media -it <calibre-web-pod> -- ls -la /media/books/calibre-libra
 ```
 
 ### Test SMTP configuration
-```bash
-# Check if SMTP credentials are properly mounted
-kubectl exec -n media -it <calibre-web-pod> -- env | grep SMTP
-```
+- Open the Calibre-Web web UI and navigate to **Admin > Email Server Settings**
+- Verify that SMTP settings (server, port, username, password, TLS/SSL) are correctly entered
+- Use the "Test email" feature in the UI to verify SMTP connectivity
+- If email fails, check pod logs for SMTP-related errors:
+  ```bash
+  kubectl logs -n media -l app.kubernetes.io/name=calibre-web | grep -i mail
+  ```
 
 ### Check PVC
 ```bash

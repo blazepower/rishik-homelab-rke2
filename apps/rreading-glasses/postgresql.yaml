@@ -20,6 +20,8 @@ spec:
         app.kubernetes.io/name: postgresql
         app.kubernetes.io/instance: rreading-glasses-postgresql
     spec:
+      nodeSelector:
+        kubernetes.io/hostname: rishik-worker1
       securityContext:
         runAsNonRoot: true
         runAsUser: 999

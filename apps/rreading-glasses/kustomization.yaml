@@ -7,4 +7,5 @@ resources:
   - postgresql.yaml
   - helmrelease.yaml
   - networkpolicy.yaml
+  - networkpolicy-postgresql.yaml
   - sealedsecret-rreading-glasses-credentials.yaml

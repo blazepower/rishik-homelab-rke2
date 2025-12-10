@@ -67,6 +67,8 @@ paths = [
   '''yarn\.lock$''',
   # Documentation files with example credentials
   '''docs/sealed-secrets\.md$''',
+  '''docs/book-management-stack\.md$''',
+  '''apps/.*/README\.md$''',
   # Sealed Secrets files (encrypted secrets safe to commit)
   '''sealedsecret-[^/]+\.ya?ml$''',
 ]
@@ -80,6 +82,7 @@ regexes = [
   # Allow documentation examples
   '''example\.com''',
   '''placeholder''',
+  '''PLACEHOLDER''',
   '''your-.*-here''',
   '''<.*>''',
   # Allow Helm values references
