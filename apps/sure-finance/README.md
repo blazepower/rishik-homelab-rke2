@@ -4,7 +4,7 @@ Sure is a community fork of the now-abandoned Maybe Finance personal finance app
 
 ## Overview
 
-This deployment uses the [vicsufer/charts maybe-finance Helm chart](https://github.com/vicsufer/charts/tree/main/charts/maybe-finance) (version 0.2.7) to deploy the Sure Finance application (appVersion 0.5.0).
+This deployment uses a local Helm chart located at `charts/maybe-finance` to deploy the Sure Finance application (appVersion 0.5.0).
 
 Sure consists of:
 - **Application** - Rails-based web application (ghcr.io/maybe-finance/maybe) running on port 3000
@@ -15,7 +15,7 @@ Sure consists of:
 
 - **Sure Repository**: https://github.com/we-promise/sure
 - **Original Maybe Finance**: https://github.com/maybe-finance/maybe
-- **Helm Chart**: https://github.com/vicsufer/charts/tree/main/charts/maybe-finance
+- **Local Helm Chart**: `charts/maybe-finance` in this repository
 - **Self-hosting Documentation**: https://github.com/we-promise/sure/blob/main/docs/hosting/docker.md
 
 ## Configuration
@@ -64,7 +64,7 @@ Then access at:
 ## Files
 
 - `namespace.yaml` - Namespace definition
-- `helmrelease.yaml` - HelmRelease configuration for maybe-finance chart
+- `helmrelease.yaml` - HelmRelease configuration for local maybe-finance chart
 - `ingress.yaml` - Traefik ingress configuration
 - `certificate.yaml` - cert-manager Certificate for TLS
 - `networkpolicy.yaml` - Network policy for Sure Finance pods

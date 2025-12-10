@@ -4,12 +4,12 @@ Paperless-ngx is a community-supported open-source document management system th
 
 ## Overview
 
-This deployment uses the [zekker6/paperless Helm chart](https://artifacthub.io/packages/helm/zekker6/paperless) (version 10.8.0) from the zekker6 Helm repository.
+This deployment uses a local Helm chart located at `charts/paperless-ngx` in this repository.
 
 Paperless-ngx consists of:
 - **Paperless-ngx Application** - Main web interface and document processing (ghcr.io/paperless-ngx/paperless-ngx) running on port 8000
 - **PostgreSQL** - Database (postgres:16-alpine) running on port 5432
-- **Redis** - Disabled (paperless-ngx can run without it for smaller deployments)
+- **Redis** - Cache and task queue running on port 6379
 
 ## Configuration
 
@@ -124,7 +124,7 @@ Then access at:
 ## Files
 
 - `namespace.yaml` - Namespace definition
-- `helmrelease.yaml` - HelmRelease configuration for zekker6/paperless chart
+- `helmrelease.yaml` - HelmRelease configuration for local paperless-ngx chart
 - `ingress.yaml` - Traefik ingress configuration
 - `certificate.yaml` - cert-manager Certificate for TLS
 - `networkpolicy.yaml` - Network policy for secure pod communication
@@ -200,5 +200,5 @@ Commit and push the change. Flux will automatically handle the upgrade.
 ## Additional Resources
 
 - [Paperless-ngx Documentation](https://docs.paperless-ngx.com/)
-- [zekker6/paperless Helm Chart](https://artifacthub.io/packages/helm/zekker6/paperless)
+- [Local Helm Chart](../../charts/paperless-ngx)
 - [Paperless-ngx GitHub](https://github.com/paperless-ngx/paperless-ngx)
