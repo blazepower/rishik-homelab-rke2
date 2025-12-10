@@ -26,12 +26,12 @@ spec:
     # Use pinned version
     image:
       tag: "0.1.0-alpha.17"
-    
+
     # PostgreSQL configuration
     postgresql:
       persistence:
         size: 4Gi
-    
+
     # Resource limits
     resources:
       requests:

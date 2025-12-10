@@ -26,10 +26,10 @@ spec:
     # Use pinned version, not latest
     image:
       tag: "2.13.5"
-    
+
     # Environment variables are already set in chart defaults
     # No need to override unless different from defaults
-    
+
     # Persistence sizes match current deployment
     persistence:
       data:
@@ -40,17 +40,17 @@ spec:
         size: 5Gi
       consume:
         size: 5Gi
-    
+
     # PostgreSQL configuration
     postgresql:
       persistence:
         size: 8Gi
-    
+
     # Redis configuration
     redis:
       persistence:
         size: 1Gi
-    
+
     # Resource limits
     resources:
       requests:
