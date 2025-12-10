@@ -1,0 +1,81 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: rreading-glasses
+  namespace: media
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: app-template
+      version: "3.5.1"
+      sourceRef:
+        kind: HelmRepository
+        name: bjw-s
+        namespace: flux-system
+      interval: 30m
+  install:
+    createNamespace: false
+    remediation:
+      retries: 3
+    timeout: 15m
+  upgrade:
+    remediation:
+      retries: 3
+    timeout: 15m
+  values:
+    controllers:
+      rreading-glasses:
+        annotations:
+          reloader.stakater.com/auto: "true"
+
+        containers:
+          app:
+            image:
+              repository: docker.io/blampe/rreading-glasses
+              tag: hardcover
+            env:
+              - name: RG_DATABASE_URL
+                valueFrom:
+                  secretKeyRef:
+                    name: rreading-glasses-credentials
+                    key: RG_DATABASE_URL
+              - name: HARDCOVER_API_KEY
+                valueFrom:
+                  secretKeyRef:
+                    name: rreading-glasses-credentials
+                    key: HARDCOVER_API_KEY
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: false
+              runAsNonRoot: true
+              runAsUser: 1000
+              runAsGroup: 1000
+              capabilities:
+                drop:
+                  - ALL
+            resources:
+              requests:
+                cpu: "50m"
+                memory: "128Mi"
+              limits:
+                cpu: "200m"
+                memory: "256Mi"
+
+    service:
+      app:
+        controller: rreading-glasses
+        type: ClusterIP
+        ports:
+          http:
+            port: 8080
+
+    defaultPodOptions:
+      nodeSelector:
+        kubernetes.io/hostname: rishik-worker1
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000

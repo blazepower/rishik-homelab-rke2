@@ -1,0 +1,12 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kindle-sender-config
+  namespace: media
+data:
+  WATCH_PATH: "/media/books"
+  SCAN_INTERVAL: "300"
+  MAX_FILE_SIZE_MB: "50"
+  FILE_EXTENSIONS: ".epub,.mobi,.azw3,.pdf"
+  DATABASE_PATH: "/data/kindle-sender.db"
