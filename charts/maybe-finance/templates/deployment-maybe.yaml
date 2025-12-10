@@ -70,6 +70,10 @@ spec:
                   name: {{ .Values.existingSecret }}
                   key: {{ .Values.simplefin.secretKey }}
             {{- end }}
+            {{- if .Values.redis.enabled }}
+            - name: REDIS_URL
+              value: "redis://{{ include "maybe-finance.fullname" . }}-redis:6379/1"
+            {{- end }}
           {{- if .Values.persistence.appStorage.enabled }}
           volumeMounts:
             - name: storage

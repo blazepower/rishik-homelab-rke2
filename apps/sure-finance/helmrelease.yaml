@@ -39,6 +39,10 @@ spec:
       enabled: true
       secretKey: simplefin-access-url
 
+    # Enable Redis for Sidekiq background jobs
+    redis:
+      enabled: true
+
     # PostgreSQL configuration
     postgresql:
       persistence:

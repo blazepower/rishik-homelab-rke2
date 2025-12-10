@@ -61,6 +61,21 @@ simplefin:
   enabled: false
   secretKey: simplefin-access-url
 
+## Redis configuration (required for Sidekiq background jobs)
+redis:
+  enabled: true
+  image:
+    repository: docker.io/library/redis
+    tag: "7-alpine"
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+
 ## Persistence configuration
 ## Note: Maybe Finance stores all data in PostgreSQL, no app-level persistence needed
 persistence:
