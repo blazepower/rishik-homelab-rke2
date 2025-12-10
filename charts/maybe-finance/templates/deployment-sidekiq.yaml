@@ -31,11 +31,11 @@ spec:
             - name: RAILS_ENV
               value: production
             - name: DB_HOST
-              value: {{ include "maybe-finance.fullname" . }}-postgresql
+              value: {{ include "maybe-finance.postgresql.fullname" . }}
             - name: POSTGRES_USER
-              value: {{ .Values.postgresql.user | quote }}
+              value: {{ .Values.env.POSTGRES_USER | quote }}
             - name: POSTGRES_DB
-              value: {{ .Values.postgresql.database | quote }}
+              value: {{ .Values.env.POSTGRES_DB | quote }}
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
