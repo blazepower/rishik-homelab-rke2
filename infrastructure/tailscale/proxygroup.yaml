@@ -4,7 +4,7 @@ metadata:
   name: homelab-ingress
   namespace: tailscale
 spec:
-  type: ingress
+  type: egress
   replicas: 2
   hostnamePrefix: homelab
   tags:
