@@ -35,7 +35,7 @@ spec:
           app:
             image:
               repository: ghcr.io/sysadminsmedia/homebox
-              tag: nightly
+              tag: v0.21.0
             env:
               - name: HOMEBOX_ALLOW_REGISTRATION
                 value: "true"
