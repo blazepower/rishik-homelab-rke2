@@ -16,7 +16,7 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: paperless
+                name: paperless-paperless-ngx
                 port:
                   number: 8000
   tls:
