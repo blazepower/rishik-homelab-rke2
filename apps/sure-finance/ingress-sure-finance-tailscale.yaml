@@ -8,7 +8,7 @@ metadata:
 spec:
   ingressClassName: tailscale
   rules:
-    - host: sure-finance
+    - host: sure
       http:
         paths:
           - path: /
