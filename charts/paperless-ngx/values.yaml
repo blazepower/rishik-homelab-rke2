@@ -57,22 +57,22 @@ persistence:
   data:
     enabled: true
     size: 5Gi
-    storageClass: longhorn-retain
+    storageClass: longhorn
     accessMode: ReadWriteOnce
   media:
     enabled: true
     size: 20Gi
-    storageClass: longhorn-retain
+    storageClass: longhorn
     accessMode: ReadWriteOnce
   export:
     enabled: true
     size: 5Gi
-    storageClass: longhorn-retain
+    storageClass: longhorn
     accessMode: ReadWriteOnce
   consume:
     enabled: true
     size: 5Gi
-    storageClass: longhorn-retain
+    storageClass: longhorn
     accessMode: ReadWriteOnce
 
 ## PostgreSQL configuration
@@ -91,7 +91,7 @@ postgresql:
   persistence:
     enabled: true
     size: 8Gi
-    storageClass: longhorn-retain
+    storageClass: longhorn
     accessMode: ReadWriteOnce
   resources:
     requests:
@@ -121,7 +121,7 @@ redis:
   persistence:
     enabled: true
     size: 1Gi
-    storageClass: longhorn-retain
+    storageClass: longhorn
     accessMode: ReadWriteOnce
   resources:
     requests:

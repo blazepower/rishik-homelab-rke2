@@ -9,7 +9,7 @@ metadata:
 spec:
   accessModes:
     - ReadWriteOnce
-  storageClassName: longhorn-retain
+  storageClassName: longhorn
   resources:
     requests:
       storage: 100Mi

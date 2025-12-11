@@ -40,7 +40,7 @@ spec:
       persistence:
         enabled: true
         size: 8Gi
-        storageClass: longhorn-retain
+        storageClass: longhorn
         accessMode: ReadWriteOnce
       resources:
         requests:
