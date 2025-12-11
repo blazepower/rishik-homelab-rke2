@@ -5,7 +5,6 @@ metadata:
   name: kindle-sender
   namespace: media
 spec:
-  suspend: true
   interval: 30m
   chart:
     spec:

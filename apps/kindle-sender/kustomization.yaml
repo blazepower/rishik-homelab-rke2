@@ -7,4 +7,4 @@ resources:
   - pvc.yaml
   - helmrelease.yaml
   - networkpolicy.yaml
-  - sealedsecret-kindle-sender.yaml
+  - sealedsecret-sender-credentials.yaml
