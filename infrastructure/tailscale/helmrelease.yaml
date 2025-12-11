@@ -13,10 +13,16 @@ spec:
         name: tailscale
         namespace: flux-system
       version: "1.78.3"
+  valuesFrom:
+    - kind: Secret
+      name: tailscale-auth
+      valuesKey: TS_CLIENT_ID
+      targetPath: oauth.clientId
+    - kind: Secret
+      name: tailscale-auth
+      valuesKey: TS_CLIENT_SECRET
+      targetPath: oauth.clientSecret
   values:
-    oauth:
-      clientId: $TS_CLIENT_ID
-      clientSecret: $TS_CLIENT_SECRET
     operator:
       logLevel: "info"
 
