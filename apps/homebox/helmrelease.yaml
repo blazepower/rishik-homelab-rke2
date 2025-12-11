@@ -5,6 +5,7 @@ metadata:
   name: homebox
   namespace: homebox
 spec:
+  suspend: true
   interval: 30m
   chart:
     spec:

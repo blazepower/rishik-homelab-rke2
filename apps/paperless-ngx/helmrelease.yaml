@@ -4,6 +4,7 @@ metadata:
   name: paperless
   namespace: paperless
 spec:
+  suspend: true
   interval: 30m
   chart:
     spec:
