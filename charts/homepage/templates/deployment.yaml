@@ -18,6 +18,7 @@ spec:
         checksum/config-services: {{ include (print $.Template.BasePath "/configmap-services.yaml") . | sha256sum }}
         checksum/config-widgets: {{ include (print $.Template.BasePath "/configmap-widgets.yaml") . | sha256sum }}
         checksum/config-settings: {{ include (print $.Template.BasePath "/configmap-settings.yaml") . | sha256sum }}
+        checksum/config-kubernetes: {{ include (print $.Template.BasePath "/configmap-kubernetes.yaml") . | sha256sum }}
       labels:
         {{- include "homepage.selectorLabels" . | nindent 8 }}
     spec:
