@@ -7,6 +7,8 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "maybe-finance.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
 spec:
   accessModes:
     - {{ .Values.persistence.appStorage.accessMode }}
@@ -24,6 +26,8 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "maybe-finance.postgresql.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
 spec:
   accessModes:
     - {{ .Values.postgresql.persistence.accessMode }}

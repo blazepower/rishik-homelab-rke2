@@ -3,10 +3,12 @@ kind: PersistentVolumeClaim
 metadata:
   name: plex-config
   namespace: media
+  annotations:
+    helm.sh/resource-policy: keep
 spec:
   accessModes:
     - ReadWriteOnce
-  storageClassName: longhorn
+  storageClassName: longhorn-retain
   resources:
     requests:
       storage: 20Gi

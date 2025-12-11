@@ -1,0 +1,35 @@
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: longhorn-retain
+  annotations:
+    # Not the default - use explicitly when you want Retain
+    storageclass.kubernetes.io/is-default-class: "false"
+provisioner: driver.longhorn.io
+allowVolumeExpansion: true
+reclaimPolicy: Retain
+volumeBindingMode: Immediate
+parameters:
+  numberOfReplicas: "1"
+  staleReplicaTimeout: "30"
+  fromBackup: ""
+  fsType: "ext4"
+  # Longhorn recurring job settings for automatic snapshots
+  recurringJobSelector: '[{"name":"snapshot-weekly", "isGroup":false}]'
+---
+# Recurring job for weekly snapshots with 30-day retention (keeps ~4 weeks)
+apiVersion: longhorn.io/v1beta2
+kind: RecurringJob
+metadata:
+  name: snapshot-weekly
+  namespace: storage
+spec:
+  name: snapshot-weekly
+  groups:
+    - default
+  task: snapshot
+  cron: "0 2 * * 0"  # Weekly on Sunday at 2 AM
+  retain: 4          # Keep last 4 snapshots (~30 days)
+  concurrency: 2
+  labels: {}

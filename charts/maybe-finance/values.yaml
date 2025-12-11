@@ -82,7 +82,7 @@ persistence:
   appStorage:
     enabled: false
     size: 2Gi
-    storageClass: longhorn
+    storageClass: longhorn-retain
     accessMode: ReadWriteOnce
 
 ## PostgreSQL configuration
@@ -101,7 +101,7 @@ postgresql:
   persistence:
     enabled: true
     size: 4Gi
-    storageClass: longhorn
+    storageClass: longhorn-retain
     accessMode: ReadWriteOnce
   resources:
     requests:

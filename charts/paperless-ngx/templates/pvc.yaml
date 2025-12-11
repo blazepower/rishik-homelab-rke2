@@ -7,6 +7,8 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "paperless-ngx.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
 spec:
   accessModes:
     - {{ .Values.persistence.data.accessMode }}
@@ -24,6 +26,8 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "paperless-ngx.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
 spec:
   accessModes:
     - {{ .Values.persistence.media.accessMode }}
@@ -41,6 +45,8 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "paperless-ngx.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
 spec:
   accessModes:
     - {{ .Values.persistence.export.accessMode }}
@@ -58,6 +64,8 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "paperless-ngx.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
 spec:
   accessModes:
     - {{ .Values.persistence.consume.accessMode }}
@@ -75,6 +83,8 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "paperless-ngx.postgresql.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
 spec:
   accessModes:
     - {{ .Values.postgresql.persistence.accessMode }}
@@ -92,6 +102,8 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "paperless-ngx.redis.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
 spec:
   accessModes:
     - {{ .Values.redis.persistence.accessMode }}
