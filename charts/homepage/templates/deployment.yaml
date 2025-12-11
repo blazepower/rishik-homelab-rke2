@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "homepage.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "homepage.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "homepage.selectorLabels" . | nindent 6 }}
+  strategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      annotations:
+        checksum/config-services: {{ include (print $.Template.BasePath "/configmap-services.yaml") . | sha256sum }}
+        checksum/config-widgets: {{ include (print $.Template.BasePath "/configmap-widgets.yaml") . | sha256sum }}
+        checksum/config-settings: {{ include (print $.Template.BasePath "/configmap-settings.yaml") . | sha256sum }}
+        checksum/config-kubernetes: {{ include (print $.Template.BasePath "/configmap-kubernetes.yaml") . | sha256sum }}
+      labels:
+        {{- include "homepage.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "homepage.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: homepage
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.targetPort }}
+              protocol: TCP
+          env:
+            - name: HOMEPAGE_ALLOWED_HOSTS
+              value: {{ .Values.env.HOMEPAGE_ALLOWED_HOSTS | quote }}
+          volumeMounts:
+            - name: config-services
+              mountPath: /app/config/services.yaml
+              subPath: services.yaml
+            - name: config-widgets
+              mountPath: /app/config/widgets.yaml
+              subPath: widgets.yaml
+            - name: config-settings
+              mountPath: /app/config/settings.yaml
+              subPath: settings.yaml
+            - name: config-kubernetes
+              mountPath: /app/config/kubernetes.yaml
+              subPath: kubernetes.yaml
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+      volumes:
+        - name: config-services
+          configMap:
+            name: {{ include "homepage.fullname" . }}-services
+        - name: config-widgets
+          configMap:
+            name: {{ include "homepage.fullname" . }}-widgets
+        - name: config-settings
+          configMap:
+            name: {{ include "homepage.fullname" . }}-settings
+        - name: config-kubernetes
+          configMap:
+            name: {{ include "homepage.fullname" . }}-kubernetes
