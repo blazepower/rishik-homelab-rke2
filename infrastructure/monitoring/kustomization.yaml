@@ -12,6 +12,7 @@ resources:
   - prometheusrules-alerts.yaml
   - prometheusrules-node-health-alerts.yaml
   - ingress-grafana.yaml
+  - ingress-grafana-tailscale.yaml
   - servicemonitor-node-feature-discovery.yaml
   - servicemonitor-intel-gpu-plugin.yaml
   - servicemonitor-kured.yaml

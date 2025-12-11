@@ -5,6 +5,7 @@ resources:
   - namespace.yaml
   - helmrelease.yaml
   - ingress.yaml
+  - ingress-sure-finance-tailscale.yaml
   - certificate.yaml
   - networkpolicy.yaml
   - sealedsecret-sure-credentials.yaml
