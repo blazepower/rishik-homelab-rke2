@@ -6,3 +6,4 @@ resources:
   - monitoring.yaml
   - storage.yaml
   - metallb.yaml
+  - tailscale.yaml
