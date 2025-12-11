@@ -45,7 +45,7 @@ env:
   PAPERLESS_DBNAME: paperless
   PAPERLESS_DBUSER: paperless_user
   PAPERLESS_URL: https://paperless.homelab
-  PAPERLESS_ALLOWED_HOSTS: "paperless.homelab,localhost,127.0.0.1,[::1],10.42.*.*"
+  PAPERLESS_ALLOWED_HOSTS: "*"
   PAPERLESS_OCR_LANGUAGE: eng
   PAPERLESS_ADMIN_USER: admin
 
