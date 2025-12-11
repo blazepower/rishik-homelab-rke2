@@ -5,7 +5,7 @@ metadata:
   name: bookshelf
   namespace: media
 spec:
-  suspend: true
+  suspend: false
   interval: 30m
   chart:
     spec:
@@ -35,7 +35,7 @@ spec:
           app:
             image:
               repository: ghcr.io/pennydreadful/bookshelf
-              tag: hardcover-v0.4.10.2765
+              tag: hardcover-v0.4.20.91
             env:
               - name: PUID
                 valueFrom:
