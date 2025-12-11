@@ -7,12 +7,12 @@ spec:
   interval: 5m
   chart:
     spec:
-      chart: operator
+      chart: tailscale-operator
       sourceRef:
         kind: HelmRepository
         name: tailscale
         namespace: flux-system
-      version: "0.1.82"  # pin this
+      version: "1.78.3"
   values:
     oauth:
       clientId: $TS_CLIENT_ID
