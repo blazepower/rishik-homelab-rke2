@@ -1,0 +1,23 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: homebox-tailscale
+  namespace: homebox
+  annotations:
+    tailscale.com/proxy-group: homelab-ingress
+spec:
+  ingressClassName: tailscale
+  rules:
+    - host: homebox
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: homebox
+                port:
+                  number: 7745
+  tls:
+    - hosts:
+        - homebox

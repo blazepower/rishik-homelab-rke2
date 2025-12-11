@@ -1,0 +1,23 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: bookshelf-tailscale
+  namespace: media
+  annotations:
+    tailscale.com/proxy-group: homelab-ingress
+spec:
+  ingressClassName: tailscale
+  rules:
+    - host: bookshelf
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: bookshelf
+                port:
+                  number: 8787
+  tls:
+    - hosts:
+        - bookshelf
