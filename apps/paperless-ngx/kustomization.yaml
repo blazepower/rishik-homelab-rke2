@@ -5,6 +5,7 @@ resources:
   - namespace.yaml
   - helmrelease.yaml
   - ingress.yaml
+  - ingress-paperless-tailscale.yaml
   - certificate.yaml
   - networkpolicy.yaml
   - sealedsecret-paperless-credentials.yaml

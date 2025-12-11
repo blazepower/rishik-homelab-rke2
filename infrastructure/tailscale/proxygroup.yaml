@@ -1,0 +1,11 @@
+apiVersion: tailscale.com/v1alpha1
+kind: ProxyGroup
+metadata:
+  name: homelab-ingress
+  namespace: tailscale
+spec:
+  type: ingress
+  replicas: 2
+  hostnamePrefix: homelab
+  tags:
+    - tag:k8s-operator
