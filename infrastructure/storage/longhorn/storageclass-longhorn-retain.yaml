@@ -25,7 +25,6 @@ metadata:
   name: snapshot-weekly
   namespace: storage
 spec:
-  name: snapshot-weekly
   groups:
     - default
   task: snapshot
