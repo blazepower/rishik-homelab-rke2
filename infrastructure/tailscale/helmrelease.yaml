@@ -12,7 +12,7 @@ spec:
         kind: HelmRepository
         name: tailscale
         namespace: flux-system
-      version: "1.78.3"
+      version: "1.90.9"
   valuesFrom:
     - kind: Secret
       name: tailscale-auth
