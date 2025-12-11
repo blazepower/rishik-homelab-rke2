@@ -61,7 +61,7 @@ spec:
     persistence:
       data:
         enabled: true
-        storageClass: longhorn
+        storageClass: longhorn-retain
         accessMode: ReadWriteOnce
         size: 5Gi
         globalMounts:

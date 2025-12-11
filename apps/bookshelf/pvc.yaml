@@ -4,10 +4,12 @@ kind: PersistentVolumeClaim
 metadata:
   name: bookshelf-config
   namespace: media
+  annotations:
+    helm.sh/resource-policy: keep
 spec:
   accessModes:
     - ReadWriteOnce
-  storageClassName: longhorn
+  storageClassName: longhorn-retain
   resources:
     requests:
       storage: 1Gi

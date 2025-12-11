@@ -5,4 +5,5 @@ resources:
   - helmrepository-longhorn.yaml
   - helmrelease-longhorn.yaml
   - ingress-longhorn.yaml
+  - storageclass-longhorn-retain.yaml
   - ingress-longhorn-tailscale.yaml
