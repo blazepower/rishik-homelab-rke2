@@ -5,7 +5,7 @@ metadata:
   name: homebox
   namespace: homebox
 spec:
-  suspend: true
+  suspend: false
   interval: 30m
   chart:
     spec:
@@ -35,7 +35,7 @@ spec:
           app:
             image:
               repository: ghcr.io/sysadminsmedia/homebox
-              tag: v0.15.0
+              tag: nightly
             env:
               - name: HOMEBOX_ALLOW_REGISTRATION
                 value: "true"
