@@ -51,6 +51,8 @@ spec:
             - name: config-kubernetes
               mountPath: /app/config/kubernetes.yaml
               subPath: kubernetes.yaml
+            - name: logs
+              mountPath: /app/config/logs
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           livenessProbe:
@@ -70,3 +72,5 @@ spec:
         - name: config-kubernetes
           configMap:
             name: {{ include "homepage.fullname" . }}-kubernetes
+        - name: logs
+          emptyDir: {}
