@@ -1,0 +1,23 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: sabnzbd-tailscale
+  namespace: media
+  annotations:
+    tailscale.com/proxy-group: homelab-ingress
+spec:
+  ingressClassName: tailscale
+  rules:
+    - host: sabnzbd
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: sabnzbd
+                port:
+                  number: 8080
+  tls:
+    - hosts:
+        - sabnzbd

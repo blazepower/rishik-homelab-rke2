@@ -1,0 +1,23 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: overseerr-tailscale
+  namespace: media
+  annotations:
+    tailscale.com/proxy-group: homelab-ingress
+spec:
+  ingressClassName: tailscale
+  rules:
+    - host: overseerr
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: overseerr
+                port:
+                  number: 5055
+  tls:
+    - hosts:
+        - overseerr
