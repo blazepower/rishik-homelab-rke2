@@ -1,8 +1,11 @@
 # Multi-stage build for Kindle Sender
-FROM golang:1.21.13-alpine AS builder
+FROM golang:1.21-bookworm AS build
 
 # Install build dependencies
-RUN apk add --no-cache gcc musl-dev sqlite-dev
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libsqlite3-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
 
@@ -15,30 +18,19 @@ RUN go mod download
 # Copy source code
 COPY main.go ./
 
-# Build the application
-RUN CGO_ENABLED=1 GOOS=linux go build -a -ldflags '-extldflags "-static"' -o kindle-sender .
+# Build the application with static linking
+RUN CGO_ENABLED=1 GOOS=linux go build -a -ldflags '-linkmode external -extldflags "-static"' -o kindle-sender .
 
-# Final stage
-FROM alpine:3.19.4
-
-# Install runtime dependencies
-RUN apk add --no-cache ca-certificates tzdata
-
-# Create non-root user
-RUN addgroup -g 1000 appuser && \
-    adduser -D -u 1000 -G appuser appuser
-
-# Create directories
-RUN mkdir -p /data /media && \
-    chown -R appuser:appuser /data
+# Final stage - distroless static image
+FROM gcr.io/distroless/static-debian12:nonroot
 
 WORKDIR /app
 
-# Copy binary from builder
-COPY --from=builder /build/kindle-sender /app/kindle-sender
+# Copy binary from build stage
+COPY --from=build /build/kindle-sender /app/kindle-sender
 
-# Use non-root user
-USER 1000
+# Use non-root user (65532 is the nonroot user in distroless)
+USER 65532:65532
 
 # Set read-only root filesystem compatible
 VOLUME ["/data"]
