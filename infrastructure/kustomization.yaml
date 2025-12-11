@@ -14,3 +14,4 @@ resources:
   - accelerators/intel-gpu
   - policies
   - scheduling
+  - tailscale
