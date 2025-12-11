@@ -5,7 +5,7 @@ metadata:
   name: calibre-web
   namespace: media
 spec:
-  suspend: true
+  suspend: false
   interval: 30m
   chart:
     spec:
@@ -53,14 +53,16 @@ spec:
                     name: calibre-web-config
                     key: TZ
             securityContext:
-              allowPrivilegeEscalation: false
+              allowPrivilegeEscalation: true
               readOnlyRootFilesystem: false
-              runAsNonRoot: true
-              runAsUser: 1000
-              runAsGroup: 1000
+              runAsNonRoot: false
               capabilities:
                 drop:
                   - ALL
+                add:
+                  - CHOWN
+                  - SETUID
+                  - SETGID
             resources:
               requests:
                 cpu: "100m"
@@ -92,7 +94,4 @@ spec:
       nodeSelector:
         kubernetes.io/hostname: rishik-worker1
       securityContext:
-        runAsNonRoot: true
-        runAsUser: 1000
-        runAsGroup: 1000
         fsGroup: 1000
