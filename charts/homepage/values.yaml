@@ -1,0 +1,229 @@
+## Homepage Configuration
+
+## Image configuration
+image:
+  repository: ghcr.io/gethomepage/homepage
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+## Replica count
+replicaCount: 1
+
+## Service configuration
+service:
+  type: ClusterIP
+  port: 3000
+  targetPort: 3000
+
+## Resource limits
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    cpu: 200m
+    memory: 256Mi
+
+## Security context for pod
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+
+## Security context for container
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+## ServiceAccount
+serviceAccount:
+  create: true
+  name: homepage
+
+## RBAC
+rbac:
+  create: true
+
+## Environment variables
+env:
+  HOMEPAGE_ALLOWED_HOSTS: "*"
+
+## Homepage configuration
+config:
+  # Kubernetes integration
+  kubernetes:
+    mode: cluster
+
+  # Services configuration
+  services:
+    - Media:
+        - Plex:
+            icon: plex.png
+            href: https://plex.homelab
+            description: Media Server
+            server: homepage-kubernetes
+            namespace: media
+            app: plex
+        - Overseerr:
+            icon: overseerr.png
+            href: https://overseerr.homelab
+            description: Request Management
+            server: homepage-kubernetes
+            namespace: media
+            app: overseerr
+        - Sonarr:
+            icon: sonarr.png
+            href: https://sonarr.homelab
+            description: TV Shows
+            server: homepage-kubernetes
+            namespace: media
+            app: sonarr
+        - Radarr:
+            icon: radarr.png
+            href: https://radarr.homelab
+            description: Movies
+            server: homepage-kubernetes
+            namespace: media
+            app: radarr
+        - Bazarr:
+            icon: bazarr.png
+            href: https://bazarr.homelab
+            description: Subtitles
+            server: homepage-kubernetes
+            namespace: media
+            app: bazarr
+        - Prowlarr:
+            icon: prowlarr.png
+            href: https://prowlarr.homelab
+            description: Indexer Manager
+            server: homepage-kubernetes
+            namespace: media
+            app: prowlarr
+        - SABnzbd:
+            icon: sabnzbd.png
+            href: https://sabnzbd.homelab
+            description: Usenet Downloader
+            server: homepage-kubernetes
+            namespace: media
+            app: sabnzbd
+
+    - Documents & Books:
+        - Paperless-ngx:
+            icon: paperless.png
+            href: https://paperless.homelab
+            description: Document Management
+            server: homepage-kubernetes
+            namespace: paperless-ngx
+            app: paperless-ngx
+        - Calibre-web:
+            icon: calibre-web.png
+            href: https://calibre.homelab
+            description: eBook Library
+            server: homepage-kubernetes
+            namespace: calibre-web
+            app: calibre-web
+        - Bookshelf:
+            icon: bookshelf.png
+            href: https://bookshelf.homelab
+            description: Book Manager
+            server: homepage-kubernetes
+            namespace: bookshelf
+            app: bookshelf
+        - Kindle-sender:
+            icon: kindle.png
+            href: https://kindle.homelab
+            description: Send to Kindle
+            server: homepage-kubernetes
+            namespace: kindle-sender
+            app: kindle-sender
+        - RReading-glasses:
+            icon: mdi-glasses
+            href: https://rreading.homelab
+            description: RSS Reader
+            server: homepage-kubernetes
+            namespace: rreading-glasses
+            app: rreading-glasses
+
+    - Productivity:
+        - Kaneo:
+            icon: mdi-kangaroo
+            href: https://kaneo.homelab
+            description: Task Management
+            server: homepage-kubernetes
+            namespace: kaneo
+            app: kaneo
+        - Homebox:
+            icon: homebox.png
+            href: https://homebox.homelab
+            description: Inventory Management
+            server: homepage-kubernetes
+            namespace: homebox
+            app: homebox
+        - Sure-finance:
+            icon: maybe.png
+            href: https://sure.homelab
+            description: Finance Manager
+            server: homepage-kubernetes
+            namespace: sure-finance
+            app: sure-finance
+
+  # Widgets configuration
+  widgets:
+    - kubernetes:
+        cluster:
+          show: true
+          cpu: true
+          memory: true
+          showLabel: true
+          label: "Cluster"
+        nodes:
+          show: true
+          cpu: true
+          memory: true
+          showLabel: true
+    - search:
+        provider: google
+        target: _blank
+    - datetime:
+        text_size: xl
+        format:
+          timeStyle: short
+          dateStyle: short
+
+  # Settings configuration
+  settings:
+    title: "Homelab Dashboard"
+    theme: dark
+    color: slate
+    headerStyle: boxed
+    hideVersion: true
+    layout:
+      Media:
+        style: row
+        columns: 4
+      Documents & Books:
+        style: row
+        columns: 3
+      Productivity:
+        style: row
+        columns: 3
+
+## Probes
+livenessProbe:
+  httpGet:
+    path: /
+    port: 3000
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /
+    port: 3000
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  failureThreshold: 3

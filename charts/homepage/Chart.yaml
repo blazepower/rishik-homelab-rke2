@@ -1,0 +1,15 @@
+apiVersion: v2
+name: homepage
+description: A Helm chart for Homepage dashboard
+type: application
+version: 1.0.0
+appVersion: "latest"
+keywords:
+  - homepage
+  - dashboard
+  - homelab
+home: https://github.com/gethomepage/homepage
+sources:
+  - https://github.com/gethomepage/homepage
+maintainers:
+  - name: homelab

@@ -1,0 +1,13 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: homepage-tls
+  namespace: homepage
+spec:
+  commonName: homepage.homelab
+  dnsNames:
+    - homepage.homelab
+  issuerRef:
+    kind: ClusterIssuer
+    name: cluster-ca
+  secretName: homepage-tls
