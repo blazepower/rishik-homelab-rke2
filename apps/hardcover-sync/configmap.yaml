@@ -1,0 +1,11 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hardcover-sync-config
+  namespace: media
+data:
+  BOOKSHELF_URL: "http://bookshelf:8787"
+  RREADING_GLASSES_URL: "http://rreading-glasses:8080"
+  SYNC_INTERVAL: "3600"
+  DATABASE_PATH: "/data/hardcover-sync.db"

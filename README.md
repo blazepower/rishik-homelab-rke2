@@ -59,7 +59,8 @@ apps/
 ├── bookshelf/                  # Bookshelf book management (Readarr fork)
 ├── rreading-glasses/           # rreading-glasses metadata backend with PostgreSQL
 ├── calibre-web/                # Calibre-Web library browser
-└── kindle-sender/              # Kindle Sender automatic eBook delivery
+├── kindle-sender/              # Kindle Sender automatic eBook delivery
+└── hardcover-sync/             # Hardcover Sync - sync Want-To-Read list to Bookshelf
 docs/                           # Detailed component documentation
 ```
 
@@ -81,7 +82,7 @@ docs/                           # Detailed component documentation
 | **Paperless-ngx** | Document management system for digitizing and organizing paper documents | [apps/paperless-ngx/README.md](apps/paperless-ngx/README.md) |
 | **Plex** | Plex Media Server via official Helm chart with Intel QuickSync GPU transcoding | [apps/plex/](#plex-media-server) |
 | **Media Automation** | Complete *arr stack for media automation (Prowlarr, Sonarr, Radarr, SABnzbd, Bazarr, Overseerr) | [apps/](#media-automation-arr-stack) |
-| **Book Management** | Complete book management stack with Bookshelf, rreading-glasses, Calibre-Web, and Kindle Sender | [apps/](#book-management-stack) |
+| **Book Management** | Complete book management stack with Bookshelf, rreading-glasses, Calibre-Web, Kindle Sender, and Hardcover Sync | [docs/book-management-stack.md](docs/book-management-stack.md) |
 
 ## Dependency Management
 
