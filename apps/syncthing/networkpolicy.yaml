@@ -1,0 +1,59 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: syncthing
+  namespace: media
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: syncthing
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow Traefik ingress for web UI
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+      ports:
+        - protocol: TCP
+          port: 8384
+    # Allow sync connections from anywhere (for local Syncthing pairing)
+    - ports:
+        - protocol: TCP
+          port: 22000
+        - protocol: UDP
+          port: 22000
+        - protocol: UDP
+          port: 21027
+  egress:
+    # Allow DNS
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Allow sync connections to anywhere (for local Syncthing pairing)
+    - ports:
+        - protocol: TCP
+          port: 22000
+        - protocol: UDP
+          port: 22000
+        - protocol: UDP
+          port: 21027
+    # Allow HTTPS for discovery servers and relay servers
+    - ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 80

@@ -1,0 +1,13 @@
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: syncthing-tls
+  namespace: media
+spec:
+  secretName: syncthing-tls
+  issuerRef:
+    name: cluster-ca
+    kind: ClusterIssuer
+  dnsNames:
+    - syncthing.homelab
