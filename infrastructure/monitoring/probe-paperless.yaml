@@ -1,0 +1,21 @@
+# Probe for Paperless-ngx
+# Monitors HTTPS endpoint availability and response time
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: paperless
+  namespace: monitoring
+  labels:
+    app: paperless
+    release: kube-prometheus-stack
+spec:
+  jobName: paperless
+  prober:
+    url: kube-prometheus-stack-prometheus-blackbox-exporter.monitoring.svc.cluster.local:9115
+  module: http_2xx
+  targets:
+    staticConfig:
+      static:
+        - https://paperless.homelab
+  interval: 60s
+  scrapeTimeout: 10s

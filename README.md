@@ -67,7 +67,7 @@ docs/                           # Detailed component documentation
 
 | Component | Description | Documentation |
 |-----------|-------------|---------------|
-| **Monitoring** | Prometheus, Grafana, and Alertmanager via kube-prometheus-stack with custom dashboards | [docs/monitoring.md](docs/monitoring.md) |
+| **Monitoring** | Prometheus, Grafana, Alertmanager, and Blackbox Exporter via kube-prometheus-stack with custom dashboards | [docs/monitoring.md](docs/monitoring.md) |
 | **Logging** | Loki and Promtail for centralized log aggregation | [docs/logging.md](docs/logging.md) |
 | **Storage** | Longhorn distributed storage as default StorageClass | [docs/storage.md](docs/storage.md) |
 | **Networking** | Traefik ingress controller and MetalLB load balancer | [docs/networking.md](docs/networking.md) |
@@ -111,6 +111,7 @@ All components have explicit resource requests and limits to prevent runaway res
 | Longhorn Manager | 25m | 200m | 64Mi | 256Mi |
 | cert-manager | 25m | 100m | 64Mi | 128Mi |
 | MetalLB Controller | 10m | 100m | 32Mi | 128Mi |
+| Blackbox Exporter | 25m | 100m | 32Mi | 64Mi |
 
 ### Monitoring Optimizations
 
@@ -118,6 +119,7 @@ All components have explicit resource requests and limits to prevent runaway res
 - **Evaluation interval**: 60s for rule evaluation
 - **Retention**: 7 days for Prometheus metrics
 - **Disabled components**: kubeControllerManager, kubeScheduler, kubeProxy, kubeEtcd, coreDns monitoring (RKE2 manages these internally)
+- **Blackbox Exporter**: Enabled for application uptime monitoring with 60s probe interval
 
 ### Logging Optimizations
 
@@ -536,4 +538,151 @@ kubectl logs -n media -l app.kubernetes.io/name=kindle-sender -f
 
 # Verify media mount
 kubectl exec -n media -it <pod-name> -- ls -la /media/books
+```
+
+## Application Uptime Monitoring
+
+The homelab uses **Blackbox Exporter** to monitor the availability and performance of all application endpoints via HTTPS probes.
+
+### Overview
+
+Blackbox Exporter is deployed as part of the kube-prometheus-stack and provides comprehensive uptime monitoring for:
+- **Media Services**: Plex, Overseerr, Sonarr, Radarr, Bazarr, Prowlarr, SABnzbd
+- **Productivity Services**: Paperless-ngx, Calibre-Web, Bookshelf, Kaneo, Homebox, Sure-finance
+- **Infrastructure Services**: Grafana, Longhorn
+
+### Configuration
+
+| Setting | Value |
+|---------|-------|
+| **Namespace** | `monitoring` |
+| **Probe Interval** | 60 seconds |
+| **Probe Timeout** | 10 seconds |
+| **Module** | `http_2xx` (HTTP/HTTPS with valid status codes) |
+| **TLS Verification** | Disabled (self-signed certificates) |
+
+> **Security Note:** TLS verification is currently disabled to support self-signed certificates in the homelab environment. For production use, it is recommended to configure Blackbox Exporter to trust your internal CA or use certificate pinning instead of globally disabling TLS verification. This can be done by adding your CA certificate to the Blackbox Exporter configuration.
+
+### Monitored Endpoints
+
+Each application is monitored via a Kubernetes **Probe** resource that configures the Blackbox Exporter to periodically probe the application's HTTPS endpoint.
+
+**Media Services** (`media` namespace):
+- `https://plex.homelab:32400`
+- `https://overseerr.homelab`
+- `https://sonarr.homelab`
+- `https://radarr.homelab`
+- `https://bazarr.homelab`
+- `https://prowlarr.homelab`
+- `https://sabnzbd.homelab`
+
+**Productivity Services** (`productivity` namespace):
+- `https://paperless.homelab`
+- `https://calibre.homelab`
+- `https://bookshelf.homelab`
+- `https://kaneo.homelab`
+- `https://homebox.homelab`
+- `https://sure.homelab`
+
+**Infrastructure Services**:
+- `https://grafana.homelab` (`monitoring` namespace)
+- `https://longhorn.homelab` (`storage` namespace)
+
+### Grafana Dashboard
+
+A custom Grafana dashboard **"Homelab Uptime Dashboard (Blackbox Exporter)"** provides comprehensive visibility into application health:
+
+#### Features:
+1. **Service Status Overview**: Real-time table showing all services with UP/DOWN status (green/red)
+2. **Uptime Percentage**: Gauge panels showing uptime % over the selected time range
+3. **Response Time Metrics**: Time series graphs of HTTP response latency for each service
+4. **SSL Certificate Expiry**: Table showing days until SSL certificate expiration
+5. **Probe Duration**: Total probe duration including DNS, connection, TLS handshake, and processing time
+
+#### Metrics Available:
+- `probe_success` - Binary indicator (1 = up, 0 = down)
+- `probe_http_duration_seconds` - HTTP response time
+- `probe_ssl_earliest_cert_expiry` - Unix timestamp of SSL certificate expiry
+- `probe_duration_seconds` - Total probe duration
+
+#### Access:
+Navigate to Grafana at `https://grafana.homelab` and find the dashboard under:
+- **Title**: "Homelab Uptime Dashboard (Blackbox Exporter)"
+- **Tags**: `blackbox`, `uptime`, `monitoring`, `homelab`
+
+### Files
+
+All monitoring configuration is located in `infrastructure/monitoring/`:
+- `helmrelease-kube-prometheus-stack.yaml` - Blackbox Exporter configuration in HelmRelease values
+- `probe-*.yaml` - Individual Probe resources for each application (16 total)
+- `custom-dashboards/configmap-blackbox-uptime-dashboard.yaml` - Grafana dashboard ConfigMap
+
+### Resource Usage
+
+Blackbox Exporter is lightweight and optimized for homelab use:
+- **CPU Request**: 25m
+- **CPU Limit**: 100m
+- **Memory Request**: 32Mi
+- **Memory Limit**: 64Mi
+
+### Adding New Endpoints
+
+To monitor a new application endpoint:
+
+1. **Create a Probe resource** in `infrastructure/monitoring/probe-<app>.yaml`:
+```yaml
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: <app-name>
+  namespace: monitoring
+  labels:
+    app: <app-name>
+    release: kube-prometheus-stack
+spec:
+  jobName: <app-name>
+  prober:
+    url: kube-prometheus-stack-prometheus-blackbox-exporter.monitoring.svc.cluster.local:9115
+  module: http_2xx
+  targets:
+    staticConfig:
+      static:
+        - https://<app>.homelab
+  interval: 60s
+  scrapeTimeout: 10s
+```
+
+2. **Add to kustomization.yaml**:
+```yaml
+resources:
+  - probe-<app-name>.yaml
+```
+
+3. **Update the dashboard** (optional) to include the new service in visualizations
+
+### Troubleshooting
+
+Check Blackbox Exporter pod status:
+```bash
+kubectl get pods -n monitoring -l app.kubernetes.io/name=prometheus-blackbox-exporter
+```
+
+View Blackbox Exporter logs:
+```bash
+kubectl logs -n monitoring -l app.kubernetes.io/name=prometheus-blackbox-exporter
+```
+
+Query probe metrics directly:
+```bash
+# Check if a service is up
+kubectl exec -n monitoring -it prometheus-kube-prometheus-stack-prometheus-0 -- promtool query instant 'probe_success{job="plex"}'
+
+# Check response time
+kubectl exec -n monitoring -it prometheus-kube-prometheus-stack-prometheus-0 -- promtool query instant 'probe_http_duration_seconds{job="plex"}'
+```
+
+Verify Probe resources:
+```bash
+kubectl get probes -n monitoring
+kubectl describe probe <probe-name> -n monitoring
 ```
