@@ -67,6 +67,11 @@ type BookshelfBook struct {
 	AddOptions  map[string]interface{} `json:"addOptions"`
 }
 
+// GraphQL query for fetching Want-To-Read list from Hardcover
+const hardcoverWantToReadQuery = `{
+	"query": "query GetWantToRead { me { user_books(where: {status_id: {_eq: 1}}) { book { id title contributions { author { name } } } } } }"
+}`
+
 func loadConfig() *Config {
 	return &Config{
 		HardcoverAPIKey:    getEnv("HARDCOVER_API_KEY", ""),
@@ -145,11 +150,7 @@ func markBookSynced(db *sql.DB, hardcoverID int, title string) error {
 }
 
 func fetchWantToReadList(apiKey string) ([]int, error) {
-	graphqlQuery := `{
-		"query": "query GetWantToRead { me { user_books(where: {status_id: {_eq: 1}}) { book { id title contributions { author { name } } } } } }"
-	}`
-
-	req, err := http.NewRequest("POST", "https://api.hardcover.app/v1/graphql", bytes.NewBufferString(graphqlQuery))
+	req, err := http.NewRequest("POST", "https://api.hardcover.app/v1/graphql", bytes.NewBufferString(hardcoverWantToReadQuery))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -293,7 +294,7 @@ func syncBooks(config *Config, db *sql.DB) error {
 	// Fetch want-to-read list from Hardcover
 	bookIDs, err := fetchWantToReadList(config.HardcoverAPIKey)
 	if err != nil {
-		return fmt.Errorf("failed to fetch want-to-read list: %w", err)
+		return err
 	}
 
 	log.Printf("Found %d books in want-to-read list", len(bookIDs))

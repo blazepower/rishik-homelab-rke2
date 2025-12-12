@@ -101,8 +101,8 @@ kubeseal --format yaml \
 ## Security
 
 ### Pod Security
-- Runs as non-root user (UID 1000, GID 1000)
-- FSGroup set to 1000 for volume permissions
+- Runs as non-root user (UID 65532, GID 65532)
+- FSGroup set to 65532 for volume permissions
 - Read-only root filesystem
 - All capabilities dropped
 - No privilege escalation
@@ -227,32 +227,28 @@ kubectl get pods -n media -l app.kubernetes.io/name=hardcover-sync
 kubectl logs -n media -l app.kubernetes.io/name=hardcover-sync -f
 ```
 
-### Verify configuration
-```bash
-kubectl exec -n media -it <hardcover-sync-pod> -- env | grep -E '(HARDCOVER|BOOKSHELF|RREADING)'
-```
-
-### Check database
-```bash
-kubectl exec -n media -it <hardcover-sync-pod> -- ls -la /data/
-```
-
-### Test Hardcover API connectivity
+### Check Hardcover API connectivity
 ```bash
 # Check logs for Hardcover API responses
 kubectl logs -n media -l app.kubernetes.io/name=hardcover-sync | grep -i hardcover
 ```
 
-### Test rreading-glasses connectivity
+### Check rreading-glasses connectivity
 ```bash
-# From hardcover-sync pod
-kubectl exec -n media -it <hardcover-sync-pod> -- wget -O- http://rreading-glasses:8080/health
+# Check logs for rreading-glasses interactions
+kubectl logs -n media -l app.kubernetes.io/name=hardcover-sync | grep -i "rreading-glasses\|resolving metadata"
 ```
 
-### Test Bookshelf connectivity
+### Check Bookshelf connectivity
 ```bash
-# From hardcover-sync pod
-kubectl exec -n media -it <hardcover-sync-pod> -- wget -O- http://bookshelf:8787
+# Check logs for Bookshelf API interactions
+kubectl logs -n media -l app.kubernetes.io/name=hardcover-sync | grep -i "bookshelf\|added book"
+```
+
+### Inspect pod environment (ConfigMap values)
+```bash
+kubectl get pod -n media -l app.kubernetes.io/name=hardcover-sync -o jsonpath='{.items[0].spec.containers[0].env[*].valueFrom.configMapKeyRef.name}' | tr ' ' '\n' | sort -u
+kubectl get configmap -n media hardcover-sync-config -o yaml
 ```
 
 ### Common Issues
@@ -277,9 +273,9 @@ kubectl exec -n media -it <hardcover-sync-pod> -- wget -O- http://bookshelf:8787
 
 #### Permission errors
 1. Verify `/data` directory is writable
-2. Check pod runs as UID 1000
+2. Check pod runs as UID 65532
 3. Ensure PVC is properly mounted
-4. Verify fsGroup is set to 1000
+4. Verify fsGroup is set to 65532
 
 ## Integration
 

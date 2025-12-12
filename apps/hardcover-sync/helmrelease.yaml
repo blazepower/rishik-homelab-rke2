@@ -70,8 +70,8 @@ spec:
               allowPrivilegeEscalation: false
               readOnlyRootFilesystem: true
               runAsNonRoot: true
-              runAsUser: 1000
-              runAsGroup: 1000
+              runAsUser: 65532
+              runAsGroup: 65532
               capabilities:
                 drop:
                   - ALL
@@ -94,6 +94,6 @@ spec:
         kubernetes.io/hostname: rishik-worker1
       securityContext:
         runAsNonRoot: true
-        runAsUser: 1000
-        runAsGroup: 1000
-        fsGroup: 1000
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
