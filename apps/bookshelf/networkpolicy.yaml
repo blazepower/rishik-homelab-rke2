@@ -75,6 +75,8 @@ spec:
               app.kubernetes.io/instance: rreading-glasses
       ports:
         - protocol: TCP
+          port: 8080
+        - protocol: TCP
           port: 8788
     # Allow connection to SABnzbd download client
     - to:
