@@ -31,11 +31,11 @@ All components are deployed in the `media` namespace on `rishik-worker1` node.
     │  (8787)     │     │              │      │                │
     │             │     │  (8080)      │      │  (background)  │
     └─────┬───────┘     └──────┬───────┘      └────────────────┘
-          │                    │                         
-          │                ┌───▼────────┐               
-          │                │ PostgreSQL │               
-          │                │   (5432)   │               
-          │                └────────────┘               
+          │                    │
+          │                ┌───▼────────┐
+          │                │ PostgreSQL │
+          │                │   (5432)   │
+          │                └────────────┘
           │                                   ┌──────────────┐
           │     ┌────────────┐                │   Kindle     │
           └────▶│  Calibre-  │                │   Sender     │
