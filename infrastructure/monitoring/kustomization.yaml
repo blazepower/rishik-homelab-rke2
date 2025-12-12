@@ -17,5 +17,20 @@ resources:
   - servicemonitor-intel-gpu-plugin.yaml
   - servicemonitor-kured.yaml
   - servicemonitor-node-problem-detector.yaml
+  - probe-plex.yaml
+  - probe-overseerr.yaml
+  - probe-sonarr.yaml
+  - probe-radarr.yaml
+  - probe-bazarr.yaml
+  - probe-prowlarr.yaml
+  - probe-sabnzbd.yaml
+  - probe-paperless.yaml
+  - probe-calibre.yaml
+  - probe-bookshelf.yaml
+  - probe-kaneo.yaml
+  - probe-homebox.yaml
+  - probe-sure-finance.yaml
+  - probe-grafana.yaml
+  - probe-longhorn.yaml
   - custom-dashboards/
   - dashboards/

@@ -1,0 +1,21 @@
+# Probe for SABnzbd
+# Monitors HTTPS endpoint availability and response time
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: sabnzbd
+  namespace: monitoring
+  labels:
+    app: sabnzbd
+    release: kube-prometheus-stack
+spec:
+  jobName: sabnzbd
+  prober:
+    url: kube-prometheus-stack-prometheus-blackbox-exporter.monitoring.svc.cluster.local:9115
+  module: http_2xx
+  targets:
+    staticConfig:
+      static:
+        - https://sabnzbd.homelab
+  interval: 60s
+  scrapeTimeout: 10s

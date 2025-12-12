@@ -1,0 +1,21 @@
+# Probe for Homebox
+# Monitors HTTPS endpoint availability and response time
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: homebox
+  namespace: monitoring
+  labels:
+    app: homebox
+    release: kube-prometheus-stack
+spec:
+  jobName: homebox
+  prober:
+    url: kube-prometheus-stack-prometheus-blackbox-exporter.monitoring.svc.cluster.local:9115
+  module: http_2xx
+  targets:
+    staticConfig:
+      static:
+        - https://homebox.homelab
+  interval: 60s
+  scrapeTimeout: 10s

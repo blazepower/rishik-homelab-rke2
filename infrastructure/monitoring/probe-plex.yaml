@@ -1,0 +1,21 @@
+# Probe for Plex Media Server
+# Monitors HTTPS endpoint availability and response time
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: plex
+  namespace: monitoring
+  labels:
+    app: plex
+    release: kube-prometheus-stack
+spec:
+  jobName: plex
+  prober:
+    url: kube-prometheus-stack-prometheus-blackbox-exporter.monitoring.svc.cluster.local:9115
+  module: http_2xx
+  targets:
+    staticConfig:
+      static:
+        - https://plex.homelab:32400
+  interval: 60s
+  scrapeTimeout: 10s

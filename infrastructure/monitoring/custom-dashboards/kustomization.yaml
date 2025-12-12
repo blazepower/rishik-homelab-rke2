@@ -11,3 +11,4 @@ resources:
   - network-deep-dive-dashboard.yaml
   - gpu-transcoding-dashboard.yaml
   - plex-workload-dashboard.yaml
+  - configmap-blackbox-uptime-dashboard.yaml

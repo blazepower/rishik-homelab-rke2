@@ -100,6 +100,40 @@ spec:
         limits:
           cpu: "100m"
           memory: "64Mi"
+    prometheus-blackbox-exporter:
+      enabled: true
+      resources:
+        requests:
+          cpu: "25m"
+          memory: "32Mi"
+        limits:
+          cpu: "100m"
+          memory: "64Mi"
+      config:
+        modules:
+          http_2xx:
+            prober: http
+            timeout: 5s
+            http:
+              valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+              valid_status_codes: []
+              method: GET
+              preferred_ip_protocol: "ip4"
+              follow_redirects: true
+              fail_if_ssl: false
+              fail_if_not_ssl: false
+              tls_config:
+                insecure_skip_verify: true
+          http_post_2xx:
+            prober: http
+            timeout: 5s
+            http:
+              valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+              valid_status_codes: []
+              method: POST
+              preferred_ip_protocol: "ip4"
+              tls_config:
+                insecure_skip_verify: true
     kubeApiServer:
       enabled: true
     kubeControllerManager:

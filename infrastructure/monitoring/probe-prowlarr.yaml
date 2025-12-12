@@ -1,0 +1,21 @@
+# Probe for Prowlarr
+# Monitors HTTPS endpoint availability and response time
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: prowlarr
+  namespace: monitoring
+  labels:
+    app: prowlarr
+    release: kube-prometheus-stack
+spec:
+  jobName: prowlarr
+  prober:
+    url: kube-prometheus-stack-prometheus-blackbox-exporter.monitoring.svc.cluster.local:9115
+  module: http_2xx
+  targets:
+    staticConfig:
+      static:
+        - https://prowlarr.homelab
+  interval: 60s
+  scrapeTimeout: 10s
