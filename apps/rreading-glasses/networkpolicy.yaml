@@ -23,6 +23,8 @@ spec:
               app.kubernetes.io/instance: bookshelf
       ports:
         - protocol: TCP
+          port: 8080
+        - protocol: TCP
           port: 8788
   egress:
     # Allow DNS
