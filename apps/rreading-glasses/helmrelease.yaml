@@ -40,6 +40,10 @@ spec:
             args:
               - "serve"
               - "--verbose"
+            ports:
+              - name: http
+                containerPort: 8788
+                protocol: TCP
             env:
               - name: POSTGRES_HOST
                 value: "rreading-glasses-postgresql"
@@ -81,6 +85,7 @@ spec:
         ports:
           http:
             port: 8080
+            targetPort: 8788
 
     defaultPodOptions:
       nodeSelector:
