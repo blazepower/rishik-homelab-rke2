@@ -188,10 +188,10 @@ func fetchWantToReadList(apiKey string) ([]int, error) {
 }
 
 func resolveMetadata(rreadingGlassesURL string, hardcoverID int) (*RReadingGlassesWork, error) {
-	url := fmt.Sprintf("%s/works/%d", rreadingGlassesURL, hardcoverID)
+	metadataURL := fmt.Sprintf("%s/works/%d", rreadingGlassesURL, hardcoverID)
 	
 	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Get(url)
+	resp, err := client.Get(metadataURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch metadata: %w", err)
 	}
