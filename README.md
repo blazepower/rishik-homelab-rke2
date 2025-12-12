@@ -561,6 +561,8 @@ Blackbox Exporter is deployed as part of the kube-prometheus-stack and provides 
 | **Module** | `http_2xx` (HTTP/HTTPS with valid status codes) |
 | **TLS Verification** | Disabled (self-signed certificates) |
 
+> **Security Note:** TLS verification is currently disabled to support self-signed certificates in the homelab environment. For production use, it is recommended to configure Blackbox Exporter to trust your internal CA or use certificate pinning instead of globally disabling TLS verification. This can be done by adding your CA certificate to the Blackbox Exporter configuration.
+
 ### Monitored Endpoints
 
 Each application is monitored via a Kubernetes **Probe** resource that configures the Blackbox Exporter to periodically probe the application's HTTPS endpoint.

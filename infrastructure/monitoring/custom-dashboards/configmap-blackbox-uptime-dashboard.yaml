@@ -61,14 +61,6 @@ data:
                 ]
               },
               {
-                "matcher": { "id": "byName", "options": "Category" },
-                "properties": [
-                  { "id": "custom.width", "value": 150 },
-                  { "id": "custom.cellOptions", "value": { "type": "auto" } },
-                  { "id": "mappings", "value": [] }
-                ]
-              },
-              {
                 "matcher": { "id": "byName", "options": "URL" },
                 "properties": [
                   { "id": "custom.width", "value": 250 },
@@ -84,13 +76,13 @@ data:
             "cellHeight": "sm",
             "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
             "showHeader": true,
-            "sortBy": [{ "desc": false, "displayName": "Category" }]
+            "sortBy": [{ "desc": false, "displayName": "Service" }]
           },
           "pluginVersion": "10.0.0",
           "targets": [
             {
               "datasource": { "type": "prometheus", "uid": "prometheus" },
-              "expr": "probe_success{job=~\"plex|overseerr|sonarr|radarr|bazarr|prowlarr|sabnzbd|paperless|calibre|bookshelf|kaneo|homebox|sure-finance|grafana|longhorn\"} * on(instance) group_left(job) up{job=~\"plex|overseerr|sonarr|radarr|bazarr|prowlarr|sabnzbd|paperless|calibre|bookshelf|kaneo|homebox|sure-finance|grafana|longhorn\"}",
+              "expr": "probe_success{job=~\"plex|overseerr|sonarr|radarr|bazarr|prowlarr|sabnzbd|paperless|calibre|bookshelf|kaneo|homebox|sure-finance|grafana|longhorn\"}",
               "format": "table",
               "instant": true,
               "legendFormat": "{{ job }}",
@@ -105,24 +97,6 @@ data:
                 "excludeByName": { "Time": true, "__name__": true },
                 "indexByName": { "job": 0, "instance": 1, "Value": 2 },
                 "renameByName": { "Value": "Status", "instance": "URL", "job": "Service" }
-              }
-            },
-            {
-              "id": "calculateField",
-              "options": {
-                "alias": "Category",
-                "binary": { "left": "Service", "operator": "+", "reducer": "sum", "right": "Service" },
-                "mode": "binary",
-                "reduce": { "reducer": "sum" },
-                "replaceFields": false
-              }
-            },
-            {
-              "id": "organize",
-              "options": {
-                "excludeByName": {},
-                "indexByName": { "Category": 1, "Service": 0, "Status": 3, "URL": 2 },
-                "renameByName": {}
               }
             }
           ],
