@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -214,10 +215,11 @@ func resolveMetadata(rreadingGlassesURL string, hardcoverID int) (*RReadingGlass
 
 func addToBookshelf(bookshelfURL, apiKey string, work *RReadingGlassesWork) error {
 	// First check if book already exists
-	searchURL := fmt.Sprintf("%s/api/v1/book/lookup?term=%s", bookshelfURL, work.ISBN)
-	if work.ISBN == "" {
-		searchURL = fmt.Sprintf("%s/api/v1/book/lookup?term=%s", bookshelfURL, work.Title)
+	searchTerm := work.ISBN
+	if searchTerm == "" {
+		searchTerm = work.Title
 	}
+	searchURL := fmt.Sprintf("%s/api/v1/book/lookup?term=%s", bookshelfURL, url.QueryEscape(searchTerm))
 
 	client := &http.Client{Timeout: 30 * time.Second}
 	req, err := http.NewRequest("GET", searchURL, nil)
