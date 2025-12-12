@@ -1,0 +1,51 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: hardcover-sync-network-policy
+  namespace: media
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: hardcover-sync
+      app.kubernetes.io/instance: hardcover-sync
+  policyTypes:
+    - Egress
+  egress:
+    # Allow DNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Allow rreading-glasses service within media namespace
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: media
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: rreading-glasses
+      ports:
+        - protocol: TCP
+          port: 8080
+    # Allow Bookshelf service within media namespace
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: media
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: bookshelf
+      ports:
+        - protocol: TCP
+          port: 8787
+    # Allow HTTPS for Hardcover API
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 443

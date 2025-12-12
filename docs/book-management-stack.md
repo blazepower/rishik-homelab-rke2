@@ -10,44 +10,44 @@ The book management stack provides end-to-end automation for managing an eBook l
 2. **rreading-glasses** - Enhanced metadata via Hardcover.app
 3. **Calibre-Web** - Web-based reading and browsing
 4. **Kindle Sender** - Automatic delivery to Kindle devices
+5. **Hardcover Sync** - Automatic sync from Hardcover "Want-To-Read" to Bookshelf
 
 All components are deployed in the `media` namespace on `rishik-worker1` node.
 
 ## Architecture Diagram
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                         User Access                          │
-├─────────────────┬────────────────────────┬──────────────────┤
-│  https://       │  https://              │  (background)    │
-│  bookshelf.     │  calibre.homelab       │  Kindle Sender   │
-│  homelab        │                        │                  │
-└────────┬────────┴───────────┬────────────┴──────────────────┘
-         │                    │
-    ┌────▼────────┐     ┌────▼─────────┐      ┌──────────────┐
-    │  Bookshelf  │────▶│ rreading-    │      │   Kindle     │
-    │             │     │  glasses     │      │   Sender     │
-    │  (8787)     │     │              │      │              │
-    │             │     │  (8080)      │      │ (background) │
-    └─────┬───────┘     └──────┬───────┘      └──────┬───────┘
-          │                    │                     │
-          │                ┌───▼────────┐            │
-          │                │ PostgreSQL │            │
-          │                │   (5432)   │            │
-          │                └────────────┘            │
-          │                                          │
-          │     ┌────────────┐                       │
-          └────▶│  Calibre-  │◀──────────────────────┘
-                │   Web      │
-                │  (8083)    │
-                └─────┬──────┘
-                      │
-              ┌───────▼───────┐
-              │  /media/books │
-              │               │
-              │ calibre-      │
-              │  library/     │
-              └───────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│                         User Access                                  │
+├─────────────────┬────────────────────────┬───────────────────────────┤
+│  https://       │  https://              │  Hardcover.app           │
+│  bookshelf.     │  calibre.homelab       │  (Want-To-Read)          │
+│  homelab        │                        │                          │
+└────────┬────────┴───────────┬────────────┴───────────┬──────────────┘
+         │                    │                        │
+    ┌────▼────────┐     ┌────▼─────────┐      ┌───────▼────────┐
+    │  Bookshelf  │────▶│ rreading-    │◀─────│   Hardcover    │
+    │             │     │  glasses     │      │     Sync       │
+    │  (8787)     │     │              │      │                │
+    │             │     │  (8080)      │      │  (background)  │
+    └─────┬───────┘     └──────┬───────┘      └────────────────┘
+          │                    │
+          │                ┌───▼────────┐
+          │                │ PostgreSQL │
+          │                │   (5432)   │
+          │                └────────────┘
+          │                                   ┌──────────────┐
+          │     ┌────────────┐                │   Kindle     │
+          └────▶│  Calibre-  │                │   Sender     │
+                │   Web      │                │              │
+                │  (8083)    │                │ (background) │
+                └─────┬──────┘                └──────┬───────┘
+                      │                              │
+              ┌───────▼──────────────────────────────▼─┐
+              │           /media/books                 │
+              │                                        │
+              │         calibre-library/               │
+              └────────────────────────────────────────┘
 ```
 
 ## Components
@@ -130,6 +130,31 @@ All components are deployed in the `media` namespace on `rishik-worker1` node.
 - Max size: 50MB
 
 **Source Code**: Available in `apps/kindle-sender/src/`
+
+### 5. Hardcover Sync
+
+**Purpose**: Automatic synchronization from Hardcover "Want-To-Read" list
+
+- **Type**: Custom Go microservice
+- **Access**: None (background service)
+- **Storage**: 100Mi SQLite PVC for sync tracking
+- **Resources**: 25m-100m CPU, 32Mi-64Mi memory
+
+**Features**:
+- Periodic sync from Hardcover.app (default: 1 hour)
+- GraphQL API integration with Hardcover
+- Metadata resolution via rreading-glasses
+- Automatic book addition to Bookshelf
+- Duplicate prevention via SQLite tracking
+- Graceful error handling
+
+**Workflow**:
+1. Query Hardcover GraphQL API for "Want-To-Read" books (status_id = 1)
+2. For each book ID, call rreading-glasses: `GET /works/<hardcover-id>`
+3. Add resolved metadata to Bookshelf via `POST /api/v1/book`
+4. Track synced books in SQLite to prevent duplicates
+
+**Source Code**: Available in `apps/hardcover-sync/src/`
 
 ## Deployment Prerequisites
 
@@ -233,6 +258,20 @@ kubeseal --format yaml \
   > apps/kindle-sender/sealedsecret-kindle-sender.yaml
 ```
 
+### Hardcover Sync Credentials
+
+```bash
+kubectl create secret generic hardcover-sync-credentials \
+  --namespace=media \
+  --from-literal=HARDCOVER_API_KEY="your-hardcover-api-key" \
+  --from-literal=BOOKSHELF_API_KEY="your-bookshelf-api-key" \
+  --dry-run=client -o yaml | \
+kubeseal --format yaml \
+  --controller-name=sealed-secrets \
+  --controller-namespace=flux-system \
+  > apps/hardcover-sync/sealedsecret-hardcover-sync-credentials.yaml
+```
+
 ## Deployment
 
 ### Via Flux GitOps
@@ -240,7 +279,7 @@ kubeseal --format yaml \
 1. Seal all secrets (see above)
 2. Commit and push changes:
    ```bash
-   git add apps/bookshelf apps/rreading-glasses apps/calibre-web apps/kindle-sender
+   git add apps/bookshelf apps/rreading-glasses apps/calibre-web apps/kindle-sender apps/hardcover-sync
    git add apps/kustomization.yaml
    git commit -m "Add book management stack"
    git push
@@ -255,6 +294,7 @@ kubectl apply -k apps/bookshelf/
 kubectl apply -k apps/rreading-glasses/
 kubectl apply -k apps/calibre-web/
 kubectl apply -k apps/kindle-sender/
+kubectl apply -k apps/hardcover-sync/
 ```
 
 ## Post-Deployment Configuration
@@ -287,19 +327,20 @@ kubectl apply -k apps/kindle-sender/
 
 ```bash
 # All book stack pods
-kubectl get pods -n media -l 'app.kubernetes.io/name in (bookshelf,rreading-glasses,calibre-web,kindle-sender)'
+kubectl get pods -n media -l 'app.kubernetes.io/name in (bookshelf,rreading-glasses,calibre-web,kindle-sender,hardcover-sync)'
 
 # Individual components
 kubectl get pods -n media -l app.kubernetes.io/name=bookshelf
 kubectl get pods -n media -l app.kubernetes.io/name=rreading-glasses
 kubectl get pods -n media -l app.kubernetes.io/name=calibre-web
 kubectl get pods -n media -l app.kubernetes.io/name=kindle-sender
+kubectl get pods -n media -l app.kubernetes.io/name=hardcover-sync
 ```
 
 ### Check Services
 
 ```bash
-kubectl get svc -n media | grep -E "(bookshelf|rreading|calibre|kindle)"
+kubectl get svc -n media | grep -E "(bookshelf|rreading|calibre|kindle|hardcover)"
 ```
 
 ### Check Ingresses
@@ -322,10 +363,14 @@ kubectl logs -n media -l app.kubernetes.io/name=calibre-web -f
 
 # Kindle Sender
 kubectl logs -n media -l app.kubernetes.io/name=kindle-sender -f
+
+# Hardcover Sync
+kubectl logs -n media -l app.kubernetes.io/name=hardcover-sync -f
 ```
 
 ## Workflow
 
+### Manual Book Management
 1. **Book Discovery**: Use Bookshelf to search and add books
 2. **Acquisition**: Bookshelf downloads books to `/media/books/`
 3. **Metadata**: Bookshelf enriches metadata via rreading-glasses
@@ -333,6 +378,16 @@ kubectl logs -n media -l app.kubernetes.io/name=kindle-sender -f
 5. **Browsing**: Access via Calibre-Web at https://calibre.homelab
 6. **Reading**: Read online via Calibre-Web interface
 7. **Delivery**: Kindle Sender automatically emails new books to Kindle
+
+### Automated Book Management (via Hardcover Sync)
+1. **Discovery on Hardcover**: Browse and add books to "Want-To-Read" on Hardcover.app
+2. **Automatic Sync**: Hardcover Sync periodically picks up new additions (hourly)
+3. **Metadata Resolution**: rreading-glasses enhances book information
+4. **Bookshelf Addition**: Books are automatically added to Bookshelf
+5. **Acquisition**: Bookshelf handles downloading and organizing
+6. **Browsing**: Access via Calibre-Web at https://calibre.homelab
+7. **Reading**: Read online via Calibre-Web interface
+8. **Delivery**: Kindle Sender automatically emails new books to Kindle
 
 ## Troubleshooting
 
@@ -467,6 +522,7 @@ Configure Alertmanager alerts for:
 - `rreading-glasses-postgresql-data` (8Gi) - Metadata cache
 - `calibre-web-config` (1Gi) - Calibre-Web settings
 - `kindle-sender-data` (100Mi) - Sent files database
+- `hardcover-sync-data` (100Mi) - Synced books tracking database
 
 **Longhorn snapshots**:
 ```bash
@@ -506,7 +562,8 @@ Total resource allocation:
 | PostgreSQL | 50m | 200m | 128Mi | 256Mi |
 | Calibre-Web | 100m | 500m | 256Mi | 512Mi |
 | Kindle Sender | 25m | 100m | 32Mi | 64Mi |
-| **Total** | **325m** | **2000m** | **800Mi** | **2.06Gi** |
+| Hardcover Sync | 25m | 100m | 32Mi | 64Mi |
+| **Total** | **350m** | **2100m** | **832Mi** | **2.12Gi** |
 
 ### Storage Usage
 
@@ -515,7 +572,8 @@ Total storage allocation:
 - rreading-glasses-postgresql-data: 8Gi
 - calibre-web-config: 1Gi
 - kindle-sender-data: 100Mi
-- **Total PVC**: ~10.1Gi
+- hardcover-sync-data: 100Mi
+- **Total PVC**: ~10.2Gi
 
 Books themselves are stored on hostPath (external HDD).
 
