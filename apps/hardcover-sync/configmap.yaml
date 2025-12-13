@@ -9,3 +9,6 @@ data:
   RREADING_GLASSES_URL: "http://rreading-glasses:8080"
   SYNC_INTERVAL: "3600"
   DATABASE_PATH: "/data/hardcover-sync.db"
+  # Readarr profile IDs (check your Readarr settings for correct values)
+  QUALITY_PROFILE_ID: "1"
+  METADATA_PROFILE_ID: "1"

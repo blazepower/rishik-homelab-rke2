@@ -34,7 +34,7 @@ spec:
           app:
             image:
               repository: ghcr.io/blazepower/hardcover-sync
-              tag: v1.0.5
+              tag: v1.0.6
             env:
               - name: BOOKSHELF_URL
                 valueFrom:
@@ -56,6 +56,16 @@ spec:
                   configMapKeyRef:
                     name: hardcover-sync-config
                     key: DATABASE_PATH
+              - name: QUALITY_PROFILE_ID
+                valueFrom:
+                  configMapKeyRef:
+                    name: hardcover-sync-config
+                    key: QUALITY_PROFILE_ID
+              - name: METADATA_PROFILE_ID
+                valueFrom:
+                  configMapKeyRef:
+                    name: hardcover-sync-config
+                    key: METADATA_PROFILE_ID
               - name: HARDCOVER_API_KEY
                 valueFrom:
                   secretKeyRef:

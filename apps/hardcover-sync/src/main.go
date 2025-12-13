@@ -254,6 +254,9 @@ func addToBookshelf(bookshelfURL, apiKey string, book HardcoverBook) error {
 	// Use the first search result - it already has the proper author data
 	bookToAdd := searchResults[0]
 	bookToAdd["monitored"] = true
+	// Set required Readarr profile IDs (these must exist in your Readarr instance)
+	bookToAdd["qualityProfileId"] = getEnvInt("QUALITY_PROFILE_ID", 1)
+	bookToAdd["metadataProfileId"] = getEnvInt("METADATA_PROFILE_ID", 1)
 	bookToAdd["addOptions"] = map[string]interface{}{
 		"searchForNewBook": true,
 	}
