@@ -275,6 +275,21 @@ func addToBookshelf(bookshelfURL, apiKey string, book HardcoverBook) error {
 	bookToAdd["qualityProfileId"] = qualityProfileId
 	bookToAdd["metadataProfileId"] = metadataProfileId
 	
+	// The book lookup doesn't return editions array - we need to construct it
+	// from the foreignEditionId in the search result
+	if bookToAdd["editions"] == nil {
+		foreignEditionId := ""
+		if feid, ok := bookToAdd["foreignEditionId"].(string); ok {
+			foreignEditionId = feid
+		}
+		edition := map[string]interface{}{
+			"foreignEditionId": foreignEditionId,
+			"title":            bookToAdd["title"],
+			"monitored":        true,
+		}
+		bookToAdd["editions"] = []interface{}{edition}
+	}
+	
 	// The book lookup doesn't return a full author object, so we need to lookup the author
 	// and construct a proper author object with all required fields
 	if book.Author != "" {
