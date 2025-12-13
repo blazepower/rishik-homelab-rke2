@@ -1,0 +1,67 @@
+## AdGuard Home Configuration
+
+## Image configuration
+image:
+  repository: adguard/adguardhome
+  tag: "v0.107.52"
+  pullPolicy: IfNotPresent
+
+## Replica count
+replicaCount: 1
+
+## Service configuration
+service:
+  type: ClusterIP
+  webPort: 3000
+  dnsPort: 53
+
+## Resource limits
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    cpu: 200m
+    memory: 256Mi
+
+## Security context for pod
+## AdGuard Home needs to run as root to bind to privileged DNS port 53
+podSecurityContext:
+  runAsNonRoot: false
+
+## Security context for container
+## NET_BIND_SERVICE capability allows binding to privileged ports
+securityContext:
+  capabilities:
+    add:
+      - NET_BIND_SERVICE
+
+## Persistence configuration
+persistence:
+  config:
+    enabled: true
+    size: 1Gi
+    storageClass: longhorn
+    accessMode: ReadWriteOnce
+  work:
+    enabled: true
+    size: 2Gi
+    storageClass: longhorn
+    accessMode: ReadWriteOnce
+
+## Probes
+livenessProbe:
+  httpGet:
+    path: /
+    port: 3000
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /
+    port: 3000
+  initialDelaySeconds: 15
+  periodSeconds: 10
+  failureThreshold: 3

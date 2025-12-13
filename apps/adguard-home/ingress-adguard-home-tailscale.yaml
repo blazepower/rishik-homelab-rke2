@@ -1,0 +1,23 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: adguard-home-tailscale
+  namespace: adguard-home
+  annotations:
+    tailscale.com/proxy-group: homelab-ingress
+spec:
+  ingressClassName: tailscale
+  rules:
+    - host: adguard
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: adguard-home-adguard-home-web
+                port:
+                  number: 3000
+  tls:
+    - hosts:
+        - adguard
