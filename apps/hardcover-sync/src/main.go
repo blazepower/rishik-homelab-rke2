@@ -260,21 +260,45 @@ func addToBookshelf(bookshelfURL, apiKey string, book HardcoverBook) error {
 		return fmt.Errorf("no search results found for: %s", searchTerm)
 	}
 
-	// Use the first search result - it already has the proper author data
+	// Use the first search result
 	bookToAdd := searchResults[0]
 	bookToAdd["monitored"] = true
 	
 	// Set required Readarr profile IDs on the book
 	qualityProfileId := getEnvInt("QUALITY_PROFILE_ID", 1)
 	metadataProfileId := getEnvInt("METADATA_PROFILE_ID", 1)
+	rootFolderPath := os.Getenv("ROOT_FOLDER_PATH")
+	if rootFolderPath == "" {
+		rootFolderPath = "/media/books/"
+	}
+	
 	bookToAdd["qualityProfileId"] = qualityProfileId
 	bookToAdd["metadataProfileId"] = metadataProfileId
 	
-	// Also set the profile IDs on the author object (Readarr requires this)
-	if author, ok := bookToAdd["author"].(map[string]interface{}); ok {
-		author["qualityProfileId"] = qualityProfileId
-		author["metadataProfileId"] = metadataProfileId
-		author["monitored"] = true
+	// The book lookup doesn't return a full author object, so we need to lookup the author
+	// and construct a proper author object with all required fields
+	if book.Author != "" {
+		authorSearchURL := fmt.Sprintf("%s/api/v1/author/lookup?term=%s", bookshelfURL, url.QueryEscape(book.Author))
+		authorReq, err := http.NewRequest("GET", authorSearchURL, nil)
+		if err == nil {
+			authorReq.Header.Set("X-Api-Key", apiKey)
+			authorResp, err := client.Do(authorReq)
+			if err == nil {
+				defer authorResp.Body.Close()
+				if authorResp.StatusCode == http.StatusOK {
+					var authorResults []map[string]interface{}
+					if err := json.NewDecoder(authorResp.Body).Decode(&authorResults); err == nil && len(authorResults) > 0 {
+						author := authorResults[0]
+						// Set required fields on author
+						author["qualityProfileId"] = qualityProfileId
+						author["metadataProfileId"] = metadataProfileId
+						author["monitored"] = true
+						author["rootFolderPath"] = rootFolderPath
+						bookToAdd["author"] = author
+					}
+				}
+			}
+		}
 	}
 	
 	bookToAdd["addOptions"] = map[string]interface{}{
