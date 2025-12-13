@@ -1,0 +1,38 @@
+{{- if .Values.persistence.config.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "adguard-home.fullname" . }}-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "adguard-home.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  accessModes:
+    - {{ .Values.persistence.config.accessMode }}
+  storageClassName: {{ .Values.persistence.config.storageClass }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.config.size }}
+{{- end }}
+{{- if .Values.persistence.work.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "adguard-home.fullname" . }}-work
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "adguard-home.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  accessModes:
+    - {{ .Values.persistence.work.accessMode }}
+  storageClassName: {{ .Values.persistence.work.storageClass }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.work.size }}
+{{- end }}
