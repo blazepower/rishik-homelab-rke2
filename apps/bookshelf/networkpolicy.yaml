@@ -46,6 +46,18 @@ spec:
       ports:
         - protocol: TCP
           port: 8787
+    # Allow from hardcover-sync for automated book additions
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: media
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: hardcover-sync
+              app.kubernetes.io/instance: hardcover-sync
+      ports:
+        - protocol: TCP
+          port: 8787
   egress:
     # Allow DNS
     - to:
