@@ -29,7 +29,7 @@ type Config struct {
 // Hardcover GraphQL types
 type HardcoverResponse struct {
 	Data struct {
-		Me struct {
+		Me []struct {
 			UserBooks []struct {
 				Book struct {
 					ID            int    `json:"id"`
@@ -48,21 +48,10 @@ type HardcoverResponse struct {
 	} `json:"errors"`
 }
 
-// rreading-glasses response types
-type RReadingGlassesWork struct {
-	ID          string   `json:"id"`
-	Title       string   `json:"title"`
-	Authors     []string `json:"authors"`
-	ISBN        string   `json:"isbn"`
-	Description string   `json:"description"`
-	CoverURL    string   `json:"cover_url"`
-}
-
 // Bookshelf API types
 type BookshelfBook struct {
 	Title       string `json:"title"`
 	Author      string `json:"author"`
-	ISBN        string `json:"isbn"`
 	Monitored   bool   `json:"monitored"`
 	AddOptions  map[string]interface{} `json:"addOptions"`
 }
@@ -149,14 +138,26 @@ func markBookSynced(db *sql.DB, hardcoverID int, title string) error {
 	return err
 }
 
-func fetchWantToReadList(apiKey string) ([]int, error) {
+// HardcoverBook represents a book from the Hardcover API
+type HardcoverBook struct {
+	ID     int
+	Title  string
+	Author string
+}
+
+func fetchWantToReadList(apiKey string) ([]HardcoverBook, error) {
 	req, err := http.NewRequest("POST", "https://api.hardcover.app/v1/graphql", bytes.NewBufferString(hardcoverWantToReadQuery))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
+	// Handle API key with or without Bearer prefix
+	if len(apiKey) > 7 && apiKey[:7] == "Bearer " {
+		req.Header.Set("Authorization", apiKey)
+	} else {
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
+	}
 
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
@@ -179,48 +180,29 @@ func fetchWantToReadList(apiKey string) ([]int, error) {
 		return nil, fmt.Errorf("hardcover API error: %s", result.Errors[0].Message)
 	}
 
-	bookIDs := make([]int, 0, len(result.Data.Me.UserBooks))
-	for _, ub := range result.Data.Me.UserBooks {
-		bookIDs = append(bookIDs, ub.Book.ID)
+	if len(result.Data.Me) == 0 {
+		return nil, fmt.Errorf("no user data returned from Hardcover API")
 	}
 
-	return bookIDs, nil
+	books := make([]HardcoverBook, 0, len(result.Data.Me[0].UserBooks))
+	for _, ub := range result.Data.Me[0].UserBooks {
+		author := ""
+		if len(ub.Book.Contributions) > 0 {
+			author = ub.Book.Contributions[0].Author.Name
+		}
+		books = append(books, HardcoverBook{
+			ID:     ub.Book.ID,
+			Title:  ub.Book.Title,
+			Author: author,
+		})
+	}
+
+	return books, nil
 }
 
-func resolveMetadata(rreadingGlassesURL string, hardcoverID int) (*RReadingGlassesWork, error) {
-	metadataURL := fmt.Sprintf("%s/works/%d", rreadingGlassesURL, hardcoverID)
-	
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Get(metadataURL)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch metadata: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusNotFound {
-		return nil, fmt.Errorf("work not found in rreading-glasses")
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("rreading-glasses returned status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var work RReadingGlassesWork
-	if err := json.NewDecoder(resp.Body).Decode(&work); err != nil {
-		return nil, fmt.Errorf("failed to decode metadata: %w", err)
-	}
-
-	return &work, nil
-}
-
-func addToBookshelf(bookshelfURL, apiKey string, work *RReadingGlassesWork) error {
-	// First check if book already exists
-	searchTerm := work.ISBN
-	if searchTerm == "" {
-		searchTerm = work.Title
-	}
-	searchURL := fmt.Sprintf("%s/api/v1/book/lookup?term=%s", bookshelfURL, url.QueryEscape(searchTerm))
+func addToBookshelf(bookshelfURL, apiKey string, book HardcoverBook) error {
+	// First check if book already exists by title search
+	searchURL := fmt.Sprintf("%s/api/v1/book/lookup?term=%s", bookshelfURL, url.QueryEscape(book.Title))
 
 	client := &http.Client{Timeout: 30 * time.Second}
 	req, err := http.NewRequest("GET", searchURL, nil)
@@ -237,30 +219,23 @@ func addToBookshelf(bookshelfURL, apiKey string, work *RReadingGlassesWork) erro
 		if resp.StatusCode == http.StatusOK {
 			var existingBooks []interface{}
 			if err := json.NewDecoder(resp.Body).Decode(&existingBooks); err == nil && len(existingBooks) > 0 {
-				log.Printf("Book already exists in Bookshelf: %s", work.Title)
+				log.Printf("Book already exists in Bookshelf: %s", book.Title)
 				return nil
 			}
 		}
 	}
 
-	// Build author string
-	author := ""
-	if len(work.Authors) > 0 {
-		author = work.Authors[0]
-	}
-
 	// Add the book
-	book := BookshelfBook{
-		Title:     work.Title,
-		Author:    author,
-		ISBN:      work.ISBN,
+	bookshelfBook := BookshelfBook{
+		Title:     book.Title,
+		Author:    book.Author,
 		Monitored: true,
 		AddOptions: map[string]interface{}{
 			"searchForNewBook": true,
 		},
 	}
 
-	bookJSON, err := json.Marshal(book)
+	bookJSON, err := json.Marshal(bookshelfBook)
 	if err != nil {
 		return fmt.Errorf("failed to marshal book: %w", err)
 	}
@@ -284,67 +259,60 @@ func addToBookshelf(bookshelfURL, apiKey string, work *RReadingGlassesWork) erro
 		return fmt.Errorf("bookshelf API returned status %d: %s", resp.StatusCode, string(body))
 	}
 
-	log.Printf("Successfully added book to Bookshelf: %s", work.Title)
+	log.Printf("Successfully added book to Bookshelf: %s", book.Title)
 	return nil
 }
 
 func syncBooks(config *Config, db *sql.DB) error {
 	log.Println("Starting book sync...")
 
-	// Fetch want-to-read list from Hardcover
-	bookIDs, err := fetchWantToReadList(config.HardcoverAPIKey)
+	// Fetch want-to-read list from Hardcover (now returns full book info)
+	books, err := fetchWantToReadList(config.HardcoverAPIKey)
 	if err != nil {
 		return err
 	}
 
-	log.Printf("Found %d books in want-to-read list", len(bookIDs))
+	log.Printf("Found %d books in want-to-read list", len(books))
 
 	syncedCount := 0
 	errorCount := 0
+	skippedCount := 0
 
-	for _, hardcoverID := range bookIDs {
+	for _, book := range books {
 		// Check if already synced
-		synced, err := isBookSynced(db, hardcoverID)
+		synced, err := isBookSynced(db, book.ID)
 		if err != nil {
-			log.Printf("Error checking sync status for book %d: %v", hardcoverID, err)
+			log.Printf("Error checking sync status for book %d: %v", book.ID, err)
 			errorCount++
 			continue
 		}
 		if synced {
-			log.Printf("Book %d already synced, skipping", hardcoverID)
+			skippedCount++
 			continue
 		}
 
-		// Resolve metadata through rreading-glasses
-		work, err := resolveMetadata(config.RReadingGlassesURL, hardcoverID)
-		if err != nil {
-			log.Printf("Error resolving metadata for book %d: %v", hardcoverID, err)
-			errorCount++
-			continue
-		}
-
-		// Add to Bookshelf
-		if err := addToBookshelf(config.BookshelfURL, config.BookshelfAPIKey, work); err != nil {
-			log.Printf("Error adding book %d to Bookshelf: %v", hardcoverID, err)
+		// Add directly to Bookshelf using Hardcover data
+		if err := addToBookshelf(config.BookshelfURL, config.BookshelfAPIKey, book); err != nil {
+			log.Printf("Error adding book '%s' to Bookshelf: %v", book.Title, err)
 			errorCount++
 			continue
 		}
 
 		// Mark as synced
-		if err := markBookSynced(db, hardcoverID, work.Title); err != nil {
-			log.Printf("Error marking book %d as synced: %v", hardcoverID, err)
+		if err := markBookSynced(db, book.ID, book.Title); err != nil {
+			log.Printf("Error marking book %d as synced: %v", book.ID, err)
 			errorCount++
 			continue
 		}
 
 		syncedCount++
-		log.Printf("Successfully synced book: %s (ID: %d)", work.Title, hardcoverID)
+		log.Printf("Successfully synced book: %s by %s (ID: %d)", book.Title, book.Author, book.ID)
 
 		// Rate limiting: wait a bit between requests
 		time.Sleep(1 * time.Second)
 	}
 
-	log.Printf("Sync completed: %d new books synced, %d errors", syncedCount, errorCount)
+	log.Printf("Sync completed: %d new books synced, %d skipped (already synced), %d errors", syncedCount, skippedCount, errorCount)
 	return nil
 }
 
