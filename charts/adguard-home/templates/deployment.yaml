@@ -35,21 +35,33 @@ spec:
             - name: dns-udp
               containerPort: 53
               protocol: UDP
+          {{- if or .Values.persistence.config.enabled .Values.persistence.work.enabled }}
           volumeMounts:
+            {{- if .Values.persistence.config.enabled }}
             - name: config
               mountPath: /opt/adguardhome/conf
+            {{- end }}
+            {{- if .Values.persistence.work.enabled }}
             - name: work
               mountPath: /opt/adguardhome/work
+            {{- end }}
+          {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
           readinessProbe:
             {{- toYaml .Values.readinessProbe | nindent 12 }}
+      {{- if or .Values.persistence.config.enabled .Values.persistence.work.enabled }}
       volumes:
+        {{- if .Values.persistence.config.enabled }}
         - name: config
           persistentVolumeClaim:
             claimName: {{ include "adguard-home.fullname" . }}-config
+        {{- end }}
+        {{- if .Values.persistence.work.enabled }}
         - name: work
           persistentVolumeClaim:
             claimName: {{ include "adguard-home.fullname" . }}-work
+        {{- end }}
+      {{- end }}
