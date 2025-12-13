@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -193,26 +194,34 @@ func fetchWantToReadList(apiKey string) ([]HardcoverBook, error) {
 }
 
 func addToBookshelf(bookshelfURL, apiKey string, book HardcoverBook) error {
-	// First check if book already exists by title search
-	searchURL := fmt.Sprintf("%s/api/v1/book/lookup?term=%s", bookshelfURL, url.QueryEscape(book.Title))
+	// First check if book already exists in the library (not lookup/search)
+	// Get all books from library and check by title
+	libraryURL := fmt.Sprintf("%s/api/v1/book", bookshelfURL)
 
 	client := &http.Client{Timeout: 30 * time.Second}
-	req, err := http.NewRequest("GET", searchURL, nil)
+	req, err := http.NewRequest("GET", libraryURL, nil)
 	if err != nil {
-		return fmt.Errorf("failed to create lookup request: %w", err)
+		return fmt.Errorf("failed to create library request: %w", err)
 	}
 	req.Header.Set("X-Api-Key", apiKey)
 
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Printf("Warning: lookup request failed: %v", err)
+		log.Printf("Warning: library request failed: %v", err)
 	} else {
 		defer resp.Body.Close()
 		if resp.StatusCode == http.StatusOK {
-			var existingBooks []interface{}
-			if err := json.NewDecoder(resp.Body).Decode(&existingBooks); err == nil && len(existingBooks) > 0 {
-				log.Printf("Book already exists in Bookshelf: %s", book.Title)
-				return nil
+			var libraryBooks []map[string]interface{}
+			if err := json.NewDecoder(resp.Body).Decode(&libraryBooks); err == nil {
+				// Check if book title already exists in library
+				for _, libBook := range libraryBooks {
+					if title, ok := libBook["title"].(string); ok {
+						if strings.EqualFold(title, book.Title) {
+							log.Printf("Book already exists in Bookshelf library: %s", book.Title)
+							return nil
+						}
+					}
+				}
 			}
 		}
 	}
@@ -223,7 +232,7 @@ func addToBookshelf(bookshelfURL, apiKey string, book HardcoverBook) error {
 	if book.Author != "" {
 		searchTerm = fmt.Sprintf("%s %s", book.Title, book.Author)
 	}
-	searchURL = fmt.Sprintf("%s/api/v1/book/lookup?term=%s", bookshelfURL, url.QueryEscape(searchTerm))
+	searchURL := fmt.Sprintf("%s/api/v1/book/lookup?term=%s", bookshelfURL, url.QueryEscape(searchTerm))
 
 	req, err = http.NewRequest("GET", searchURL, nil)
 	if err != nil {
