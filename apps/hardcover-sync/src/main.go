@@ -48,14 +48,6 @@ type HardcoverResponse struct {
 	} `json:"errors"`
 }
 
-// Bookshelf API types
-type BookshelfBook struct {
-	Title       string `json:"title"`
-	Author      string `json:"author"`
-	Monitored   bool   `json:"monitored"`
-	AddOptions  map[string]interface{} `json:"addOptions"`
-}
-
 // GraphQL query for fetching Want-To-Read list from Hardcover
 const hardcoverWantToReadQuery = `{
 	"query": "query GetWantToRead { me { user_books(where: {status_id: {_eq: 1}}) { book { id title contributions { author { name } } } } } }"
@@ -225,17 +217,48 @@ func addToBookshelf(bookshelfURL, apiKey string, book HardcoverBook) error {
 		}
 	}
 
-	// Add the book
-	bookshelfBook := BookshelfBook{
-		Title:     book.Title,
-		Author:    book.Author,
-		Monitored: true,
-		AddOptions: map[string]interface{}{
-			"searchForNewBook": true,
-		},
+	// Search for the book first using Readarr's search API
+	// Combine title and author for better search results
+	searchTerm := book.Title
+	if book.Author != "" {
+		searchTerm = fmt.Sprintf("%s %s", book.Title, book.Author)
+	}
+	searchURL = fmt.Sprintf("%s/api/v1/book/lookup?term=%s", bookshelfURL, url.QueryEscape(searchTerm))
+
+	req, err = http.NewRequest("GET", searchURL, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create search request: %w", err)
+	}
+	req.Header.Set("X-Api-Key", apiKey)
+
+	resp, err = client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to search for book: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("search API returned status %d: %s", resp.StatusCode, string(body))
 	}
 
-	bookJSON, err := json.Marshal(bookshelfBook)
+	var searchResults []map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&searchResults); err != nil {
+		return fmt.Errorf("failed to decode search results: %w", err)
+	}
+
+	if len(searchResults) == 0 {
+		return fmt.Errorf("no search results found for: %s", searchTerm)
+	}
+
+	// Use the first search result - it already has the proper author data
+	bookToAdd := searchResults[0]
+	bookToAdd["monitored"] = true
+	bookToAdd["addOptions"] = map[string]interface{}{
+		"searchForNewBook": true,
+	}
+
+	bookJSON, err := json.Marshal(bookToAdd)
 	if err != nil {
 		return fmt.Errorf("failed to marshal book: %w", err)
 	}
