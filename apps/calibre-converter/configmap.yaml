@@ -1,0 +1,15 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: calibre-converter-config
+  namespace: media
+data:
+  WATCH_PATH: "/media/books"
+  SCAN_INTERVAL: "300"
+  MAX_CONCURRENT: "2"
+  DATABASE_PATH: "/data/calibre-converter.db"
+  INPUT_EXTENSIONS: ".pdf,.mobi,.azw3,.azw,.djvu,.docx,.rtf,.txt,.html,.htm,.cbz,.cbr"
+  OUTPUT_FORMAT: "epub"
+  MIN_OUTPUT_SIZE: "10240"
+  STABILITY_WAIT: "5"
