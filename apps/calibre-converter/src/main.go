@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"os"
@@ -18,6 +20,12 @@ import (
 	"github.com/fsnotify/fsnotify"
 	_ "github.com/mattn/go-sqlite3"
 )
+
+// ConversionTimeout is the maximum time allowed for a single conversion
+const ConversionTimeout = 30 * time.Minute
+
+// MaxStabilityWait is the maximum time to wait for file stability
+const MaxStabilityWait = 5 * time.Minute
 
 // Config holds all configuration values
 type Config struct {
@@ -107,10 +115,17 @@ func initDatabase(dbPath string) (*sql.DB, error) {
 		return nil, fmt.Errorf("failed to create database directory: %w", err)
 	}
 
-	db, err := sql.Open("sqlite3", dbPath)
+	// Enable WAL mode for better concurrency
+	dsn := dbPath + "?_journal_mode=WAL"
+
+	db, err := sql.Open("sqlite3", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
+
+	// Set connection pool limits for concurrency
+	db.SetMaxOpenConns(5)
+	db.SetMaxIdleConns(5)
 
 	createTableSQL := `
 	CREATE TABLE IF NOT EXISTS converted_files (
@@ -164,19 +179,42 @@ func isEpubFile(filename string) bool {
 }
 
 func getOutputPath(inputPath, outputFormat string) string {
-	ext := filepath.Ext(inputPath)
-	baseName := strings.TrimSuffix(inputPath, ext)
-	return baseName + "." + outputFormat
+	dir := filepath.Dir(inputPath)
+	base := filepath.Base(inputPath)
+	ext := filepath.Ext(base)
+	name := strings.TrimSuffix(base, ext)
+	if name == "" {
+		// For files like ".hidden", use the original base name
+		name = base
+	}
+	return filepath.Join(dir, name+"."+outputFormat)
+}
+
+// generateTempPath creates a unique temp file path with random suffix
+func generateTempPath(outputPath string) (string, error) {
+	randBytes := make([]byte, 8)
+	if _, err := rand.Read(randBytes); err != nil {
+		return "", fmt.Errorf("failed to generate random bytes: %w", err)
+	}
+	return outputPath + "." + hex.EncodeToString(randBytes) + ".tmp", nil
 }
 
 // waitForFileStability waits for a file's size to remain stable
+// Returns false if file is empty, deleted, or doesn't stabilize within MaxStabilityWait
 func waitForFileStability(filePath string, stabilityWait int) bool {
 	checkInterval := time.Second
 	stableCount := 0
 	requiredStable := stabilityWait // Number of seconds file must be stable
 	var lastSize int64 = -1
+	startTime := time.Now()
 
 	for stableCount < requiredStable {
+		// Check for maximum wait time to prevent infinite loop on empty files
+		if time.Since(startTime) > MaxStabilityWait {
+			log.Printf("File %s: stability wait exceeded maximum time of %v", filepath.Base(filePath), MaxStabilityWait)
+			return false
+		}
+
 		fileInfo, err := os.Stat(filePath)
 		if err != nil {
 			// File may not exist yet or was deleted
@@ -184,6 +222,13 @@ func waitForFileStability(filePath string, stabilityWait int) bool {
 		}
 
 		currentSize := fileInfo.Size()
+
+		// Reject empty files immediately after initial check
+		if currentSize == 0 && lastSize == 0 {
+			log.Printf("File %s: rejecting empty file (0 bytes)", filepath.Base(filePath))
+			return false
+		}
+
 		if currentSize == lastSize && currentSize > 0 {
 			stableCount++
 		} else {
@@ -197,39 +242,71 @@ func waitForFileStability(filePath string, stabilityWait int) bool {
 	return true
 }
 
+// removeTempFile removes a temp file and logs a warning if it fails
+func removeTempFile(tempPath string) {
+	if err := os.Remove(tempPath); err != nil && !os.IsNotExist(err) {
+		log.Printf("Warning: failed to remove temp file %s: %v", tempPath, err)
+	}
+}
+
+// validateInputPath checks that the input path is within expected boundaries
+func validateInputPath(inputPath, watchPath string) error {
+	absInput, err := filepath.Abs(inputPath)
+	if err != nil {
+		return fmt.Errorf("failed to get absolute path: %w", err)
+	}
+	absWatch, err := filepath.Abs(watchPath)
+	if err != nil {
+		return fmt.Errorf("failed to get watch path absolute path: %w", err)
+	}
+	if !strings.HasPrefix(absInput, absWatch) {
+		return fmt.Errorf("input path %s is not within watch path %s", absInput, absWatch)
+	}
+	return nil
+}
+
 func convertFile(inputPath string, config *Config) (string, int64, error) {
 	outputPath := getOutputPath(inputPath, config.OutputFormat)
 
-	// Create temp file for atomic write
-	tempPath := outputPath + ".tmp"
+	// Create unique temp file for atomic write to prevent collisions
+	tempPath, err := generateTempPath(outputPath)
+	if err != nil {
+		return "", 0, fmt.Errorf("failed to generate temp path: %w", err)
+	}
 
-	// Run ebook-convert
+	// Run ebook-convert with timeout to prevent hanging on problematic files
+	ctx, cancel := context.WithTimeout(context.Background(), ConversionTimeout)
+	defer cancel()
+
 	startTime := time.Now()
-	cmd := exec.Command("ebook-convert", inputPath, tempPath)
+	cmd := exec.CommandContext(ctx, "ebook-convert", inputPath, tempPath)
 	output, err := cmd.CombinedOutput()
 	duration := time.Since(startTime)
 
 	if err != nil {
 		// Clean up temp file on error
-		os.Remove(tempPath)
+		removeTempFile(tempPath)
+		if ctx.Err() == context.DeadlineExceeded {
+			return "", 0, fmt.Errorf("ebook-convert timed out after %v", ConversionTimeout)
+		}
 		return "", 0, fmt.Errorf("ebook-convert failed: %w, output: %s", err, string(output))
 	}
 
 	// Check temp file exists and has sufficient size
 	tempInfo, err := os.Stat(tempPath)
 	if err != nil {
-		os.Remove(tempPath)
+		removeTempFile(tempPath)
 		return "", 0, fmt.Errorf("failed to stat temp output file: %w", err)
 	}
 
 	if tempInfo.Size() < config.MinOutputSize {
-		os.Remove(tempPath)
+		removeTempFile(tempPath)
 		return "", 0, fmt.Errorf("output file too small: %d bytes (min: %d)", tempInfo.Size(), config.MinOutputSize)
 	}
 
 	// Move temp file to final location (atomic on same filesystem)
 	if err := os.Rename(tempPath, outputPath); err != nil {
-		os.Remove(tempPath)
+		removeTempFile(tempPath)
 		return "", 0, fmt.Errorf("failed to rename temp file: %w", err)
 	}
 
@@ -270,10 +347,10 @@ func processFile(inputPath string, config *Config, db *sql.DB) error {
 
 	// Check if epub with same base name already exists (idempotency)
 	outputPath := getOutputPath(inputPath, config.OutputFormat)
-	if _, err := os.Stat(outputPath); err == nil {
+	if outputInfo, err := os.Stat(outputPath); err == nil {
 		log.Printf("Skipping %s: output file %s already exists", filepath.Base(inputPath), filepath.Base(outputPath))
-		// Mark as converted so we don't check again
-		if err := markFileConverted(db, inputPath, outputPath, inputInfo.Size(), 0, 0); err != nil {
+		// Mark as converted so we don't check again, using actual output size and sentinel duration (-1)
+		if err := markFileConverted(db, inputPath, outputPath, inputInfo.Size(), outputInfo.Size(), -1); err != nil {
 			log.Printf("Warning: failed to mark file as converted: %v", err)
 		}
 		return nil
@@ -353,7 +430,7 @@ func scanDirectory(watchPath string, config *Config, db *sql.DB, jobChan chan<- 
 		select {
 		case jobChan <- path:
 		default:
-			log.Printf("Job queue full, skipping %s for now", filepath.Base(path))
+			log.Printf("Job queue full, skipping %s for now (will be picked up by periodic scan)", filepath.Base(path))
 		}
 
 		return nil
@@ -410,8 +487,10 @@ func watchDirectory(ctx context.Context, watchPath string, config *Config, db *s
 				}
 
 				if fileInfo.IsDir() {
-					// Add new directory to watcher
-					watcher.Add(event.Name)
+					// Add new directory to watcher with error checking
+					if err := watcher.Add(event.Name); err != nil {
+						log.Printf("Failed to add new directory to watcher: %s: %v", event.Name, err)
+					}
 					continue
 				}
 
@@ -432,12 +511,15 @@ func watchDirectory(ctx context.Context, watchPath string, config *Config, db *s
 					continue
 				}
 
-				// Queue for conversion
+				// Queue for conversion with context awareness
 				select {
+				case <-ctx.Done():
+					log.Printf("Context cancelled while waiting to queue %s", filepath.Base(event.Name))
+					return nil
 				case jobChan <- event.Name:
 					log.Printf("Queued %s for conversion", filepath.Base(event.Name))
 				default:
-					log.Printf("Job queue full, skipping %s", filepath.Base(event.Name))
+					log.Printf("Job queue full, skipping %s (will be picked up by periodic scan)", filepath.Base(event.Name))
 				}
 			}
 
@@ -499,12 +581,14 @@ func main() {
 
 	// Start periodic scanning
 	ticker := time.NewTicker(time.Duration(config.ScanInterval) * time.Second)
-	defer ticker.Stop()
 
 	// Setup signal handling for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	// Channel to signal periodic scanner has stopped
+	scannerDone := make(chan struct{})
 
 	go func() {
 		sig := <-sigChan
@@ -513,9 +597,11 @@ func main() {
 	}()
 
 	go func() {
+		defer close(scannerDone)
 		for {
 			select {
 			case <-ctx.Done():
+				ticker.Stop()
 				return
 			case <-ticker.C:
 				log.Println("Performing periodic scan...")
@@ -532,7 +618,11 @@ func main() {
 		log.Printf("Error watching directory: %v", err)
 	}
 
-	// Clean shutdown
+	// Wait for periodic scanner to stop before closing jobChan
+	log.Println("Waiting for periodic scanner to stop...")
+	<-scannerDone
+
+	// Clean shutdown - close jobChan only after all writers have stopped
 	log.Println("Shutting down workers...")
 	close(jobChan)
 	wg.Wait()

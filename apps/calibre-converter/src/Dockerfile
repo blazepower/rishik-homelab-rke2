@@ -41,9 +41,9 @@ WORKDIR /app
 # Copy binary from build stage
 COPY --from=build /build/calibre-converter /app/calibre-converter
 
-# Create directories for data and tmp
-RUN mkdir -p /data /tmp && \
-    chown -R converter:converter /app /data /tmp
+# Create directories for data (tmp is mounted as emptyDir in Kubernetes)
+RUN mkdir -p /data && \
+    chown -R converter:converter /app /data
 
 # Use non-root user
 USER 1000:1000
