@@ -112,6 +112,10 @@ var (
 		Name: "kindle_sender_files_sent_this_hour",
 		Help: "Number of files sent in the current hour window",
 	})
+	filesPending = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "kindle_sender_files_pending",
+		Help: "Number of files waiting to be sent",
+	})
 )
 
 func init() {
@@ -121,6 +125,7 @@ func init() {
 	prometheus.MustRegister(filesSendErrors)
 	prometheus.MustRegister(filesRateLimited)
 	prometheus.MustRegister(filesSentThisHour)
+	prometheus.MustRegister(filesPending)
 }
 
 type EmailMessage struct {
@@ -242,6 +247,31 @@ func isFileOversized(db *sql.DB, filePath string) (bool, error) {
 		return false, err
 	}
 	return count > 0, nil
+}
+
+func countPendingFiles(watchPath string, config *Config, db *sql.DB) (int, error) {
+	var pending int
+	err := filepath.Walk(watchPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil
+		}
+		if !isSupportedFile(info.Name(), config.FileExtensions) {
+			return nil
+		}
+		// Check if file is too large
+		maxSize := int64(config.MaxFileSizeMB) * 1024 * 1024
+		if info.Size() > maxSize {
+			return nil // Skip oversized files
+		}
+		// Check if already sent
+		sent, err := isFileSent(db, path)
+		if err != nil || sent {
+			return nil
+		}
+		pending++
+		return nil
+	})
+	return pending, err
 }
 
 func loadOversizedFilesMetrics(db *sql.DB) error {
@@ -441,7 +471,7 @@ func processFile(filePath string, config *Config, db *sql.DB, rateLimiter *RateL
 }
 
 func scanDirectory(watchPath string, config *Config, db *sql.DB, rateLimiter *RateLimiter) error {
-	return filepath.Walk(watchPath, func(path string, info os.FileInfo, err error) error {
+	err := filepath.Walk(watchPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			log.Printf("Error accessing path %s: %v", path, err)
 			return nil // Continue walking
@@ -461,6 +491,17 @@ func scanDirectory(watchPath string, config *Config, db *sql.DB, rateLimiter *Ra
 
 		return nil
 	})
+
+	// Update pending files metric after each scan
+	pending, countErr := countPendingFiles(watchPath, config, db)
+	if countErr == nil {
+		filesPending.Set(float64(pending))
+		if pending > 0 {
+			log.Printf("Books waiting to be sent: %d", pending)
+		}
+	}
+
+	return err
 }
 
 // waitForFileWriteComplete waits for a file's size to remain stable, indicating write completion
