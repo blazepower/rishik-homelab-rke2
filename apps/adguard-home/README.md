@@ -23,12 +23,12 @@ AdGuard Home is a network-wide DNS ad-blocker and privacy protection service. It
 
 ### Services
 
-1. **Web UI Service** (`adguard-home-adguard-home-web`):
+1. **Web UI Service** (`adguard-home-web`):
    - Port: 3000
    - Type: ClusterIP
    - Used for accessing the AdGuard Home web interface
 
-2. **DNS Service** (`adguard-home-adguard-home-dns`):
+2. **DNS Service** (`adguard-home-dns`):
    - Port: 53 (TCP and UDP)
    - Type: ClusterIP
    - Used for DNS queries
@@ -101,7 +101,7 @@ To use AdGuard Home as your DNS server:
    dnsPolicy: None
    dnsConfig:
      nameservers:
-       - adguard-home-adguard-home-dns.adguard-home.svc.cluster.local
+       - adguard-home-dns.adguard-home.svc.cluster.local
    ```
 
 2. **For devices on your network**: Update router DHCP settings or device network settings to use AdGuard Home's IP address as DNS server.
