@@ -34,7 +34,11 @@ spec:
           app:
             image:
               repository: ghcr.io/blazepower/kindle-sender
-              tag: v1.0.0
+              tag: v1.1.0
+            ports:
+              - name: metrics
+                containerPort: 9090
+                protocol: TCP
             env:
               - name: WATCH_PATH
                 valueFrom:
@@ -119,6 +123,24 @@ spec:
         globalMounts:
           - path: /media
             readOnly: true
+
+    service:
+      app:
+        controller: kindle-sender
+        ports:
+          metrics:
+            port: 9090
+            protocol: TCP
+
+    serviceMonitor:
+      app:
+        enabled: true
+        serviceName: kindle-sender-app
+        endpoints:
+          - port: metrics
+            scheme: http
+            path: /metrics
+            interval: 30s
 
     defaultPodOptions:
       nodeSelector:

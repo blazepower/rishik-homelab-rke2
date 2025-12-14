@@ -5,3 +5,4 @@ resources:
   - dashboard-traefik.yaml
   - dashboard-metallb.yaml
   - dashboard-certmanager.yaml
+  - dashboard-kindle-sender.yaml

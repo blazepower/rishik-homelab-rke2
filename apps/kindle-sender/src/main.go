@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log"
+	"net/http"
 	"net/smtp"
 	"os"
 	"path/filepath"
@@ -14,6 +15,8 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 type Config struct {
@@ -28,6 +31,34 @@ type Config struct {
 	KindleEmail     string
 	SenderEmail     string
 	DatabasePath    string
+	MetricsPort     string
+}
+
+// Prometheus metrics
+var (
+	filesSentTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "kindle_sender_files_sent_total",
+		Help: "Total number of files successfully sent to Kindle",
+	})
+	filesSkippedTooLarge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "kindle_sender_file_too_large",
+		Help: "Files that are too large to send (1 = too large, includes file info in labels)",
+	}, []string{"file_path", "file_name", "file_size_mb"})
+	filesSkippedTooLargeTotal = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "kindle_sender_files_too_large_total",
+		Help: "Total count of files that are too large to send",
+	})
+	filesSendErrors = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "kindle_sender_send_errors_total",
+		Help: "Total number of send errors",
+	})
+)
+
+func init() {
+	prometheus.MustRegister(filesSentTotal)
+	prometheus.MustRegister(filesSkippedTooLarge)
+	prometheus.MustRegister(filesSkippedTooLargeTotal)
+	prometheus.MustRegister(filesSendErrors)
 }
 
 type EmailMessage struct {
@@ -52,6 +83,7 @@ func loadConfig() *Config {
 		KindleEmail:    getEnv("KINDLE_EMAIL", ""),
 		SenderEmail:    getEnv("SENDER_EMAIL", getEnv("SMTP_USER", "")),
 		DatabasePath:   getEnv("DATABASE_PATH", "/data/kindle-sender.db"),
+		MetricsPort:    getEnv("METRICS_PORT", "9090"),
 	}
 }
 
@@ -96,6 +128,16 @@ func initDatabase(dbPath string) (*sql.DB, error) {
 		email_sent BOOLEAN DEFAULT 1
 	);
 	CREATE INDEX IF NOT EXISTS idx_file_path ON sent_files(file_path);
+	
+	CREATE TABLE IF NOT EXISTS oversized_files (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		file_path TEXT UNIQUE NOT NULL,
+		file_name TEXT NOT NULL,
+		file_size INTEGER NOT NULL,
+		max_size INTEGER NOT NULL,
+		detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);
+	CREATE INDEX IF NOT EXISTS idx_oversized_file_path ON oversized_files(file_path);
 	`
 
 	if _, err := db.Exec(createTableSQL); err != nil {
@@ -120,6 +162,45 @@ func markFileSent(db *sql.DB, filePath string, fileSize int64) error {
 		filePath, fileSize,
 	)
 	return err
+}
+
+func markFileOversized(db *sql.DB, filePath string, fileName string, fileSize int64, maxSize int64) error {
+	_, err := db.Exec(
+		"INSERT OR REPLACE INTO oversized_files (file_path, file_name, file_size, max_size, detected_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)",
+		filePath, fileName, fileSize, maxSize,
+	)
+	return err
+}
+
+func isFileOversized(db *sql.DB, filePath string) (bool, error) {
+	var count int
+	err := db.QueryRow("SELECT COUNT(*) FROM oversized_files WHERE file_path = ?", filePath).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+func loadOversizedFilesMetrics(db *sql.DB) error {
+	rows, err := db.Query("SELECT file_path, file_name, file_size FROM oversized_files")
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	var count float64 = 0
+	for rows.Next() {
+		var filePath, fileName string
+		var fileSize int64
+		if err := rows.Scan(&filePath, &fileName, &fileSize); err != nil {
+			continue
+		}
+		fileSizeMB := fmt.Sprintf("%.2f", float64(fileSize)/(1024*1024))
+		filesSkippedTooLarge.WithLabelValues(filePath, fileName, fileSizeMB).Set(1)
+		count++
+	}
+	filesSkippedTooLargeTotal.Set(count)
+	return nil
 }
 
 func isSupportedFile(filename string, extensions []string) bool {
@@ -219,10 +300,29 @@ func processFile(filePath string, config *Config, db *sql.DB) error {
 		return fmt.Errorf("failed to stat file: %w", err)
 	}
 
+	fileName := filepath.Base(filePath)
 	maxSize := int64(config.MaxFileSizeMB) * 1024 * 1024
+	
 	if fileInfo.Size() > maxSize {
-		log.Printf("Skipping %s: file size %d exceeds max %d bytes",
-			filePath, fileInfo.Size(), maxSize)
+		// Check if already tracked as oversized
+		tracked, err := isFileOversized(db, filePath)
+		if err != nil {
+			log.Printf("Error checking oversized status: %v", err)
+		}
+		
+		if !tracked {
+			// Track in database and update metrics
+			if err := markFileOversized(db, filePath, fileName, fileInfo.Size(), maxSize); err != nil {
+				log.Printf("Error tracking oversized file: %v", err)
+			}
+			fileSizeMB := fmt.Sprintf("%.2f", float64(fileInfo.Size())/(1024*1024))
+			filesSkippedTooLarge.WithLabelValues(filePath, fileName, fileSizeMB).Set(1)
+			filesSkippedTooLargeTotal.Inc()
+			log.Printf("File too large (tracked for dashboard): %s (%.2f MB, max: %d MB)",
+				fileName, float64(fileInfo.Size())/(1024*1024), config.MaxFileSizeMB)
+		} else {
+			log.Printf("Skipping %s: already tracked as too large", fileName)
+		}
 		return nil
 	}
 
@@ -248,6 +348,7 @@ func processFile(filePath string, config *Config, db *sql.DB) error {
 
 	log.Printf("Sending %s to %s...", filepath.Base(filePath), config.KindleEmail)
 	if err := sendEmail(msg, config); err != nil {
+		filesSendErrors.Inc()
 		return fmt.Errorf("failed to send email: %w", err)
 	}
 
@@ -256,6 +357,7 @@ func processFile(filePath string, config *Config, db *sql.DB) error {
 		return fmt.Errorf("failed to mark file as sent: %w", err)
 	}
 
+	filesSentTotal.Inc()
 	log.Printf("Successfully sent %s", filepath.Base(filePath))
 	return nil
 }
@@ -395,6 +497,7 @@ func main() {
 	log.Printf("  File Extensions: %v", config.FileExtensions)
 	log.Printf("  SMTP Host: %s:%s", config.SMTPHost, config.SMTPPort)
 	log.Printf("  Kindle Email: %s", config.KindleEmail)
+	log.Printf("  Metrics Port: %s", config.MetricsPort)
 
 	// Initialize database
 	db, err := initDatabase(config.DatabasePath)
@@ -404,6 +507,25 @@ func main() {
 	defer db.Close()
 
 	log.Println("Database initialized")
+
+	// Load existing oversized files into metrics
+	if err := loadOversizedFilesMetrics(db); err != nil {
+		log.Printf("Error loading oversized files metrics: %v", err)
+	}
+
+	// Start metrics server
+	go func() {
+		http.Handle("/metrics", promhttp.Handler())
+		http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("OK"))
+		})
+		addr := fmt.Sprintf(":%s", config.MetricsPort)
+		log.Printf("Starting metrics server on %s", addr)
+		if err := http.ListenAndServe(addr, nil); err != nil {
+			log.Printf("Metrics server error: %v", err)
+		}
+	}()
 
 	// Initial scan
 	log.Println("Performing initial scan...")
