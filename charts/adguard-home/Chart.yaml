@@ -1,0 +1,16 @@
+apiVersion: v2
+name: adguard-home
+description: A Helm chart for AdGuard Home - Network-wide ads & trackers blocking DNS server
+type: application
+version: 1.0.0
+appVersion: "v0.107.52"
+keywords:
+  - dns
+  - adblock
+  - privacy
+  - network
+home: https://adguard.com/adguard-home.html
+sources:
+  - https://github.com/AdguardTeam/AdGuardHome
+maintainers:
+  - name: homelab

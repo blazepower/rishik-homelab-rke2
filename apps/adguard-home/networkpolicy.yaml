@@ -1,0 +1,52 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-and-dns
+  namespace: adguard-home
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow Traefik ingress controller to reach web UI
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+      ports:
+        - protocol: TCP
+          port: 3000
+    # Allow Tailscale ingress proxies to reach web UI
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: tailscale
+          podSelector:
+            matchLabels:
+              tailscale.com/parent-resource-type: proxygroup
+      ports:
+        - protocol: TCP
+          port: 3000
+    # Allow internal communication within namespace
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: adguard-home
+      ports:
+        - protocol: TCP
+          port: 3000
+        - protocol: TCP
+          port: 53
+        - protocol: UDP
+          port: 53
+    # Allow DNS traffic from all namespaces
+    - from:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 53
+        - protocol: UDP
+          port: 53
