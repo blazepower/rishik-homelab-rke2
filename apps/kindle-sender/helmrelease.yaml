@@ -34,7 +34,7 @@ spec:
           app:
             image:
               repository: ghcr.io/blazepower/kindle-sender
-              tag: v1.1.0
+              tag: v1.2.0
             ports:
               - name: metrics
                 containerPort: 9090
@@ -65,6 +65,11 @@ spec:
                   configMapKeyRef:
                     name: kindle-sender-config
                     key: DATABASE_PATH
+              - name: MAX_BOOKS_PER_HOUR
+                valueFrom:
+                  configMapKeyRef:
+                    name: kindle-sender-config
+                    key: MAX_BOOKS_PER_HOUR
               - name: SMTP_HOST
                 valueFrom:
                   secretKeyRef:

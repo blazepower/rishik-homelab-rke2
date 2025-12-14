@@ -10,3 +10,4 @@ data:
   MAX_FILE_SIZE_MB: "50"
   FILE_EXTENSIONS: ".epub,.mobi,.azw3,.pdf"
   DATABASE_PATH: "/data/kindle-sender.db"
+  MAX_BOOKS_PER_HOUR: "20"

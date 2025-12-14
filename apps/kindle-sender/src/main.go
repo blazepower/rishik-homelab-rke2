@@ -32,6 +32,58 @@ type Config struct {
 	SenderEmail     string
 	DatabasePath    string
 	MetricsPort     string
+	MaxBooksPerHour int
+}
+
+// Rate limiter state
+type RateLimiter struct {
+	sendTimes []time.Time
+	maxPerHour int
+}
+
+func NewRateLimiter(maxPerHour int) *RateLimiter {
+	return &RateLimiter{
+		sendTimes:  make([]time.Time, 0),
+		maxPerHour: maxPerHour,
+	}
+}
+
+func (r *RateLimiter) CanSend() bool {
+	r.cleanup()
+	return len(r.sendTimes) < r.maxPerHour
+}
+
+func (r *RateLimiter) RecordSend() {
+	r.sendTimes = append(r.sendTimes, time.Now())
+}
+
+func (r *RateLimiter) cleanup() {
+	oneHourAgo := time.Now().Add(-time.Hour)
+	newTimes := make([]time.Time, 0)
+	for _, t := range r.sendTimes {
+		if t.After(oneHourAgo) {
+			newTimes = append(newTimes, t)
+		}
+	}
+	r.sendTimes = newTimes
+}
+
+func (r *RateLimiter) TimeUntilNextSlot() time.Duration {
+	if r.CanSend() {
+		return 0
+	}
+	r.cleanup()
+	if len(r.sendTimes) == 0 {
+		return 0
+	}
+	// Oldest send time + 1 hour = when that slot frees up
+	oldestSend := r.sendTimes[0]
+	return time.Until(oldestSend.Add(time.Hour))
+}
+
+func (r *RateLimiter) SentThisHour() int {
+	r.cleanup()
+	return len(r.sendTimes)
 }
 
 // Prometheus metrics
@@ -52,6 +104,14 @@ var (
 		Name: "kindle_sender_send_errors_total",
 		Help: "Total number of send errors",
 	})
+	filesRateLimited = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "kindle_sender_rate_limited",
+		Help: "Whether sending is currently rate limited (1 = rate limited)",
+	})
+	filesSentThisHour = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "kindle_sender_files_sent_this_hour",
+		Help: "Number of files sent in the current hour window",
+	})
 )
 
 func init() {
@@ -59,6 +119,8 @@ func init() {
 	prometheus.MustRegister(filesSkippedTooLarge)
 	prometheus.MustRegister(filesSkippedTooLargeTotal)
 	prometheus.MustRegister(filesSendErrors)
+	prometheus.MustRegister(filesRateLimited)
+	prometheus.MustRegister(filesSentThisHour)
 }
 
 type EmailMessage struct {
@@ -72,18 +134,19 @@ type EmailMessage struct {
 
 func loadConfig() *Config {
 	return &Config{
-		WatchPath:      getEnv("WATCH_PATH", "/media/books"),
-		ScanInterval:   getEnvInt("SCAN_INTERVAL", 300),
-		MaxFileSizeMB:  getEnvInt("MAX_FILE_SIZE_MB", 50),
-		FileExtensions: strings.Split(getEnv("FILE_EXTENSIONS", ".epub,.mobi,.azw3,.pdf"), ","),
-		SMTPHost:       getEnv("SMTP_HOST", ""),
-		SMTPPort:       getEnv("SMTP_PORT", "587"),
-		SMTPUser:       getEnv("SMTP_USER", ""),
-		SMTPPassword:   getEnv("SMTP_PASSWORD", ""),
-		KindleEmail:    getEnv("KINDLE_EMAIL", ""),
-		SenderEmail:    getEnv("SENDER_EMAIL", getEnv("SMTP_USER", "")),
-		DatabasePath:   getEnv("DATABASE_PATH", "/data/kindle-sender.db"),
-		MetricsPort:    getEnv("METRICS_PORT", "9090"),
+		WatchPath:       getEnv("WATCH_PATH", "/media/books"),
+		ScanInterval:    getEnvInt("SCAN_INTERVAL", 300),
+		MaxFileSizeMB:   getEnvInt("MAX_FILE_SIZE_MB", 50),
+		FileExtensions:  strings.Split(getEnv("FILE_EXTENSIONS", ".epub,.mobi,.azw3,.pdf"), ","),
+		SMTPHost:        getEnv("SMTP_HOST", ""),
+		SMTPPort:        getEnv("SMTP_PORT", "587"),
+		SMTPUser:        getEnv("SMTP_USER", ""),
+		SMTPPassword:    getEnv("SMTP_PASSWORD", ""),
+		KindleEmail:     getEnv("KINDLE_EMAIL", ""),
+		SenderEmail:     getEnv("SENDER_EMAIL", getEnv("SMTP_USER", "")),
+		DatabasePath:    getEnv("DATABASE_PATH", "/data/kindle-sender.db"),
+		MetricsPort:     getEnv("METRICS_PORT", "9090"),
+		MaxBooksPerHour: getEnvInt("MAX_BOOKS_PER_HOUR", 20),
 	}
 }
 
@@ -293,7 +356,7 @@ func getContentType(filename string) string {
 	}
 }
 
-func processFile(filePath string, config *Config, db *sql.DB) error {
+func processFile(filePath string, config *Config, db *sql.DB, rateLimiter *RateLimiter) error {
 	// Check file size
 	fileInfo, err := os.Stat(filePath)
 	if err != nil {
@@ -336,6 +399,18 @@ func processFile(filePath string, config *Config, db *sql.DB) error {
 		return nil
 	}
 
+	// Check rate limit
+	if !rateLimiter.CanSend() {
+		waitTime := rateLimiter.TimeUntilNextSlot()
+		filesRateLimited.Inc()
+		log.Printf("Rate limit reached (%d/%d per hour). %s will be sent in %.0f minutes",
+			rateLimiter.SentThisHour(), config.MaxBooksPerHour, fileName, waitTime.Minutes())
+		return nil // Will be picked up in next scan
+	}
+
+	// Update metrics for files sent this hour
+	filesSentThisHour.Set(float64(rateLimiter.SentThisHour()))
+
 	// Send email
 	msg := &EmailMessage{
 		From:        config.SenderEmail,
@@ -357,12 +432,15 @@ func processFile(filePath string, config *Config, db *sql.DB) error {
 		return fmt.Errorf("failed to mark file as sent: %w", err)
 	}
 
+	// Record in rate limiter and update metrics
+	rateLimiter.RecordSend()
+	filesSentThisHour.Set(float64(rateLimiter.SentThisHour()))
 	filesSentTotal.Inc()
-	log.Printf("Successfully sent %s", filepath.Base(filePath))
+	log.Printf("Successfully sent %s (%d/%d this hour)", filepath.Base(filePath), rateLimiter.SentThisHour(), config.MaxBooksPerHour)
 	return nil
 }
 
-func scanDirectory(watchPath string, config *Config, db *sql.DB) error {
+func scanDirectory(watchPath string, config *Config, db *sql.DB, rateLimiter *RateLimiter) error {
 	return filepath.Walk(watchPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			log.Printf("Error accessing path %s: %v", path, err)
@@ -377,7 +455,7 @@ func scanDirectory(watchPath string, config *Config, db *sql.DB) error {
 			return nil
 		}
 
-		if err := processFile(path, config, db); err != nil {
+		if err := processFile(path, config, db, rateLimiter); err != nil {
 			log.Printf("Error processing file %s: %v", path, err)
 		}
 
@@ -412,7 +490,7 @@ func waitForFileWriteComplete(filepath string, timeout time.Duration, checkInter
 	return false
 }
 
-func watchDirectory(watchPath string, config *Config, db *sql.DB) error {
+func watchDirectory(watchPath string, config *Config, db *sql.DB, rateLimiter *RateLimiter) error {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return fmt.Errorf("failed to create watcher: %w", err)
@@ -462,7 +540,7 @@ func watchDirectory(watchPath string, config *Config, db *sql.DB) error {
 				}
 
 				if isSupportedFile(event.Name, config.FileExtensions) {
-					if err := processFile(event.Name, config, db); err != nil {
+					if err := processFile(event.Name, config, db, rateLimiter); err != nil {
 						log.Printf("Error processing file %s: %v", event.Name, err)
 					}
 				}
@@ -494,10 +572,14 @@ func main() {
 	log.Printf("  Watch Path: %s", config.WatchPath)
 	log.Printf("  Scan Interval: %d seconds", config.ScanInterval)
 	log.Printf("  Max File Size: %d MB", config.MaxFileSizeMB)
+	log.Printf("  Max Books Per Hour: %d", config.MaxBooksPerHour)
 	log.Printf("  File Extensions: %v", config.FileExtensions)
 	log.Printf("  SMTP Host: %s:%s", config.SMTPHost, config.SMTPPort)
 	log.Printf("  Kindle Email: %s", config.KindleEmail)
 	log.Printf("  Metrics Port: %s", config.MetricsPort)
+
+	// Initialize rate limiter
+	rateLimiter := NewRateLimiter(config.MaxBooksPerHour)
 
 	// Initialize database
 	db, err := initDatabase(config.DatabasePath)
@@ -529,7 +611,7 @@ func main() {
 
 	// Initial scan
 	log.Println("Performing initial scan...")
-	if err := scanDirectory(config.WatchPath, config, db); err != nil {
+	if err := scanDirectory(config.WatchPath, config, db, rateLimiter); err != nil {
 		log.Printf("Error during initial scan: %v", err)
 	}
 	log.Println("Initial scan completed")
@@ -541,7 +623,7 @@ func main() {
 	go func() {
 		for range ticker.C {
 			log.Println("Performing periodic scan...")
-			if err := scanDirectory(config.WatchPath, config, db); err != nil {
+			if err := scanDirectory(config.WatchPath, config, db, rateLimiter); err != nil {
 				log.Printf("Error during periodic scan: %v", err)
 			}
 		}
@@ -549,7 +631,7 @@ func main() {
 
 	// Start watching for new files
 	log.Println("Starting file watcher...")
-	if err := watchDirectory(config.WatchPath, config, db); err != nil {
+	if err := watchDirectory(config.WatchPath, config, db, rateLimiter); err != nil {
 		log.Fatalf("Error watching directory: %v", err)
 	}
 }
