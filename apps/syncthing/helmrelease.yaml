@@ -49,6 +49,8 @@ spec:
               - --no-default-folder
             env:
               TZ: America/Los_Angeles
+              # Ignore permissions - required for storage that doesn't support chmod
+              STNOUPGRADE: "true"
             ports:
               - name: http
                 containerPort: 8384
