@@ -4,20 +4,14 @@ metadata:
   name: radarr-tailscale
   namespace: media
   annotations:
-    tailscale.com/proxy-group: homelab-ingress
+    tailscale.com/tags: "tag:k8s-operator"
 spec:
   ingressClassName: tailscale
-  rules:
-    - host: radarr
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: radarr
-                port:
-                  number: 7878
+  defaultBackend:
+    service:
+      name: radarr
+      port:
+        number: 7878
   tls:
     - hosts:
         - radarr

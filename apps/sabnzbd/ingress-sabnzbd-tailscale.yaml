@@ -4,20 +4,14 @@ metadata:
   name: sabnzbd-tailscale
   namespace: media
   annotations:
-    tailscale.com/proxy-group: homelab-ingress
+    tailscale.com/tags: "tag:k8s-operator"
 spec:
   ingressClassName: tailscale
-  rules:
-    - host: sabnzbd
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: sabnzbd
-                port:
-                  number: 8080
+  defaultBackend:
+    service:
+      name: sabnzbd
+      port:
+        number: 8080
   tls:
     - hosts:
         - sabnzbd

@@ -4,20 +4,14 @@ metadata:
   name: kaneo-tailscale
   namespace: kaneo
   annotations:
-    tailscale.com/proxy-group: homelab-ingress
+    tailscale.com/tags: "tag:k8s-operator"
 spec:
   ingressClassName: tailscale
-  rules:
-    - host: kaneo
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: kaneo-api
-                port:
-                  number: 1337
+  defaultBackend:
+    service:
+      name: kaneo-api
+      port:
+        number: 1337
   tls:
     - hosts:
         - kaneo

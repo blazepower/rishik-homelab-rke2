@@ -4,20 +4,14 @@ metadata:
   name: adguard-home-tailscale
   namespace: adguard-home
   annotations:
-    tailscale.com/proxy-group: homelab-ingress
+    tailscale.com/tags: "tag:k8s-operator"
 spec:
   ingressClassName: tailscale
-  rules:
-    - host: adguard
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: adguard-home-web
-                port:
-                  number: 3000
+  defaultBackend:
+    service:
+      name: adguard-home-web
+      port:
+        number: 3000
   tls:
     - hosts:
         - adguard

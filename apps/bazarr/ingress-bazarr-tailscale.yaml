@@ -4,20 +4,14 @@ metadata:
   name: bazarr-tailscale
   namespace: media
   annotations:
-    tailscale.com/proxy-group: homelab-ingress
+    tailscale.com/tags: "tag:k8s-operator"
 spec:
   ingressClassName: tailscale
-  rules:
-    - host: bazarr
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: bazarr
-                port:
-                  number: 6767
+  defaultBackend:
+    service:
+      name: bazarr
+      port:
+        number: 6767
   tls:
     - hosts:
         - bazarr

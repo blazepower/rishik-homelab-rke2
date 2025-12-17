@@ -4,20 +4,14 @@ metadata:
   name: calibre-web-tailscale
   namespace: media
   annotations:
-    tailscale.com/proxy-group: homelab-ingress
+    tailscale.com/tags: "tag:k8s-operator"
 spec:
   ingressClassName: tailscale
-  rules:
-    - host: calibre
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: calibre-web
-                port:
-                  number: 8083
+  defaultBackend:
+    service:
+      name: calibre-web
+      port:
+        number: 8083
   tls:
     - hosts:
         - calibre

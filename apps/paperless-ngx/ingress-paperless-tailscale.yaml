@@ -4,20 +4,14 @@ metadata:
   name: paperless-tailscale
   namespace: paperless
   annotations:
-    tailscale.com/proxy-group: homelab-ingress
+    tailscale.com/tags: "tag:k8s-operator"
 spec:
   ingressClassName: tailscale
-  rules:
-    - host: paperless
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: paperless-paperless-ngx
-                port:
-                  number: 8000
+  defaultBackend:
+    service:
+      name: paperless-paperless-ngx
+      port:
+        number: 8000
   tls:
     - hosts:
         - paperless
