@@ -19,6 +19,14 @@ spec:
       ports:
         - protocol: TCP
           port: 3000
+    # Allow Tailscale ingress proxy
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: tailscale
+      ports:
+        - protocol: TCP
+          port: 3000
     # Allow internal communication within namespace
     - from:
         - namespaceSelector:
