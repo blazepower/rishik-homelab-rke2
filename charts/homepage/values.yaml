@@ -126,14 +126,14 @@ config:
             namespace: media
             app: calibre-web
         - Bookshelf:
-            icon: bookshelf.png
+            icon: mdi-bookshelf
             href: https://bookshelf.homelab
             description: Book Manager
             server: homepage-kubernetes
             namespace: media
             app: bookshelf
         - Kindle-sender:
-            icon: kindle.png
+            icon: mdi-book-arrow-right
             href: https://kindle.homelab
             description: Send to Kindle
             server: homepage-kubernetes
@@ -163,7 +163,7 @@ config:
             namespace: homebox
             app: homebox
         - Sure-finance:
-            icon: maybe.png
+            icon: https://raw.githubusercontent.com/we-promise/sure/main/public/icon.svg
             href: https://sure.homelab
             description: Finance Manager
             server: homepage-kubernetes
