@@ -177,14 +177,14 @@ spec:
                 description: Monitoring Dashboard
                 server: homepage-kubernetes
                 namespace: monitoring
-                app: kube-prometheus-stack-grafana
+                app: grafana
             - Longhorn:
                 icon: longhorn.png
                 href: https://longhorn.tail4217c.ts.net
                 description: Storage Management
                 server: homepage-kubernetes
                 namespace: storage
-                app: longhorn
+                app: longhorn-ui
             - AdGuard:
                 icon: adguard-home.png
                 href: https://adguard.tail4217c.ts.net
