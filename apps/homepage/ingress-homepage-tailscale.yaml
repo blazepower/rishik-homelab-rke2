@@ -9,7 +9,7 @@ spec:
   ingressClassName: tailscale
   defaultBackend:
     service:
-      name: homepage
+      name: homepage-tailscale
       port:
         number: 3000
   tls:

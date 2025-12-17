@@ -4,6 +4,7 @@ namespace: homepage
 resources:
   - namespace.yaml
   - helmrelease.yaml
+  - helmrelease-tailscale.yaml
   - ingress.yaml
   - ingress-homepage-tailscale.yaml
   - certificate.yaml

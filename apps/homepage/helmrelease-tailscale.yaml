@@ -1,0 +1,236 @@
+---
+# Homepage instance for Tailscale access with tailnet URLs
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: homepage-tailscale
+  namespace: homepage
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: charts/homepage
+      sourceRef:
+        kind: GitRepository
+        name: flux-system
+        namespace: flux-system
+      interval: 30m
+  install:
+    createNamespace: false
+    remediation:
+      retries: 3
+    timeout: 10m
+  upgrade:
+    remediation:
+      retries: 3
+    timeout: 10m
+  values:
+    # Image configuration
+    image:
+      repository: ghcr.io/gethomepage/homepage
+      tag: "v0.9.10"
+      pullPolicy: IfNotPresent
+
+    # Resource configuration
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+
+    # ServiceAccount - use existing from main homepage
+    serviceAccount:
+      create: false
+      name: homepage
+
+    # RBAC - use existing from main homepage
+    rbac:
+      create: false
+
+    # Environment variables
+    env:
+      HOMEPAGE_ALLOWED_HOSTS: "*"
+
+    # Homepage configuration with Tailscale URLs
+    config:
+      kubernetes:
+        mode: cluster
+
+      services:
+        - Media:
+            - Plex:
+                icon: plex.png
+                href: https://plex.tail4217c.ts.net
+                description: Media Server
+                server: homepage-kubernetes
+                namespace: media
+                app: plex-media-server
+            - Overseerr:
+                icon: overseerr.png
+                href: https://overseerr.tail4217c.ts.net
+                description: Request Management
+                server: homepage-kubernetes
+                namespace: media
+                app: overseerr
+            - Sonarr:
+                icon: sonarr.png
+                href: https://sonarr.tail4217c.ts.net
+                description: TV Shows
+                server: homepage-kubernetes
+                namespace: media
+                app: sonarr
+            - Radarr:
+                icon: radarr.png
+                href: https://radarr.tail4217c.ts.net
+                description: Movies
+                server: homepage-kubernetes
+                namespace: media
+                app: radarr
+            - Bazarr:
+                icon: bazarr.png
+                href: https://bazarr.tail4217c.ts.net
+                description: Subtitles
+                server: homepage-kubernetes
+                namespace: media
+                app: bazarr
+            - Prowlarr:
+                icon: prowlarr.png
+                href: https://prowlarr.tail4217c.ts.net
+                description: Indexer Manager
+                server: homepage-kubernetes
+                namespace: media
+                app: prowlarr
+            - SABnzbd:
+                icon: sabnzbd.png
+                href: https://sabnzbd.tail4217c.ts.net
+                description: Usenet Downloader
+                server: homepage-kubernetes
+                namespace: media
+                app: sabnzbd
+
+        - Documents & Books:
+            - Paperless-ngx:
+                icon: paperless.png
+                href: https://paperless.tail4217c.ts.net
+                description: Document Management
+                server: homepage-kubernetes
+                namespace: paperless
+                app: paperless-ngx
+            - Calibre-web:
+                icon: calibre-web.png
+                href: https://calibre.tail4217c.ts.net
+                description: eBook Library
+                server: homepage-kubernetes
+                namespace: media
+                app: calibre-web
+            - Bookshelf:
+                icon: mdi-bookshelf
+                href: https://bookshelf.tail4217c.ts.net
+                description: Book Manager
+                server: homepage-kubernetes
+                namespace: media
+                app: bookshelf
+            - Kindle-sender:
+                icon: mdi-book-arrow-right
+                href: https://kindle.tail4217c.ts.net
+                description: Send to Kindle
+                server: homepage-kubernetes
+                namespace: media
+                app: kindle-sender
+            - RReading-glasses:
+                icon: mdi-glasses
+                href: https://rreading.tail4217c.ts.net
+                description: RSS Reader
+                server: homepage-kubernetes
+                namespace: media
+                app: rreading-glasses
+
+        - Productivity:
+            - Kaneo:
+                icon: mdi-kangaroo
+                href: https://kaneo.tail4217c.ts.net
+                description: Task Management
+                server: homepage-kubernetes
+                namespace: kaneo
+                app: kaneo
+            - Homebox:
+                icon: homebox.png
+                href: https://homebox.tail4217c.ts.net
+                description: Inventory Management
+                server: homepage-kubernetes
+                namespace: homebox
+                app: homebox
+            - Sure-finance:
+                icon: https://raw.githubusercontent.com/we-promise/sure/main/public/icon.svg
+                href: https://sure.tail4217c.ts.net
+                description: Finance Manager
+                server: homepage-kubernetes
+                namespace: sure-finance
+                app: maybe-finance
+
+        - Infrastructure:
+            - Grafana:
+                icon: grafana.png
+                href: https://grafana.tail4217c.ts.net
+                description: Monitoring Dashboard
+                server: homepage-kubernetes
+                namespace: monitoring
+                app: kube-prometheus-stack-grafana
+            - Longhorn:
+                icon: longhorn.png
+                href: https://longhorn.tail4217c.ts.net
+                description: Storage Management
+                server: homepage-kubernetes
+                namespace: storage
+                app: longhorn
+            - AdGuard:
+                icon: adguard-home.png
+                href: https://adguard.tail4217c.ts.net
+                description: DNS & Ad Blocking
+                server: homepage-kubernetes
+                namespace: adguard-home
+                app: adguard-home
+
+      widgets:
+        - kubernetes:
+            cluster:
+              show: true
+              cpu: true
+              memory: true
+              showLabel: true
+              label: "Cluster"
+            nodes:
+              show: true
+              cpu: true
+              memory: true
+              showLabel: true
+        - search:
+            provider: google
+            target: _blank
+        - datetime:
+            text_size: xl
+            format:
+              timeStyle: short
+              dateStyle: short
+
+      settings:
+        title: "Homelab Dashboard (Tailscale)"
+        theme: dark
+        color: blue
+        headerStyle: boxed
+        hideVersion: true
+        layout:
+          Media:
+            style: row
+            columns: 4
+          Documents & Books:
+            style: row
+            columns: 3
+          Productivity:
+            style: row
+            columns: 3
+          Infrastructure:
+            style: row
+            columns: 3
