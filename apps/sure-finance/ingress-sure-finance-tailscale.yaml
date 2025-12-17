@@ -3,6 +3,8 @@ kind: Ingress
 metadata:
   name: sure-finance-tailscale
   namespace: sure-finance
+  annotations:
+    tailscale.com/tags: "tag:k8s-operator"
 spec:
   ingressClassName: tailscale
   rules:
