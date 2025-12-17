@@ -1,26 +1,20 @@
 ---
-# Tailscale Service - Exposes sure-finance directly on the tailnet
-apiVersion: v1
-kind: Service
+# Tailscale Ingress - Exposes sure-finance with HTTPS on the tailnet
+# Uses Tailscale Ingress class for automatic TLS termination with LetsEncrypt certs
+apiVersion: networking.k8s.io/v1
+kind: Ingress
 metadata:
   name: sure-finance-tailscale
   namespace: sure-finance
   annotations:
-    tailscale.com/expose: "true"
-    tailscale.com/hostname: "sure"
     tailscale.com/tags: "tag:k8s-operator"
 spec:
-  type: LoadBalancer
-  loadBalancerClass: tailscale
-  selector:
-    app.kubernetes.io/instance: sure-finance
-    app.kubernetes.io/name: maybe-finance
-  ports:
-    - name: http
-      port: 80
-      targetPort: 3000
-      protocol: TCP
-    - name: https
-      port: 443
-      targetPort: 3000
-      protocol: TCP
+  ingressClassName: tailscale
+  defaultBackend:
+    service:
+      name: sure-finance-maybe-finance
+      port:
+        number: 3000
+  tls:
+    - hosts:
+        - sure
