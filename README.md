@@ -118,7 +118,7 @@ All services are accessible via HTTPS on the tailnet with automatic LetsEncrypt 
 
 | Service | Local URL | Tailnet URL | Description |
 |---------|-----------|-------------|-------------|
-| Plex | `https://plex.homelab` | `https://plex.tail4217c.ts.net` | Media Server |
+| Plex | `https://plex.homelab:32400` | `https://plex.tail4217c.ts.net` | Media Server |
 | Overseerr | `https://overseerr.homelab` | `https://overseerr.tail4217c.ts.net` | Media Request Management |
 | Sonarr | `https://sonarr.homelab` | `https://sonarr.tail4217c.ts.net` | TV Shows Manager |
 | Radarr | `https://radarr.homelab` | `https://radarr.tail4217c.ts.net` | Movies Manager |
@@ -141,7 +141,7 @@ All services are accessible via HTTPS on the tailnet with automatic LetsEncrypt 
 | Kaneo | `https://kaneo.homelab` | `https://kaneo.tail4217c.ts.net` | Project Management |
 | Homebox | `https://homebox.homelab` | `https://homebox.tail4217c.ts.net` | Inventory Management |
 | Sure Finance | `https://sure.homelab` | `https://sure.tail4217c.ts.net` | Finance Manager |
-| Syncthing | `https://syncthing.homelab` | N/A | File Synchronization |
+| Syncthing | `https://syncthing.homelab` | Not exposed via Tailscale | File Synchronization |
 
 #### Infrastructure
 
