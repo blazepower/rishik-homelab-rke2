@@ -17,6 +17,7 @@ resources:
   - rreading-glasses
   - calibre-web
   - kindle-sender
+  - calibre-converter
   - homepage
   - syncthing
   - hardcover-sync
