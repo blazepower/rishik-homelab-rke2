@@ -127,4 +127,6 @@ commits = [
   "739d97ee5d27c5fe8fd6aeae066c77ec659bc380",  # Paperless-ngx initial commit with example passwords (fixed in da05a94)
   "a0e4f6ac993523d2f719addf6271e32e30db37ff",  # Sure-finance commit with redis-secure-password placeholder (before Helm chart conversion)
   "a4a86901a668b607303bf2fc2157a3c61ff00361",  # AdGuard Home documentation with password reference in setup instructions
+  "4ff18a4a54e46a81a414456f45032b27b61d2ac5",  # Hardcover-sync SealedSecret with typo in filename (sealedseceret vs sealedsecret) - encryptedData is safe
+  "43d15e24bce32b1a7eebd690c30824ad4a10ad41",  # Documentation update initial plan commit - contains hardcover-sync SealedSecret with typo in filename
 ]

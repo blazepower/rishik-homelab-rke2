@@ -72,6 +72,7 @@ docs/                           # Detailed component documentation
 | **Logging** | Loki and Promtail for centralized log aggregation | [docs/logging.md](docs/logging.md) |
 | **Storage** | Longhorn distributed storage as default StorageClass | [docs/storage.md](docs/storage.md) |
 | **Networking** | Traefik ingress controller and MetalLB load balancer | [docs/networking.md](docs/networking.md) |
+| **Tailscale** | Tailscale Operator for secure remote access via tailnet | [docs/networking.md](docs/networking.md#tailscale-operator) |
 | **TLS** | cert-manager for TLS certificate management | [docs/tls.md](docs/tls.md) |
 | **Sealed Secrets** | Bitnami Sealed Secrets for GitOps-safe secret management | [docs/sealed-secrets.md](docs/sealed-secrets.md) |
 | **Policies** | Kyverno policy engine for admission control and policy enforcement | [docs/policies.md](docs/policies.md) |
@@ -92,6 +93,103 @@ This repository uses [Dependabot](https://docs.github.com/en/code-security/depen
 - **Configuration:** `.github/dependabot.yml`
 
 **Note:** Helm chart updates are managed via Flux HelmReleases, not Dependabot.
+
+## Tailscale Remote Access
+
+The homelab uses **Tailscale** to provide secure remote access to all services via an encrypted mesh network (tailnet). Tailscale enables access to services from anywhere without exposing them to the public internet.
+
+### Overview
+
+Tailscale is deployed via the official **Tailscale Kubernetes Operator** which manages ingress resources and provides automatic HTTPS with LetsEncrypt certificates for services exposed on the tailnet.
+
+| Setting | Value |
+|---------|-------|
+| **Namespace** | `tailscale` |
+| **Operator Version** | 1.90.9 |
+| **Tailnet Domain** | `tail4217c.ts.net` |
+| **ProxyGroup** | `homelab-ingress` (2 replicas) |
+| **Tags** | `tag:k8s-operator` |
+
+### Service Access via Tailnet
+
+Services with Tailscale ingresses are accessible via HTTPS on the tailnet with automatic LetsEncrypt certificates. Plex is only available on the local network and via its Kubernetes LoadBalancer. Simply connect to your Tailscale network and access services using the URLs below:
+
+#### Media Services
+
+| Service | Local URL | Tailnet URL | Description |
+|---------|-----------|-------------|-------------|
+| Plex | `https://plex.homelab:32400` | Not exposed via Tailscale (local network / LoadBalancer only) | Media Server |
+| Overseerr | `https://overseerr.homelab` | `https://overseerr.tail4217c.ts.net` | Media Request Management |
+| Sonarr | `https://sonarr.homelab` | `https://sonarr.tail4217c.ts.net` | TV Shows Manager |
+| Radarr | `https://radarr.homelab` | `https://radarr.tail4217c.ts.net` | Movies Manager |
+| Bazarr | `https://bazarr.homelab` | `https://bazarr.tail4217c.ts.net` | Subtitles Manager |
+| Prowlarr | `https://prowlarr.homelab` | `https://prowlarr.tail4217c.ts.net` | Indexer Manager |
+| SABnzbd | `https://sabnzbd.homelab` | `https://sabnzbd.tail4217c.ts.net` | Usenet Downloader |
+
+#### Documents & Books
+
+| Service | Local URL | Tailnet URL | Description |
+|---------|-----------|-------------|-------------|
+| Paperless-ngx | `https://paperless.homelab` | `https://paperless.tail4217c.ts.net` | Document Management |
+| Calibre-Web | `https://calibre.homelab` | `https://calibre.tail4217c.ts.net` | eBook Library Browser |
+| Bookshelf | `https://bookshelf.homelab` | `https://bookshelf.tail4217c.ts.net` | Book Manager (Readarr fork) |
+
+#### Productivity
+
+| Service | Local URL | Tailnet URL | Description |
+|---------|-----------|-------------|-------------|
+| Kaneo | `https://kaneo.homelab` | `https://kaneo.tail4217c.ts.net` | Project Management |
+| Homebox | `https://homebox.homelab` | `https://homebox.tail4217c.ts.net` | Inventory Management |
+| Sure Finance | `https://sure.homelab` | `https://sure.tail4217c.ts.net` | Finance Manager |
+| Syncthing | `https://syncthing.homelab` | Not exposed via Tailscale | File Synchronization |
+
+#### Infrastructure
+
+| Service | Local URL | Tailnet URL | Description |
+|---------|-----------|-------------|-------------|
+| Grafana | `https://grafana.homelab` | `https://grafana.tail4217c.ts.net` | Monitoring Dashboard |
+| Longhorn | `https://longhorn.homelab` | `https://longhorn.tail4217c.ts.net` | Storage Management |
+| AdGuard Home | `https://adguard.homelab` | `https://adguard.tail4217c.ts.net` | DNS & Ad Blocking |
+| Homepage | `https://home.homelab` | `https://home.tail4217c.ts.net` | Homelab Dashboard |
+
+#### Background Services (No Web UI)
+
+| Service | Description | Access |
+|---------|-------------|--------|
+| Kindle Sender | Automatic eBook delivery to Kindle | Background service only |
+| rreading-glasses | Metadata backend for Bookshelf | Internal cluster service only |
+| Hardcover Sync | Syncs Want-To-Read list to Bookshelf | Background service only |
+
+### How It Works
+
+1. **Tailscale Operator** creates ingress proxy pods for each service
+2. Each service gets a unique hostname on the tailnet (e.g., `plex.tail4217c.ts.net`)
+3. **Automatic HTTPS** via LetsEncrypt certificates provisioned by Tailscale
+4. **Zero trust networking** - only devices on your tailnet can access services
+5. **No port forwarding** or firewall configuration required
+
+### Configuration Files
+
+- `infrastructure/tailscale/helmrelease.yaml` - Tailscale Operator HelmRelease
+- `infrastructure/tailscale/proxygroup.yaml` - ProxyGroup configuration for ingress
+- `apps/*/ingress-*-tailscale.yaml` - Individual Tailscale ingress resources
+- `infrastructure/monitoring/ingress-grafana-tailscale.yaml` - Grafana Tailscale ingress
+- `infrastructure/storage/longhorn/ingress-longhorn-tailscale.yaml` - Longhorn Tailscale ingress
+
+### Security
+
+- All Tailscale ingresses are tagged with `tag:k8s-operator` for ACL management
+- Services are only accessible to authenticated devices on the tailnet
+- Automatic certificate rotation managed by Tailscale
+- Network policies ensure proper pod-to-pod communication
+
+### Benefits
+
+- ✅ **Secure remote access** from anywhere without VPN complexity
+- ✅ **Automatic HTTPS** with real LetsEncrypt certificates
+- ✅ **No public exposure** - services remain private
+- ✅ **Easy setup** - just install Tailscale on your device and connect
+- ✅ **Multiple devices** - access from phone, laptop, tablet, etc.
 
 ## Performance Tuning
 
@@ -203,8 +301,9 @@ Kaneo is an open-source project management tool with three main components:
 
 ### Access
 
-- **HTTPS**: `https://kaneo.homelab` (via Traefik ingress with TLS)
+- **Local HTTPS**: `https://kaneo.homelab` (via Traefik ingress with TLS)
 - **API Endpoint**: `https://kaneo.homelab/api` (proxied to API service)
+- **Tailnet HTTPS**: `https://kaneo.tail4217c.ts.net` (secure remote access)
 
 ### Files
 
@@ -277,13 +376,23 @@ Download directories on the media mount:
 
 ### Access
 
-All apps are accessible via HTTPS ingress:
+All apps are accessible via local HTTPS ingress and Tailscale:
+
+**Local Access:**
 - **Prowlarr**: `https://prowlarr.homelab`
 - **Sonarr**: `https://sonarr.homelab`
 - **Radarr**: `https://radarr.homelab`
 - **SABnzbd**: `https://sabnzbd.homelab`
 - **Bazarr**: `https://bazarr.homelab`
 - **Overseerr**: `https://overseerr.homelab`
+
+**Remote Access (Tailnet):**
+- **Prowlarr**: `https://prowlarr.tail4217c.ts.net`
+- **Sonarr**: `https://sonarr.tail4217c.ts.net`
+- **Radarr**: `https://radarr.tail4217c.ts.net`
+- **SABnzbd**: `https://sabnzbd.tail4217c.ts.net`
+- **Bazarr**: `https://bazarr.tail4217c.ts.net`
+- **Overseerr**: `https://overseerr.tail4217c.ts.net`
 
 ### Files Per App
 
@@ -443,10 +552,17 @@ Access modes:
 
 ### Access URLs
 
-- **Bookshelf**: https://bookshelf.homelab
-- **Calibre-Web**: https://calibre.homelab
+**Local Access:**
+- **Bookshelf**: `https://bookshelf.homelab`
+- **Calibre-Web**: `https://calibre.homelab`
 - **rreading-glasses**: Internal only (no ingress)
 - **Kindle Sender**: No web interface (background service)
+
+**Remote Access (Tailnet):**
+- **Bookshelf**: `https://bookshelf.tail4217c.ts.net`
+- **Calibre-Web**: `https://calibre.tail4217c.ts.net`
+- **rreading-glasses**: Internal only
+- **Kindle Sender**: Background service only
 
 ### Configuration Requirements
 
@@ -570,24 +686,24 @@ Each application is monitored via a Kubernetes **Probe** resource that configure
 
 **Media Services** (`media` namespace):
 - `https://plex.homelab:32400`
-- `https://overseerr.homelab`
-- `https://sonarr.homelab`
-- `https://radarr.homelab`
-- `https://bazarr.homelab`
-- `https://prowlarr.homelab`
-- `https://sabnzbd.homelab`
+- `https://overseerr.homelab` (also accessible via `https://overseerr.tail4217c.ts.net`)
+- `https://sonarr.homelab` (also accessible via `https://sonarr.tail4217c.ts.net`)
+- `https://radarr.homelab` (also accessible via `https://radarr.tail4217c.ts.net`)
+- `https://bazarr.homelab` (also accessible via `https://bazarr.tail4217c.ts.net`)
+- `https://prowlarr.homelab` (also accessible via `https://prowlarr.tail4217c.ts.net`)
+- `https://sabnzbd.homelab` (also accessible via `https://sabnzbd.tail4217c.ts.net`)
 
 **Productivity Services** (`productivity` namespace):
-- `https://paperless.homelab`
-- `https://calibre.homelab`
-- `https://bookshelf.homelab`
-- `https://kaneo.homelab`
-- `https://homebox.homelab`
-- `https://sure.homelab`
+- `https://paperless.homelab` (also accessible via `https://paperless.tail4217c.ts.net`)
+- `https://calibre.homelab` (also accessible via `https://calibre.tail4217c.ts.net`)
+- `https://bookshelf.homelab` (also accessible via `https://bookshelf.tail4217c.ts.net`)
+- `https://kaneo.homelab` (also accessible via `https://kaneo.tail4217c.ts.net`)
+- `https://homebox.homelab` (also accessible via `https://homebox.tail4217c.ts.net`)
+- `https://sure.homelab` (also accessible via `https://sure.tail4217c.ts.net`)
 
 **Infrastructure Services**:
-- `https://grafana.homelab` (`monitoring` namespace)
-- `https://longhorn.homelab` (`storage` namespace)
+- `https://grafana.homelab` (`monitoring` namespace) (also accessible via `https://grafana.tail4217c.ts.net`)
+- `https://longhorn.homelab` (`storage` namespace) (also accessible via `https://longhorn.tail4217c.ts.net`)
 
 ### Grafana Dashboard
 
