@@ -121,10 +121,9 @@ The Tailscale Operator uses minimal resources for efficient operation:
 
 ### Services Exposed via Tailscale
 
-All services are accessible with automatic HTTPS via LetsEncrypt certificates:
+Services with Tailscale ingresses are accessible with automatic HTTPS via LetsEncrypt certificates:
 
 #### Media Services
-- Plex: `https://plex.tail4217c.ts.net`
 - Overseerr: `https://overseerr.tail4217c.ts.net`
 - Sonarr: `https://sonarr.tail4217c.ts.net`
 - Radarr: `https://radarr.tail4217c.ts.net`

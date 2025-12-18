@@ -72,7 +72,7 @@ docs/                           # Detailed component documentation
 | **Logging** | Loki and Promtail for centralized log aggregation | [docs/logging.md](docs/logging.md) |
 | **Storage** | Longhorn distributed storage as default StorageClass | [docs/storage.md](docs/storage.md) |
 | **Networking** | Traefik ingress controller and MetalLB load balancer | [docs/networking.md](docs/networking.md) |
-| **Tailscale** | Tailscale Operator for secure remote access via tailnet | [infrastructure/tailscale/](#tailscale-remote-access) |
+| **Tailscale** | Tailscale Operator for secure remote access via tailnet | [docs/networking.md](docs/networking.md#tailscale-operator) |
 | **TLS** | cert-manager for TLS certificate management | [docs/tls.md](docs/tls.md) |
 | **Sealed Secrets** | Bitnami Sealed Secrets for GitOps-safe secret management | [docs/sealed-secrets.md](docs/sealed-secrets.md) |
 | **Policies** | Kyverno policy engine for admission control and policy enforcement | [docs/policies.md](docs/policies.md) |
@@ -112,13 +112,13 @@ Tailscale is deployed via the official **Tailscale Kubernetes Operator** which m
 
 ### Service Access via Tailnet
 
-All services are accessible via HTTPS on the tailnet with automatic LetsEncrypt certificates. Simply connect to your Tailscale network and access services using the URLs below:
+Services with Tailscale ingresses are accessible via HTTPS on the tailnet with automatic LetsEncrypt certificates. Plex is only available on the local network and via its Kubernetes LoadBalancer. Simply connect to your Tailscale network and access services using the URLs below:
 
 #### Media Services
 
 | Service | Local URL | Tailnet URL | Description |
 |---------|-----------|-------------|-------------|
-| Plex | `https://plex.homelab:32400` | `https://plex.tail4217c.ts.net` | Media Server |
+| Plex | `https://plex.homelab:32400` | Not exposed via Tailscale (local network / LoadBalancer only) | Media Server |
 | Overseerr | `https://overseerr.homelab` | `https://overseerr.tail4217c.ts.net` | Media Request Management |
 | Sonarr | `https://sonarr.homelab` | `https://sonarr.tail4217c.ts.net` | TV Shows Manager |
 | Radarr | `https://radarr.homelab` | `https://radarr.tail4217c.ts.net` | Movies Manager |
@@ -258,7 +258,6 @@ Plex is deployed using the official [plex-media-server Helm chart](https://githu
 
 - **Local HTTPS**: `https://plex.homelab` (via Traefik ingress)
 - **Remote/Direct**: `http://192.168.1.200:32400` (via LoadBalancer)
-- **Tailnet HTTPS**: `https://plex.tail4217c.ts.net` (secure remote access)
 
 ### Files
 
@@ -686,7 +685,7 @@ Blackbox Exporter is deployed as part of the kube-prometheus-stack and provides 
 Each application is monitored via a Kubernetes **Probe** resource that configures the Blackbox Exporter to periodically probe the application's HTTPS endpoint.
 
 **Media Services** (`media` namespace):
-- `https://plex.homelab:32400` (also accessible via `https://plex.tail4217c.ts.net`)
+- `https://plex.homelab:32400`
 - `https://overseerr.homelab` (also accessible via `https://overseerr.tail4217c.ts.net`)
 - `https://sonarr.homelab` (also accessible via `https://sonarr.tail4217c.ts.net`)
 - `https://radarr.homelab` (also accessible via `https://radarr.tail4217c.ts.net`)
