@@ -307,7 +307,8 @@ func addToBookshelf(bookshelfURL, apiKey string, book HardcoverBook) error {
 						// Set required fields on author
 						author["qualityProfileId"] = qualityProfileId
 						author["metadataProfileId"] = metadataProfileId
-						author["monitored"] = true
+						author["monitored"] = false          // Don't monitor the author - only monitor the specific book
+						author["monitorNewItems"] = "none"   // Don't auto-add new books from this author
 						author["rootFolderPath"] = rootFolderPath
 						bookToAdd["author"] = author
 					}
