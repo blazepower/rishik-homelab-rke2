@@ -40,6 +40,10 @@ type HardcoverResponse struct {
 							Name string `json:"name"`
 						} `json:"author"`
 					} `json:"contributions"`
+					Editions []struct {
+						ISBN13 string `json:"isbn_13"`
+						ISBN10 string `json:"isbn_10"`
+					} `json:"editions"`
 				} `json:"book"`
 			} `json:"user_books"`
 		} `json:"me"`
@@ -50,8 +54,9 @@ type HardcoverResponse struct {
 }
 
 // GraphQL query for fetching Want-To-Read list from Hardcover
+// Includes editions with ISBN for better search matching
 const hardcoverWantToReadQuery = `{
-	"query": "query GetWantToRead { me { user_books(where: {status_id: {_eq: 1}}) { book { id title contributions { author { name } } } } } }"
+	"query": "query GetWantToRead { me { user_books(where: {status_id: {_eq: 1}}) { book { id title contributions { author { name } } editions(limit: 1, order_by: {users_count: desc_nulls_last}) { isbn_13 isbn_10 } } } } }"
 }`
 
 func loadConfig() *Config {
@@ -136,6 +141,7 @@ type HardcoverBook struct {
 	ID     int
 	Title  string
 	Author string
+	ISBN   string
 }
 
 func fetchWantToReadList(apiKey string) ([]HardcoverBook, error) {
@@ -183,10 +189,20 @@ func fetchWantToReadList(apiKey string) ([]HardcoverBook, error) {
 		if len(ub.Book.Contributions) > 0 {
 			author = ub.Book.Contributions[0].Author.Name
 		}
+		// Extract ISBN - prefer ISBN-13, fallback to ISBN-10
+		isbn := ""
+		if len(ub.Book.Editions) > 0 {
+			if ub.Book.Editions[0].ISBN13 != "" {
+				isbn = ub.Book.Editions[0].ISBN13
+			} else if ub.Book.Editions[0].ISBN10 != "" {
+				isbn = ub.Book.Editions[0].ISBN10
+			}
+		}
 		books = append(books, HardcoverBook{
 			ID:     ub.Book.ID,
 			Title:  ub.Book.Title,
 			Author: author,
+			ISBN:   isbn,
 		})
 	}
 
@@ -226,11 +242,18 @@ func addToBookshelf(bookshelfURL, apiKey string, book HardcoverBook) error {
 		}
 	}
 
-	// Search for the book first using Readarr's search API
-	// Combine title and author for better search results
-	searchTerm := book.Title
-	if book.Author != "" {
-		searchTerm = fmt.Sprintf("%s %s", book.Title, book.Author)
+	// Search for the book using Readarr's search API
+	// Prefer ISBN for more accurate results, fallback to title + author
+	searchTerm := ""
+	if book.ISBN != "" {
+		searchTerm = book.ISBN
+		log.Printf("Searching for book by ISBN: %s", book.ISBN)
+	} else {
+		searchTerm = book.Title
+		if book.Author != "" {
+			searchTerm = fmt.Sprintf("%s %s", book.Title, book.Author)
+		}
+		log.Printf("Searching for book by title/author: %s", searchTerm)
 	}
 	searchURL := fmt.Sprintf("%s/api/v1/book/lookup?term=%s", bookshelfURL, url.QueryEscape(searchTerm))
 
@@ -256,8 +279,30 @@ func addToBookshelf(bookshelfURL, apiKey string, book HardcoverBook) error {
 		return fmt.Errorf("failed to decode search results: %w", err)
 	}
 
+	// If ISBN search failed, try with title + author
+	if len(searchResults) == 0 && book.ISBN != "" {
+		log.Printf("ISBN search returned no results, trying title + author...")
+		fallbackTerm := book.Title
+		if book.Author != "" {
+			fallbackTerm = fmt.Sprintf("%s %s", book.Title, book.Author)
+		}
+		fallbackURL := fmt.Sprintf("%s/api/v1/book/lookup?term=%s", bookshelfURL, url.QueryEscape(fallbackTerm))
+		
+		req, err = http.NewRequest("GET", fallbackURL, nil)
+		if err == nil {
+			req.Header.Set("X-Api-Key", apiKey)
+			resp, err = client.Do(req)
+			if err == nil {
+				defer resp.Body.Close()
+				if resp.StatusCode == http.StatusOK {
+					json.NewDecoder(resp.Body).Decode(&searchResults)
+				}
+			}
+		}
+	}
+
 	if len(searchResults) == 0 {
-		return fmt.Errorf("no search results found for: %s", searchTerm)
+		return fmt.Errorf("no search results found for: %s (ISBN: %s)", book.Title, book.ISBN)
 	}
 
 	// Use the first search result
