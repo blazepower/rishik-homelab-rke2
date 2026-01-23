@@ -34,7 +34,7 @@ spec:
           app:
             image:
               repository: ghcr.io/blazepower/hardcover-sync
-              tag: v1.0.10
+              tag: latest  # Auto-updated by GitHub Actions on push
             env:
               - name: BOOKSHELF_URL
                 valueFrom:
