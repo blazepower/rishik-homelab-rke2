@@ -84,6 +84,8 @@ paths = [
   '''apps/.*/README\.md$''',
   # Sealed Secrets files (encrypted secrets safe to commit)
   '''sealedsecret-[^/]+\.ya?ml$''',
+  # Typo variant of sealedsecret (sealedseceret) - also safe to commit
+  '''sealedseceret-[^/]+\.ya?ml$''',
 ]
 
 regexes = [
@@ -117,6 +119,11 @@ regexes = [
   '''"\$\{[A-Z_]+PASSWORD\}"''',
   '''"\$\{POSTGRES_[A-Z_]+\}"''',
   '''"\$\{REDIS_[A-Z_]+\}"''',
+  # Allow SealedSecret encryptedData fields (these are encrypted and safe)
+  '''encryptedData:''',
+  # Allow gitleaks documentation example patterns
+  '''cafebabe:deadbeef''',
+  '''AKIAIMNOJVGFDXXXE4OA''',
 ]
 
 # Commits to ignore (add commit hashes of known false positives)
@@ -127,4 +134,6 @@ commits = [
   "739d97ee5d27c5fe8fd6aeae066c77ec659bc380",  # Paperless-ngx initial commit with example passwords (fixed in da05a94)
   "a0e4f6ac993523d2f719addf6271e32e30db37ff",  # Sure-finance commit with redis-secure-password placeholder (before Helm chart conversion)
   "a4a86901a668b607303bf2fc2157a3c61ff00361",  # AdGuard Home documentation with password reference in setup instructions
+  "7f94dfde60f2af21b106d2ee8f9e2ab770c7ecdc",  # README with gitleaks documentation examples (cafebabe:deadbeef, fake AWS keys)
+  "4ff18a4a54e46a81a414456f45032b27b61d2ac5",  # hardcover-sync SealedSecret initial commit
 ]
