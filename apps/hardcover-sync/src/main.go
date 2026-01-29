@@ -22,7 +22,7 @@ type Config struct {
 	HardcoverAPIKey    string
 	BookshelfURL       string
 	BookshelfAPIKey    string
-	RReadingGlassesURL string
+	MetadataURL        string // URL for the metadata provider (hardcover.bookinfo.pro or rreading-glasses)
 	SyncInterval       int
 	DatabasePath       string
 }
@@ -37,6 +37,7 @@ type HardcoverResponse struct {
 					Title         string `json:"title"`
 					Contributions []struct {
 						Author struct {
+							ID   int    `json:"id"`
 							Name string `json:"name"`
 						} `json:"author"`
 					} `json:"contributions"`
@@ -54,19 +55,19 @@ type HardcoverResponse struct {
 }
 
 // GraphQL query for fetching Want-To-Read list from Hardcover
-// Includes editions with ISBN for better search matching
+// Includes editions with ISBN for better search matching and author ID for cache priming
 const hardcoverWantToReadQuery = `{
-	"query": "query GetWantToRead { me { user_books(where: {status_id: {_eq: 1}}) { book { id title contributions { author { name } } editions(limit: 1, order_by: {users_count: desc_nulls_last}) { isbn_13 isbn_10 } } } } }"
+	"query": "query GetWantToRead { me { user_books(where: {status_id: {_eq: 1}}) { book { id title contributions { author { id name } } editions(limit: 1, order_by: {users_count: desc_nulls_last}) { isbn_13 isbn_10 } } } } }"
 }`
 
 func loadConfig() *Config {
 	return &Config{
-		HardcoverAPIKey:    getEnv("HARDCOVER_API_KEY", ""),
-		BookshelfURL:       getEnv("BOOKSHELF_URL", "http://bookshelf:8787"),
-		BookshelfAPIKey:    getEnv("BOOKSHELF_API_KEY", ""),
-		RReadingGlassesURL: getEnv("RREADING_GLASSES_URL", "http://rreading-glasses:8080"),
-		SyncInterval:       getEnvInt("SYNC_INTERVAL", 3600),
-		DatabasePath:       getEnv("DATABASE_PATH", "/data/hardcover-sync.db"),
+		HardcoverAPIKey: getEnv("HARDCOVER_API_KEY", ""),
+		BookshelfURL:    getEnv("BOOKSHELF_URL", "http://bookshelf:8787"),
+		BookshelfAPIKey: getEnv("BOOKSHELF_API_KEY", ""),
+		MetadataURL:     getEnv("METADATA_URL", "https://hardcover.bookinfo.pro"),
+		SyncInterval:    getEnvInt("SYNC_INTERVAL", 3600),
+		DatabasePath:    getEnv("DATABASE_PATH", "/data/hardcover-sync.db"),
 	}
 }
 
@@ -138,10 +139,11 @@ func markBookSynced(db *sql.DB, hardcoverID int, title string) error {
 
 // HardcoverBook represents a book from the Hardcover API
 type HardcoverBook struct {
-	ID     int
-	Title  string
-	Author string
-	ISBN   string
+	ID       int
+	Title    string
+	Author   string
+	AuthorID int
+	ISBN     string
 }
 
 func fetchWantToReadList(apiKey string) ([]HardcoverBook, error) {
@@ -186,8 +188,10 @@ func fetchWantToReadList(apiKey string) ([]HardcoverBook, error) {
 	books := make([]HardcoverBook, 0, len(result.Data.Me[0].UserBooks))
 	for _, ub := range result.Data.Me[0].UserBooks {
 		author := ""
+		authorID := 0
 		if len(ub.Book.Contributions) > 0 {
 			author = ub.Book.Contributions[0].Author.Name
+			authorID = ub.Book.Contributions[0].Author.ID
 		}
 		// Extract ISBN - prefer ISBN-13, fallback to ISBN-10
 		isbn := ""
@@ -199,17 +203,53 @@ func fetchWantToReadList(apiKey string) ([]HardcoverBook, error) {
 			}
 		}
 		books = append(books, HardcoverBook{
-			ID:     ub.Book.ID,
-			Title:  ub.Book.Title,
-			Author: author,
-			ISBN:   isbn,
+			ID:       ub.Book.ID,
+			Title:    ub.Book.Title,
+			Author:   author,
+			AuthorID: authorID,
+			ISBN:     isbn,
 		})
 	}
 
 	return books, nil
 }
 
-func addToBookshelf(bookshelfURL, apiKey string, book HardcoverBook) error {
+// primeMetadataCache triggers the metadata provider to load work and author data
+// by making requests to the work and author endpoints. This causes rreading-glasses
+// to fetch the data from Hardcover and cache it for subsequent searches.
+func primeMetadataCache(metadataURL string, workID int, authorID int) {
+	client := &http.Client{Timeout: 30 * time.Second}
+
+	// Prime work cache - this triggers background loading of book data
+	if workID > 0 {
+		workURL := fmt.Sprintf("%s/work/%d", metadataURL, workID)
+		resp, err := client.Get(workURL)
+		if err == nil {
+			resp.Body.Close()
+			log.Printf("Primed metadata cache for work ID %d", workID)
+		}
+	}
+
+	// Prime author cache - this loads all author's books into cache
+	if authorID > 0 {
+		authorURL := fmt.Sprintf("%s/author/%d", metadataURL, authorID)
+		resp, err := client.Get(authorURL)
+		if err == nil {
+			resp.Body.Close()
+			log.Printf("Primed metadata cache for author ID %d", authorID)
+		}
+	}
+
+	// Give the metadata provider time to fetch data from Hardcover
+	// rreading-glasses loads data asynchronously in the background
+	time.Sleep(3 * time.Second)
+}
+
+func addToBookshelf(bookshelfURL, apiKey, metadataURL string, book HardcoverBook) error {
+	// Prime the metadata cache with work and author IDs before searching
+	// This triggers rreading-glasses to fetch and cache the data from Hardcover
+	primeMetadataCache(metadataURL, book.ID, book.AuthorID)
+
 	// First check if book already exists in the library (not lookup/search)
 	// Get all books from library and check by title
 	libraryURL := fmt.Sprintf("%s/api/v1/book", bookshelfURL)
@@ -423,7 +463,7 @@ func syncBooks(config *Config, db *sql.DB) error {
 		}
 
 		// Add directly to Bookshelf using Hardcover data
-		if err := addToBookshelf(config.BookshelfURL, config.BookshelfAPIKey, book); err != nil {
+		if err := addToBookshelf(config.BookshelfURL, config.BookshelfAPIKey, config.MetadataURL, book); err != nil {
 			log.Printf("Error adding book '%s' to Bookshelf: %v", book.Title, err)
 			errorCount++
 			continue
@@ -462,7 +502,7 @@ func main() {
 
 	log.Printf("Configuration loaded:")
 	log.Printf("  Bookshelf URL: %s", config.BookshelfURL)
-	log.Printf("  rreading-glasses URL: %s", config.RReadingGlassesURL)
+	log.Printf("  Metadata URL: %s", config.MetadataURL)
 	log.Printf("  Sync Interval: %d seconds", config.SyncInterval)
 	log.Printf("  Database Path: %s", config.DatabasePath)
 

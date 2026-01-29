@@ -41,11 +41,11 @@ spec:
                   configMapKeyRef:
                     name: hardcover-sync-config
                     key: BOOKSHELF_URL
-              - name: RREADING_GLASSES_URL
+              - name: METADATA_URL
                 valueFrom:
                   configMapKeyRef:
                     name: hardcover-sync-config
-                    key: RREADING_GLASSES_URL
+                    key: METADATA_URL
               - name: SYNC_INTERVAL
                 valueFrom:
                   configMapKeyRef:

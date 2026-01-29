@@ -6,7 +6,7 @@ metadata:
   namespace: media
 data:
   BOOKSHELF_URL: "http://bookshelf:8787"
-  RREADING_GLASSES_URL: "http://rreading-glasses:8080"
+  METADATA_URL: "https://hardcover.bookinfo.pro"
   SYNC_INTERVAL: "3600"
   DATABASE_PATH: "/data/hardcover-sync.db"
   # Readarr profile IDs (check your Readarr settings for correct values)
