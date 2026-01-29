@@ -1,0 +1,117 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":disableRateLimiting",
+    ":semanticCommits"
+  ],
+  "timezone": "America/Los_Angeles",
+  "schedule": ["after 6am and before 9am every weekday"],
+  "labels": ["renovate", "dependencies"],
+  "commitMessagePrefix": "chore(deps):",
+  "automerge": false,
+  "platformAutomerge": false,
+  "prHourlyLimit": 0,
+  "prConcurrentLimit": 10,
+  "enabledManagers": [
+    "flux",
+    "helm-values",
+    "regex",
+    "dockerfile"
+  ],
+  "flux": {
+    "fileMatch": [
+      "(^|/)apps/.+\\.ya?ml$",
+      "(^|/)infrastructure/.+\\.ya?ml$",
+      "(^|/)clusters/.+\\.ya?ml$"
+    ]
+  },
+  "helm-values": {
+    "fileMatch": [
+      "(^|/)charts/.+/values\\.ya?ml$"
+    ]
+  },
+  "kubernetes": {
+    "fileMatch": [
+      "(^|/)apps/.+\\.ya?ml$",
+      "(^|/)infrastructure/.+\\.ya?ml$"
+    ]
+  },
+  "regexManagers": [
+    {
+      "description": "Container images in HelmRelease values",
+      "fileMatch": ["(^|/)apps/.+helmrelease.*\\.ya?ml$"],
+      "matchStrings": [
+        "repository:\\s*(?<depName>[^\\s]+)\\n\\s*tag:\\s*[\"']?(?<currentValue>[^\"'\\s]+)[\"']?"
+      ],
+      "datasourceTemplate": "docker"
+    },
+    {
+      "description": "Container images in charts values.yaml",
+      "fileMatch": ["(^|/)charts/.+/values\\.ya?ml$"],
+      "matchStrings": [
+        "repository:\\s*(?<depName>[^\\s]+)\\n\\s*tag:\\s*[\"']?(?<currentValue>[^\"'\\s]+)[\"']?"
+      ],
+      "datasourceTemplate": "docker"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Group all Helm chart updates",
+      "matchManagers": ["flux", "helm-values"],
+      "matchDatasources": ["helm"],
+      "groupName": "helm-charts",
+      "labels": ["renovate", "helm", "dependencies"]
+    },
+    {
+      "description": "Group LinuxServer container images",
+      "matchPackagePatterns": ["^lscr\\.io/linuxserver/", "^linuxserver/"],
+      "groupName": "linuxserver-images",
+      "labels": ["renovate", "docker", "linuxserver"]
+    },
+    {
+      "description": "Group arr stack images",
+      "matchPackagePatterns": ["sonarr", "radarr", "prowlarr", "bazarr", "overseerr", "whisparr"],
+      "groupName": "arr-stack",
+      "labels": ["renovate", "docker", "arr-stack"]
+    },
+    {
+      "description": "Group infrastructure Helm charts",
+      "matchPackagePatterns": [
+        "cert-manager",
+        "traefik",
+        "metallb",
+        "longhorn",
+        "sealed-secrets",
+        "kyverno"
+      ],
+      "groupName": "infrastructure",
+      "labels": ["renovate", "helm", "infrastructure"]
+    },
+    {
+      "description": "Pin container images using latest to digest",
+      "matchCurrentValue": "latest",
+      "pinDigests": true
+    },
+    {
+      "description": "Automerge digest updates for pinned latest images",
+      "matchUpdateTypes": ["digest"],
+      "automerge": true,
+      "automergeType": "pr"
+    },
+    {
+      "description": "bjw-s app-template chart",
+      "matchPackageNames": ["app-template"],
+      "matchDatasources": ["helm"],
+      "groupName": "app-template"
+    },
+    {
+      "description": "gluetun VPN container",
+      "matchPackageNames": ["qmcgaw/gluetun"],
+      "labels": ["renovate", "docker", "vpn"]
+    }
+  ],
+  "ignoreDeps": [
+    "ghcr.io/fluxcd/flux-cli"
+  ]
+}
