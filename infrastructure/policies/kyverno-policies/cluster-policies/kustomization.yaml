@@ -7,4 +7,4 @@ resources:
   - mutate-topology-spread.yaml
   - mutate-ingress-annotations.yaml
   - disallow-latest-tag.yaml
-  - require-image-signatures.yaml
+  - add-security-defaults.yaml

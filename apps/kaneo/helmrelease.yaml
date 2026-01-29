@@ -53,7 +53,7 @@ spec:
     api:
       image:
         repository: ghcr.io/usekaneo/api
-        tag: latest
+        tag: "v2.1.23"
         pullPolicy: IfNotPresent
       service:
         type: ClusterIP
@@ -101,7 +101,7 @@ spec:
     web:
       image:
         repository: ghcr.io/usekaneo/web
-        tag: latest
+        tag: "v2.1.23"
         pullPolicy: IfNotPresent
       env:
         apiUrl: "https://kaneo.homelab"

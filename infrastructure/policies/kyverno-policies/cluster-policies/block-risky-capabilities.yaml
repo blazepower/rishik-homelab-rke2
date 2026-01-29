@@ -11,7 +11,7 @@ metadata:
       in user namespaces to maintain cluster security. Infrastructure
       namespaces are excluded to allow system components to function.
 spec:
-  validationFailureAction: Audit
+  validationFailureAction: Enforce
   background: true
   rules:
     - name: deny-privileged-containers
@@ -102,6 +102,8 @@ spec:
                 - monitoring
                 - cert-manager
                 - media
+                - siloarr
+                - tailscale
       validate:
         message: "hostPath volumes are not allowed in user namespaces."
         pattern:

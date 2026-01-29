@@ -1,0 +1,89 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: add-security-defaults
+  annotations:
+    policies.kyverno.io/title: Add Security Context Defaults
+    policies.kyverno.io/category: Best Practices
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/description: >-
+      Mutates pods to add secure defaults for securityContext if not already
+      specified. Adds allowPrivilegeEscalation: false and drops all capabilities
+      for containers that don't explicitly set these values.
+spec:
+  background: false
+  rules:
+    - name: add-security-context-containers
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - kube-system
+                - kube-node-lease
+                - kube-public
+                - flux-system
+                - kyverno
+                - longhorn-system
+                - storage
+                - monitoring
+                - cert-manager
+                - tailscale
+                - metallb-system
+      mutate:
+        foreach:
+          - list: "request.object.spec.containers"
+            patchesJson6902: |-
+              - op: add
+                path: /spec/containers/{{elementIndex}}/securityContext
+                value:
+                  allowPrivilegeEscalation: false
+                  capabilities:
+                    drop:
+                      - ALL
+            preconditions:
+              all:
+                - key: "{{ element.securityContext.allowPrivilegeEscalation || '' }}"
+                  operator: Equals
+                  value: ""
+    - name: add-security-context-init-containers
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - kube-system
+                - kube-node-lease
+                - kube-public
+                - flux-system
+                - kyverno
+                - longhorn-system
+                - storage
+                - monitoring
+                - cert-manager
+                - tailscale
+                - metallb-system
+      mutate:
+        foreach:
+          - list: "request.object.spec.initContainers || []"
+            patchesJson6902: |-
+              - op: add
+                path: /spec/initContainers/{{elementIndex}}/securityContext
+                value:
+                  allowPrivilegeEscalation: false
+                  capabilities:
+                    drop:
+                      - ALL
+            preconditions:
+              all:
+                - key: "{{ element.securityContext.allowPrivilegeEscalation || '' }}"
+                  operator: Equals
+                  value: ""

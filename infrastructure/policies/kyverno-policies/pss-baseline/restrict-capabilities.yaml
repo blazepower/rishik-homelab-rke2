@@ -35,6 +35,7 @@ spec:
                 - storage
                 - monitoring
                 - cert-manager
+                - tailscale
       validate:
         message: >-
           Containers must drop all capabilities. Add 'ALL' to
@@ -80,6 +81,7 @@ spec:
                 - storage
                 - monitoring
                 - cert-manager
+                - tailscale
       validate:
         message: >-
           Only safe capabilities may be added. Allowed: CHOWN, DAC_OVERRIDE,

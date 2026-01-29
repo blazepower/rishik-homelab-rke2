@@ -10,7 +10,7 @@ metadata:
       Require environment=production and owner=rishik labels on all namespaces.
       This helps with Prometheus/Loki queries and future multi-tenant experiments.
 spec:
-  validationFailureAction: Audit
+  validationFailureAction: Enforce
   background: true
   rules:
     - name: require-environment-label
