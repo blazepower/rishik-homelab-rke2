@@ -109,6 +109,13 @@ config:
             server: homepage-kubernetes
             namespace: media
             app: sabnzbd
+        - qBittorrent:
+            icon: qbittorrent.png
+            href: https://qbittorrent.homelab
+            description: Torrent Downloader
+            server: homepage-kubernetes
+            namespace: media
+            app: qbittorrent
 
     - Documents & Books:
         - Paperless-ngx:
@@ -170,6 +177,22 @@ config:
             namespace: sure-finance
             app: maybe-finance
 
+    - Infrastructure:
+        - AdGuard Home:
+            icon: adguard-home.png
+            href: https://adguard.homelab
+            description: DNS & Ad Blocking
+            server: homepage-kubernetes
+            namespace: adguard-home
+            app: adguard-home
+        - Syncthing:
+            icon: syncthing.png
+            href: https://syncthing.homelab
+            description: File Sync
+            server: homepage-kubernetes
+            namespace: media
+            app: syncthing
+
   # Widgets configuration
   widgets:
     - kubernetes:
@@ -210,6 +233,9 @@ config:
       Productivity:
         style: row
         columns: 3
+      Infrastructure:
+        style: row
+        columns: 2
 
 ## Probes
 livenessProbe:
