@@ -116,15 +116,15 @@ config:
             server: homepage-kubernetes
             namespace: media
             app: qbittorrent
-        - Whisparr:
-            icon: whisparr.png
+        - Phantom:
+            icon: mdi-ghost
             href: https://phantom.homelab
-            description: Adult Content
+            description: Media Manager
             server: homepage-kubernetes
             namespace: siloarr
             app: whisparr
-        - Stash:
-            icon: stash.png
+        - Vault:
+            icon: mdi-safe
             href: https://vault.homelab
             description: Media Organizer
             server: homepage-kubernetes
