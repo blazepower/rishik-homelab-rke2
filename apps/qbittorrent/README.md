@@ -63,6 +63,44 @@ Category paths (auto-created):
 
 This enables hardlinks when Sonarr/Radarr import files to `/media/tv` or `/media/movies`.
 
+## Security - Executable Blocking
+
+qBittorrent is configured to skip downloading dangerous executable files. This protects against fake releases containing malware.
+
+### Excluded File Names
+
+Files matching these patterns are automatically marked "do not download" - the torrent completes without them.
+
+| Setting | Value |
+|---------|-------|
+| `excluded_file_names_enabled` | `true` |
+| `excluded_file_names` | 110+ wildcard patterns |
+
+### Blocked Extension Categories
+
+| Category | Extensions |
+|----------|------------|
+| Windows Executables | *.exe, *.com, *.scr, *.pif, *.msi, *.msix, *.msp, *.mst, *.msu, *.dll, *.ocx, *.drv, *.sys, *.cpl, *.bin |
+| Scripts - Windows | *.bat, *.cmd, *.vbs, *.vbe, *.vb, *.js, *.jse, *.ws, *.wsf, *.wsc, *.wsh, *.ps1, *.ps1xml, *.ps2, *.ps2xml, *.psc1, *.psc2, *.psm1, *.msh, *.msh1, *.msh2, *.mshxml |
+| Scripts - Cross-platform | *.pl, *.sh, *.csh, *.ksh |
+| Shortcuts/Links | *.lnk, *.url, *.scf, *.appref-ms, *.website, *.search-ms |
+| HTML Applications | *.hta, *.htc, *.mht, *.mhtml, *.xbap |
+| Java/JVM | *.jar, *.class, *.jnlp |
+| Registry/Config | *.reg, *.inf, *.ins, *.isp, *.job |
+| Office Macro-enabled | *.docm, *.dotm, *.xlsm, *.xltm, *.xlam, *.pptm, *.potm, *.ppam, *.ppsm, *.sldm, *.vsdm, *.vstm, *.vssm |
+| Access Database | *.ade, *.adp, *.mda, *.mdb, *.mde, *.mdt, *.mdw, *.mdz, *.accda, *.accdb, *.accde, *.accdr |
+| Disk Images | *.iso, *.img, *.vhd, *.vhdx |
+| Archives (select) | *.cab, *.arj, *.lha, *.lzh, *.ace |
+| Windows System | *.gadget, *.diagcab, *.diagcfg, *.diagpkg, *.appinstaller, *.application, *.appx, *.appxbundle, *.settingcontent-ms |
+| Legacy/Other | *.chm, *.hlp, *.pcd, *.sct, *.shb, *.grp, *.bas, *.fxp, *.prg, *.crt, *.cer, *.der |
+
+### Sources
+
+Extension list based on:
+- [dobin/badfiles](https://github.com/dobin/badfiles) - Curated dangerous file extensions database
+- [Microsoft Outlook blocked extensions](https://support.microsoft.com/en-us/office/blocked-file-types-in-outlook)
+- [Cleanuparr qBittorrent guide](https://cleanuparr.github.io/Cleanuparr/docs/setup-scenarios/qbit-built-in/)
+
 ## Troubleshooting
 
 ### VPN not connecting

@@ -50,6 +50,50 @@ Configured in `/config/sabnzbd.ini` to prevent history buildup that can cause UI
 | `fail_hopeless_jobs` | `1` | Quickly fail jobs that can't complete |
 | `fast_fail` | `1` | Enable fast failure detection |
 
+## Security - Executable Blocking
+
+SABnzbd is configured to block downloads containing dangerous executable files. This protects against fake releases containing malware.
+
+### Unwanted Extensions Settings
+
+| Setting | Value | Description |
+|---------|-------|-------------|
+| `unwanted_extensions` | 110+ extensions | See full list below |
+| `action_on_unwanted_extensions` | `2` (abort) | Immediately abort download |
+| `unwanted_extensions_mode` | `1` (strict) | Check during download, not after |
+
+### Blocked Extension Categories
+
+| Category | Extensions |
+|----------|------------|
+| Windows Executables | exe, com, scr, pif, msi, msix, msp, mst, msu, dll, ocx, drv, sys, cpl, bin |
+| Scripts - Windows | bat, cmd, vbs, vbe, vb, js, jse, ws, wsf, wsc, wsh, ps1, ps1xml, ps2, ps2xml, psc1, psc2, psm1, msh, msh1, msh2, mshxml |
+| Scripts - Cross-platform | pl, sh, csh, ksh |
+| Shortcuts/Links | lnk, url, scf, appref-ms, website, search-ms |
+| HTML Applications | hta, htc, mht, mhtml, xbap |
+| Java/JVM | jar, class, jnlp |
+| Registry/Config | reg, inf, ins, isp, job |
+| Office Macro-enabled | docm, dotm, xlsm, xltm, xlam, pptm, potm, ppam, ppsm, sldm, vsdm, vstm, vssm |
+| Access Database | ade, adp, mda, mdb, mde, mdt, mdw, mdz, accda, accdb, accde, accdr |
+| Disk Images | iso, img, vhd, vhdx |
+| Archives (select) | cab, arj, lha, lzh, ace |
+| Windows System | gadget, diagcab, diagcfg, diagpkg, appinstaller, application, appx, appxbundle, settingcontent-ms |
+| Legacy/Other | chm, hlp, pcd, sct, shb, grp, bas, fxp, prg, crt, cer, der |
+
+### Cleanup List
+
+After extraction, the following junk files are automatically removed:
+```
+nfo, sfv, srr, info, lnk, url, txt
+```
+
+### Sources
+
+Extension list based on:
+- [dobin/badfiles](https://github.com/dobin/badfiles) - Curated dangerous file extensions database
+- [Microsoft Outlook blocked extensions](https://support.microsoft.com/en-us/office/blocked-file-types-in-outlook)
+- Email security vendors (Barracuda, Proofpoint, Trend Micro)
+
 ## Access
 
 - **HTTPS**: `https://sabnzbd.homelab` (via Traefik ingress with TLS)
