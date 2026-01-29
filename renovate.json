@@ -3,10 +3,11 @@
   "extends": [
     "config:recommended",
     ":disableRateLimiting",
-    ":semanticCommits"
+    ":semanticCommits",
+    ":dependencyDashboard"
   ],
   "timezone": "America/Los_Angeles",
-  "schedule": ["after 6am and before 9am every weekday"],
+  "schedule": ["at any time"],
   "labels": ["renovate", "dependencies"],
   "commitMessagePrefix": "chore(deps):",
   "automerge": false,
