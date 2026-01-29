@@ -6,6 +6,7 @@ This document describes the scheduling and resource management components in the
 
 - [Priority Classes](#priority-classes)
 - [Descheduler](#descheduler)
+- [KEDA (Kubernetes Event-Driven Autoscaling)](#keda-kubernetes-event-driven-autoscaling)
 - [Resource Quotas and Limit Ranges](#resource-quotas-and-limit-ranges)
 - [Applying to New Namespaces](#applying-to-new-namespaces)
 - [Pod Disruption Budgets](#pod-disruption-budgets)
@@ -149,6 +150,157 @@ resources:
     cpu: "100m"
     memory: "128Mi"
 ```
+
+## KEDA (Kubernetes Event-Driven Autoscaling)
+
+[KEDA](https://keda.sh/) enables event-driven autoscaling for Kubernetes workloads, including the ability to scale to zero when idle. This is used to optimize power consumption for low-traffic applications.
+
+### Location
+
+```
+infrastructure/scheduling/keda/
+├── namespace.yaml
+├── helmrepository-keda.yaml
+├── helmrelease-keda.yaml
+└── kustomization.yaml
+```
+
+### Why KEDA?
+
+- **Scale to Zero**: Unlike native HPA, KEDA can scale workloads down to zero replicas
+- **Event-Driven**: Scales based on external metrics (Prometheus, HTTP traffic, queues, etc.)
+- **Cost Savings**: Reduces resource consumption for infrequently-used applications
+- **Stability**: Conservative cooldown periods prevent flapping
+
+### Configured ScaledObjects
+
+The following applications are configured with KEDA for automatic scaling:
+
+#### Prometheus-Based Scaling (HTTP Traffic)
+
+| Application | Cooldown | Trigger |
+|-------------|----------|---------|
+| `calibre-web` | 10 min | HTTP requests in last 10 min |
+| `homebox` | 10 min | HTTP requests in last 10 min |
+| `kindle-sender` | 15 min | Pending files metric |
+
+These apps scale to zero when there's no traffic/activity, and scale back to 1 replica when requests arrive.
+
+#### Time-Based Scaling (Cron)
+
+| Application | Active Hours | Timezone |
+|-------------|--------------|----------|
+| `overseerr` | 8 AM - 1 AM | America/Los_Angeles |
+| `bookshelf` | 8 AM - 1 AM | America/Los_Angeles |
+
+These apps are active during typical usage hours and scale to zero overnight.
+
+### ScaledObject Configuration
+
+Example ScaledObject for an HTTP-traffic-based scaler:
+
+```yaml
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: calibre-web-scaler
+  namespace: media
+spec:
+  scaleTargetRef:
+    name: calibre-web
+  pollingInterval: 30        # Check every 30 seconds
+  cooldownPeriod: 600        # Wait 10 min before scaling to zero
+  minReplicaCount: 0
+  maxReplicaCount: 1
+  fallback:
+    failureThreshold: 5
+    replicas: 1              # Keep running if metrics fail
+  triggers:
+    - type: prometheus
+      metadata:
+        serverAddress: http://prometheus-operated.monitoring:9090
+        query: |
+          sum(increase(traefik_service_requests_total{service=~"calibre-web.*"}[10m])) or vector(0)
+        threshold: "1"
+```
+
+Example ScaledObject for time-based scaling:
+
+```yaml
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: overseerr-scaler
+  namespace: media
+spec:
+  scaleTargetRef:
+    name: overseerr
+  minReplicaCount: 0
+  maxReplicaCount: 1
+  fallback:
+    failureThreshold: 3
+    replicas: 1
+  triggers:
+    - type: cron
+      metadata:
+        timezone: America/Los_Angeles
+        start: "0 8 * * *"    # 8 AM
+        end: "0 1 * * *"      # 1 AM
+        desiredReplicas: "1"
+```
+
+### Stability Configuration
+
+KEDA is configured with stability-focused settings:
+
+| Setting | Value | Rationale |
+|---------|-------|-----------|
+| `pollingInterval` | 30-60s | Reduces overhead while remaining responsive |
+| `cooldownPeriod` | 600-900s | Prevents rapid scale up/down (flapping) |
+| `fallback.replicas` | 1 | Keeps app running if metrics are unavailable |
+| `failureThreshold` | 3-5 | Tolerates transient metric issues |
+
+### Resource Usage
+
+KEDA operator uses minimal resources:
+
+```yaml
+resources:
+  operator:
+    requests:
+      cpu: "10m"
+      memory: "64Mi"
+    limits:
+      cpu: "100m"
+      memory: "256Mi"
+  metricServer:
+    requests:
+      cpu: "10m"
+      memory: "64Mi"
+    limits:
+      cpu: "50m"
+      memory: "128Mi"
+```
+
+### Adding a New ScaledObject
+
+To add KEDA scaling to an existing application:
+
+1. Create a `scaledobject.yaml` in the app's directory
+2. Add it to the app's `kustomization.yaml`
+3. Choose an appropriate trigger type:
+   - `prometheus` for metric-based scaling
+   - `cron` for time-based scaling
+4. Set conservative cooldown periods (10+ minutes)
+5. Configure fallback replicas for stability
+
+### Monitoring KEDA
+
+KEDA exposes Prometheus metrics for monitoring:
+
+- `keda_scaler_metrics_value` - Current metric value
+- `keda_scaled_object_paused` - Whether scaling is paused
+- `keda_resource_totals` - Total scaled resources
 
 ## Resource Quotas and Limit Ranges
 

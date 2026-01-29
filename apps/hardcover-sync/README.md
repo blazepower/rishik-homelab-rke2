@@ -4,14 +4,15 @@ Hardcover Sync is a custom Go microservice that automatically synchronizes books
 
 ## Overview
 
-- **Image**: `ghcr.io/blazepower/hardcover-sync:v1.0.0`
+- **Image**: `ghcr.io/blazepower/hardcover-sync:latest`
 - **Namespace**: media
 - **Node**: rishik-worker1
+- **Type**: CronJob (runs every 2 hours)
 - **Access**: None (background service)
 
 ## Architecture
 
-Hardcover Sync operates as a background service that:
+Hardcover Sync operates as a scheduled CronJob that:
 1. Queries Hardcover GraphQL API for user's "Want-To-Read" list (status_id = 1)
 2. Resolves book metadata through rreading-glasses for each work ID
 3. Adds resolved books to Bookshelf via its API
@@ -59,7 +60,7 @@ Hardcover Sync operates as a background service that:
 
 - `BOOKSHELF_URL`: Bookshelf API URL (default: `http://bookshelf:8787`)
 - `RREADING_GLASSES_URL`: rreading-glasses URL (default: `http://rreading-glasses:8080`)
-- `SYNC_INTERVAL`: Sync interval in seconds (default: `3600` - 1 hour)
+- `SYNC_INTERVAL`: Set to `0` for CronJob mode (run once and exit)
 - `DATABASE_PATH`: SQLite database path (default: `/data/hardcover-sync.db`)
 
 ### Secret Configuration (via SealedSecret)
@@ -133,9 +134,10 @@ Hardcover Sync is designed to be extremely lightweight and efficient.
    - Marks as synced in database
 
 ### Ongoing Monitoring
-1. **Periodic Sync**: Runs every hour (configurable)
+1. **Scheduled Runs**: CronJob executes every 2 hours
 2. **Duplicate Prevention**: SQLite database tracks synced Hardcover book IDs
 3. **Graceful Error Handling**: Continues processing remaining books on errors
+4. **Zero Resources When Idle**: No pods running between scheduled executions
 
 ### Hardcover GraphQL Query
 
@@ -217,14 +219,20 @@ The Dockerfile uses a multi-stage build:
 
 ## Troubleshooting
 
-### Check pod status
+### Check CronJob status
 ```bash
-kubectl get pods -n media -l app.kubernetes.io/name=hardcover-sync
+kubectl get cronjob -n media hardcover-sync
+kubectl get jobs -n media -l app.kubernetes.io/name=hardcover-sync
 ```
 
-### View logs
+### View logs from recent job
 ```bash
-kubectl logs -n media -l app.kubernetes.io/name=hardcover-sync -f
+kubectl logs -n media -l app.kubernetes.io/name=hardcover-sync --tail=100
+```
+
+### Manually trigger a sync
+```bash
+kubectl create job --from=cronjob/hardcover-sync -n media hardcover-sync-manual
 ```
 
 ### Check Hardcover API connectivity
@@ -308,12 +316,14 @@ Dependencies:
 
 ## Notes
 
-- SQLite database persists across pod restarts
+- SQLite database persists across job runs via PVC
 - Books are only synced once (tracked by Hardcover book ID)
-- The service runs continuously with periodic syncs
+- The CronJob runs every 2 hours (configurable via schedule)
+- Zero resources consumed between scheduled runs
 - Rate limiting: 1 second delay between processing each book
 - Errors are logged but don't stop the entire sync process
 - Books are added to Bookshelf with `monitored: true` for automatic downloading
+- Job history: keeps last 3 successful and 3 failed jobs
 
 ## Workflow Integration
 
