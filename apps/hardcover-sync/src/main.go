@@ -217,16 +217,25 @@ func fetchWantToReadList(apiKey string) ([]HardcoverBook, error) {
 // primeMetadataCache triggers the metadata provider to load work and author data
 // by making requests to the work and author endpoints. This causes rreading-glasses
 // to fetch the data from Hardcover and cache it for subsequent searches.
-func primeMetadataCache(metadataURL string, workID int, authorID int) {
+// Returns the work data which includes embedded author information.
+func primeMetadataCache(metadataURL string, workID int, authorID int) map[string]interface{} {
 	client := &http.Client{Timeout: 30 * time.Second}
+	var workData map[string]interface{}
 
 	// Prime work cache - this triggers background loading of book data
+	// Also captures the work data which includes author information
 	if workID > 0 {
 		workURL := fmt.Sprintf("%s/work/%d", metadataURL, workID)
 		resp, err := client.Get(workURL)
 		if err == nil {
-			resp.Body.Close()
-			log.Printf("Primed metadata cache for work ID %d", workID)
+			defer resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				if err := json.NewDecoder(resp.Body).Decode(&workData); err == nil {
+					log.Printf("Primed metadata cache for work ID %d", workID)
+				}
+			} else {
+				log.Printf("Work lookup returned status %d for ID %d", resp.StatusCode, workID)
+			}
 		}
 	}
 
@@ -236,19 +245,24 @@ func primeMetadataCache(metadataURL string, workID int, authorID int) {
 		resp, err := client.Get(authorURL)
 		if err == nil {
 			resp.Body.Close()
-			log.Printf("Primed metadata cache for author ID %d", authorID)
+			if resp.StatusCode == http.StatusOK {
+				log.Printf("Primed metadata cache for author ID %d", authorID)
+			}
 		}
 	}
 
 	// Give the metadata provider time to fetch data from Hardcover
 	// rreading-glasses loads data asynchronously in the background
-	time.Sleep(3 * time.Second)
+	time.Sleep(2 * time.Second)
+	
+	return workData
 }
 
 func addToBookshelf(bookshelfURL, apiKey, metadataURL string, book HardcoverBook) error {
 	// Prime the metadata cache with work and author IDs before searching
 	// This triggers rreading-glasses to fetch and cache the data from Hardcover
-	primeMetadataCache(metadataURL, book.ID, book.AuthorID)
+	// Also returns work data which includes embedded author information
+	workData := primeMetadataCache(metadataURL, book.ID, book.AuthorID)
 
 	// First check if book already exists in the library (not lookup/search)
 	// Get all books from library and check by title
@@ -377,6 +391,7 @@ func addToBookshelf(bookshelfURL, apiKey, metadataURL string, book HardcoverBook
 	
 	// The book lookup doesn't return a full author object, so we need to lookup the author
 	// and construct a proper author object with all required fields
+	authorFound := false
 	if book.Author != "" {
 		authorSearchURL := fmt.Sprintf("%s/api/v1/author/lookup?term=%s", bookshelfURL, url.QueryEscape(book.Author))
 		authorReq, err := http.NewRequest("GET", authorSearchURL, nil)
@@ -396,8 +411,30 @@ func addToBookshelf(bookshelfURL, apiKey, metadataURL string, book HardcoverBook
 						author["monitorNewItems"] = "none"   // Don't auto-add new books from this author
 						author["rootFolderPath"] = rootFolderPath
 						bookToAdd["author"] = author
+						authorFound = true
 					}
 				}
+			}
+		}
+	}
+	
+	// If author lookup failed but we have author data from the work endpoint, use that
+	if !authorFound && workData != nil {
+		if authors, ok := workData["Authors"].([]interface{}); ok && len(authors) > 0 {
+			if authorData, ok := authors[0].(map[string]interface{}); ok {
+				// Build author object from work data
+				author := map[string]interface{}{
+					"foreignAuthorId":   fmt.Sprintf("%v", authorData["ForeignId"]),
+					"authorName":        authorData["Name"],
+					"overview":          authorData["Description"],
+					"qualityProfileId":  qualityProfileId,
+					"metadataProfileId": metadataProfileId,
+					"monitored":         false,
+					"monitorNewItems":   "none",
+					"rootFolderPath":    rootFolderPath,
+				}
+				bookToAdd["author"] = author
+				log.Printf("Using author data from work endpoint: %v", authorData["Name"])
 			}
 		}
 	}

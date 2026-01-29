@@ -7,3 +7,4 @@ resources:
   - storage.yaml
   - metallb.yaml
   - tailscale.yaml
+  - siloarr.yaml

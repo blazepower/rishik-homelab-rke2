@@ -1,0 +1,14 @@
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: phantom-tls
+  namespace: siloarr
+spec:
+  secretName: phantom-tls
+  issuerRef:
+    name: cluster-ca
+    kind: ClusterIssuer
+  commonName: phantom.homelab
+  dnsNames:
+    - phantom.homelab

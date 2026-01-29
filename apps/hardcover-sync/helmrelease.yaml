@@ -35,6 +35,7 @@ spec:
             image:
               repository: ghcr.io/blazepower/hardcover-sync
               tag: latest  # Auto-updated by GitHub Actions on push
+              pullPolicy: Always  # Always pull to get latest image
             env:
               - name: BOOKSHELF_URL
                 valueFrom:

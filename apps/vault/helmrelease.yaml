@@ -1,0 +1,90 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: stash
+  namespace: siloarr
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: app-template
+      version: "3.5.1"
+      sourceRef:
+        kind: HelmRepository
+        name: bjw-s
+        namespace: flux-system
+      interval: 30m
+  install:
+    createNamespace: false
+    remediation:
+      retries: 3
+    timeout: 15m
+  upgrade:
+    remediation:
+      retries: 3
+    timeout: 15m
+  values:
+    controllers:
+      stash:
+        annotations:
+          reloader.stakater.com/auto: "true"
+
+        containers:
+          app:
+            image:
+              repository: stashapp/stash
+              tag: latest
+            env:
+              - name: STASH_STASH
+                value: "/media"
+              - name: STASH_GENERATED
+                value: "/config/generated"
+              - name: STASH_METADATA
+                value: "/config/metadata"
+              - name: STASH_CACHE
+                value: "/config/cache"
+              - name: PUID
+                valueFrom:
+                  configMapKeyRef:
+                    name: stash-config
+                    key: PUID
+              - name: PGID
+                valueFrom:
+                  configMapKeyRef:
+                    name: stash-config
+                    key: PGID
+              - name: TZ
+                valueFrom:
+                  configMapKeyRef:
+                    name: stash-config
+                    key: TZ
+            resources:
+              requests:
+                cpu: "200m"
+                memory: "512Mi"
+              limits:
+                cpu: "2000m"
+                memory: "2Gi"
+
+    service:
+      app:
+        controller: stash
+        ports:
+          http:
+            port: 9999
+
+    persistence:
+      config:
+        existingClaim: stash-config
+        globalMounts:
+          - path: /root/.stash
+      media:
+        type: hostPath
+        hostPath: /media/rishik/Expansion
+        globalMounts:
+          - path: /media
+
+    defaultPodOptions:
+      nodeSelector:
+        kubernetes.io/hostname: rishik-worker1
