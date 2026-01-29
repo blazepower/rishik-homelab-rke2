@@ -116,6 +116,20 @@ config:
             server: homepage-kubernetes
             namespace: media
             app: qbittorrent
+        - Whisparr:
+            icon: whisparr.png
+            href: https://phantom.homelab
+            description: Adult Content
+            server: homepage-kubernetes
+            namespace: siloarr
+            app: whisparr
+        - Stash:
+            icon: stash.png
+            href: https://vault.homelab
+            description: Media Organizer
+            server: homepage-kubernetes
+            namespace: siloarr
+            app: stash
 
     - Documents & Books:
         - Paperless-ngx:
