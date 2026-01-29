@@ -1,0 +1,25 @@
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: kindle-sender-scaler
+  namespace: media
+spec:
+  scaleTargetRef:
+    name: kindle-sender
+  pollingInterval: 60  # Check every minute
+  cooldownPeriod: 900  # 15 minutes before scaling to zero
+  minReplicaCount: 0
+  maxReplicaCount: 1
+  # Fallback: keep running if metrics unavailable
+  fallback:
+    failureThreshold: 5
+    replicas: 1
+  triggers:
+    - type: prometheus
+      metadata:
+        serverAddress: http://prometheus-operated.monitoring:9090
+        # Scale up if there are pending files or recent activity
+        query: |
+          kindle_sender_pending_files or vector(0)
+        threshold: "1"

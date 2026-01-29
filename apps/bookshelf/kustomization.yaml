@@ -10,3 +10,4 @@ resources:
   - ingress-bookshelf-tailscale.yaml
   - certificate.yaml
   - networkpolicy.yaml
+  - scaledobject.yaml

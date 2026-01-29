@@ -8,3 +8,4 @@ resources:
   - ingress-homebox-tailscale.yaml
   - certificate.yaml
   - networkpolicy.yaml
+  - scaledobject.yaml

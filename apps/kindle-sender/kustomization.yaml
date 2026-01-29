@@ -8,3 +8,4 @@ resources:
   - helmrelease.yaml
   - networkpolicy.yaml
   - sealedsecret-sender-credentials.yaml
+  - scaledobject.yaml

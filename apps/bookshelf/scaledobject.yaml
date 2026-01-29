@@ -1,0 +1,23 @@
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: bookshelf-scaler
+  namespace: media
+spec:
+  scaleTargetRef:
+    name: bookshelf
+  minReplicaCount: 0
+  maxReplicaCount: 1
+  # Fallback: keep running if KEDA has issues
+  fallback:
+    failureThreshold: 3
+    replicas: 1
+  triggers:
+    # Time-based scaling: active 8 AM to 1 AM, off 1 AM to 8 AM
+    - type: cron
+      metadata:
+        timezone: America/Los_Angeles
+        start: "0 8 * * *"
+        end: "0 1 * * *"
+        desiredReplicas: "1"

@@ -11,3 +11,4 @@ resources:
   - certificate.yaml
   - networkpolicy.yaml
   - sealedsecret-calibre-smtp.yaml
+  - scaledobject.yaml

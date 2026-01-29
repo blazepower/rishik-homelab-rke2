@@ -1,0 +1,24 @@
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: homebox-scaler
+  namespace: homebox
+spec:
+  scaleTargetRef:
+    name: homebox
+  pollingInterval: 30
+  cooldownPeriod: 600  # 10 minutes before scaling to zero
+  minReplicaCount: 0
+  maxReplicaCount: 1
+  # Fallback: keep running if metrics unavailable
+  fallback:
+    failureThreshold: 5
+    replicas: 1
+  triggers:
+    - type: prometheus
+      metadata:
+        serverAddress: http://prometheus-operated.monitoring:9090
+        query: |
+          sum(increase(traefik_service_requests_total{service=~"homebox.*"}[10m])) or vector(0)
+        threshold: "1"

@@ -1,0 +1,94 @@
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: hardcover-sync
+  namespace: media
+spec:
+  schedule: "0 */2 * * *"  # Every 2 hours
+  concurrencyPolicy: Forbid  # Don't run if previous job is still running
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 1800  # 30 min max runtime
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: hardcover-sync
+            app.kubernetes.io/instance: hardcover-sync
+        spec:
+          restartPolicy: OnFailure
+          nodeSelector:
+            kubernetes.io/hostname: rishik-worker1
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            fsGroup: 65532
+          containers:
+            - name: hardcover-sync
+              image: ghcr.io/blazepower/hardcover-sync:latest
+              imagePullPolicy: Always
+              env:
+                - name: BOOKSHELF_URL
+                  valueFrom:
+                    configMapKeyRef:
+                      name: hardcover-sync-config
+                      key: BOOKSHELF_URL
+                - name: METADATA_URL
+                  valueFrom:
+                    configMapKeyRef:
+                      name: hardcover-sync-config
+                      key: METADATA_URL
+                - name: SYNC_INTERVAL
+                  value: "0"  # Run once and exit (CronJob handles scheduling)
+                - name: DATABASE_PATH
+                  valueFrom:
+                    configMapKeyRef:
+                      name: hardcover-sync-config
+                      key: DATABASE_PATH
+                - name: QUALITY_PROFILE_ID
+                  valueFrom:
+                    configMapKeyRef:
+                      name: hardcover-sync-config
+                      key: QUALITY_PROFILE_ID
+                - name: METADATA_PROFILE_ID
+                  valueFrom:
+                    configMapKeyRef:
+                      name: hardcover-sync-config
+                      key: METADATA_PROFILE_ID
+                - name: HARDCOVER_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: hardcover-sync-credentials
+                      key: HARDCOVER_API_KEY
+                - name: BOOKSHELF_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: hardcover-sync-credentials
+                      key: BOOKSHELF_API_KEY
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
+                runAsUser: 65532
+                runAsGroup: 65532
+                capabilities:
+                  drop:
+                    - ALL
+              resources:
+                requests:
+                  cpu: "25m"
+                  memory: "32Mi"
+                limits:
+                  cpu: "100m"
+                  memory: "64Mi"
+              volumeMounts:
+                - name: data
+                  mountPath: /data
+          volumes:
+            - name: data
+              persistentVolumeClaim:
+                claimName: hardcover-sync-data
