@@ -424,15 +424,22 @@ func addToBookshelf(bookshelfURL, apiKey, metadataURL string, book HardcoverBook
 							matchedAuthor = authorResults[0]
 						}
 						
-						// Set required fields on author
-						matchedAuthor["qualityProfileId"] = qualityProfileId
-						matchedAuthor["metadataProfileId"] = metadataProfileId
-						matchedAuthor["monitored"] = false          // Don't monitor the author - only monitor the specific book
-						matchedAuthor["monitorNewItems"] = "none"   // Don't auto-add new books from this author
-						matchedAuthor["rootFolderPath"] = rootFolderPath
-						bookToAdd["author"] = matchedAuthor
-						authorFound = true
-						log.Printf("Found author in Bookshelf lookup: %v", matchedAuthor["authorName"])
+						// Check if author already exists in Bookshelf (has an id)
+						// If not, we can't add them because the metadata provider doesn't support
+						// author lookups for all authors
+						if authorId, ok := matchedAuthor["id"]; ok && authorId != nil {
+							// Author already in database - safe to use
+							matchedAuthor["qualityProfileId"] = qualityProfileId
+							matchedAuthor["metadataProfileId"] = metadataProfileId
+							matchedAuthor["monitored"] = false
+							matchedAuthor["monitorNewItems"] = "none"
+							matchedAuthor["rootFolderPath"] = rootFolderPath
+							bookToAdd["author"] = matchedAuthor
+							authorFound = true
+							log.Printf("Using existing author from Bookshelf: %v (id: %v)", matchedAuthor["authorName"], authorId)
+						} else {
+							log.Printf("Author '%v' found in lookup but not in database (id=null), will try work endpoint", matchedAuthor["authorName"])
+						}
 					}
 				}
 			}
