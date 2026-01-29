@@ -1,0 +1,81 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: trivy-operator
+  namespace: trivy-system
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: trivy-operator
+      version: "0.24.2"
+      sourceRef:
+        kind: HelmRepository
+        name: aquasecurity
+        namespace: flux-system
+      interval: 30m
+  install:
+    createNamespace: true
+    remediation:
+      retries: 3
+    timeout: 10m
+  upgrade:
+    remediation:
+      retries: 3
+    timeout: 10m
+  values:
+    # Scan all namespaces
+    targetNamespaces: ""
+    excludeNamespaces: "kube-system,kube-node-lease,kube-public"
+    
+    # Vulnerability scanning
+    trivy:
+      # Use standalone mode (no external Trivy server)
+      mode: Standalone
+      
+      # Severity threshold for reporting
+      severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
+      
+      # Skip unfixed vulnerabilities in reports
+      ignoreUnfixed: false
+      
+      # Resource limits for scan jobs
+      resources:
+        requests:
+          cpu: "100m"
+          memory: "256Mi"
+        limits:
+          cpu: "500m"
+          memory: "512Mi"
+    
+    # Operator resources
+    operator:
+      replicas: 1
+      resources:
+        requests:
+          cpu: "50m"
+          memory: "128Mi"
+        limits:
+          cpu: "200m"
+          memory: "256Mi"
+      
+      # Scan configuration
+      vulnerabilityScannerEnabled: true
+      configAuditScannerEnabled: true
+      rbacAssessmentScannerEnabled: true
+      infraAssessmentScannerEnabled: false  # Save resources
+      clusterComplianceEnabled: false  # Save resources
+      
+      # Scan existing workloads on startup
+      scanJobsConcurrentLimit: 2
+      
+      # How often to rescan
+      vulnerabilityScannerScanOnlyCurrentRevisions: true
+      
+    # Metrics for Prometheus
+    serviceMonitor:
+      enabled: true
+      interval: 60s
+      labels:
+        release: kube-prometheus-stack

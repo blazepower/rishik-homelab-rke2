@@ -6,3 +6,4 @@ resources:
   - resource-defaults
   - priority-classes
   - pod-disruption-budgets
+  - trivy-operator
