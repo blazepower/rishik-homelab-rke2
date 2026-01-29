@@ -30,6 +30,26 @@ This deployment uses the [bjw-s app-template Helm chart](https://github.com/bjw-
 
 **Note**: SABnzbd has higher resource limits than other *arr apps to handle CPU-intensive unpacking and verification tasks.
 
+## Health Checks
+
+SABnzbd is configured with liveness and readiness probes to detect UI hangs and automatically restart:
+
+| Probe | Path | Period | Timeout | Failure Threshold |
+|-------|------|--------|---------|-------------------|
+| Liveness | `/sabnzbd/api?mode=version` | 30s | 10s | 3 |
+| Readiness | `/sabnzbd/api?mode=version` | 10s | 5s | 3 |
+
+## History Retention
+
+Configured in `/config/sabnzbd.ini` to prevent history buildup that can cause UI issues:
+
+| Setting | Value | Description |
+|---------|-------|-------------|
+| `history_retention` | `1d` | Auto-delete items after 1 day |
+| `history_retention_option` | `failed` | Apply only to failed downloads |
+| `fail_hopeless_jobs` | `1` | Quickly fail jobs that can't complete |
+| `fast_fail` | `1` | Enable fast failure detection |
+
 ## Access
 
 - **HTTPS**: `https://sabnzbd.homelab` (via Traefik ingress with TLS)
