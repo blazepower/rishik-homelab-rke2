@@ -403,15 +403,36 @@ func addToBookshelf(bookshelfURL, apiKey, metadataURL string, book HardcoverBook
 				if authorResp.StatusCode == http.StatusOK {
 					var authorResults []map[string]interface{}
 					if err := json.NewDecoder(authorResp.Body).Decode(&authorResults); err == nil && len(authorResults) > 0 {
-						author := authorResults[0]
+						// Find the author that best matches our target author name
+						var matchedAuthor map[string]interface{}
+						bookAuthorLower := strings.ToLower(book.Author)
+						for _, ar := range authorResults {
+							if name, ok := ar["authorName"].(string); ok {
+								if strings.EqualFold(name, book.Author) {
+									matchedAuthor = ar
+									break
+								}
+								// Also check if the author name contains the target name
+								if strings.Contains(strings.ToLower(name), bookAuthorLower) {
+									matchedAuthor = ar
+									// Don't break - keep looking for exact match
+								}
+							}
+						}
+						// Fall back to first result if no match found
+						if matchedAuthor == nil {
+							matchedAuthor = authorResults[0]
+						}
+						
 						// Set required fields on author
-						author["qualityProfileId"] = qualityProfileId
-						author["metadataProfileId"] = metadataProfileId
-						author["monitored"] = false          // Don't monitor the author - only monitor the specific book
-						author["monitorNewItems"] = "none"   // Don't auto-add new books from this author
-						author["rootFolderPath"] = rootFolderPath
-						bookToAdd["author"] = author
+						matchedAuthor["qualityProfileId"] = qualityProfileId
+						matchedAuthor["metadataProfileId"] = metadataProfileId
+						matchedAuthor["monitored"] = false          // Don't monitor the author - only monitor the specific book
+						matchedAuthor["monitorNewItems"] = "none"   // Don't auto-add new books from this author
+						matchedAuthor["rootFolderPath"] = rootFolderPath
+						bookToAdd["author"] = matchedAuthor
 						authorFound = true
+						log.Printf("Found author in Bookshelf lookup: %v", matchedAuthor["authorName"])
 					}
 				}
 			}
