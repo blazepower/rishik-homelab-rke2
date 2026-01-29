@@ -20,3 +20,4 @@ resources:
   - homepage
   - syncthing
   - hardcover-sync
+  - qbittorrent
