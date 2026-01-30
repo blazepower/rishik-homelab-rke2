@@ -80,7 +80,7 @@ postgresql:
   enabled: true
   image:
     repository: docker.io/library/postgres
-    tag: "16-alpine"
+    tag: "18-alpine"
     pullPolicy: IfNotPresent
   auth:
     database: paperless
