@@ -28,7 +28,7 @@ spec:
     # Image configuration
     image:
       repository: ghcr.io/gethomepage/homepage
-      tag: "v0.9.10"
+      tag: "v0.10.9"
       pullPolicy: IfNotPresent
 
     # Resource configuration
