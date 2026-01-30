@@ -35,7 +35,7 @@ spec:
           app:
             image:
               repository: lscr.io/linuxserver/calibre-web
-              tag: "0.6.24"
+              tag: "0.6.25"
             env:
               - name: PUID
                 valueFrom:
