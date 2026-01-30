@@ -1,5 +1,5 @@
 # Multi-stage build for Kindle Sender
-FROM golang:1.21-bookworm AS build
+FROM golang:1.25-bookworm AS build
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
