@@ -34,6 +34,9 @@ spec:
                 - cert-manager
                 - tailscale
                 - metallb-system
+                - media
+                - siloarr
+                - trivy-system
       mutate:
         foreach:
           - list: "request.object.spec.containers"
@@ -71,6 +74,9 @@ spec:
                 - cert-manager
                 - tailscale
                 - metallb-system
+                - media
+                - siloarr
+                - trivy-system
       mutate:
         foreach:
           - list: "request.object.spec.initContainers || []"
