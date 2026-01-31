@@ -11,7 +11,7 @@ on:
       version:
         description: 'Cookcli version to build'
         required: false
-        default: '0.10.1'
+        default: '0.21.0'
 
 env:
   REGISTRY: ghcr.io
@@ -47,7 +47,7 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=${{ inputs.version || '0.10.1' }}
+            type=raw,value=${{ inputs.version || '0.21.0' }}
             type=raw,value=latest
 
       - name: Build and push
@@ -60,6 +60,6 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            COOKCLI_VERSION=${{ inputs.version || '0.10.1' }}
+            COOKCLI_VERSION=${{ inputs.version || '0.21.0' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
