@@ -23,6 +23,8 @@ spec:
         - name: cooklang
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/usr/local/bin/cook"]
+          args: ["server", "/recipes", "--host", "--port", "{{ .Values.service.targetPort }}"]
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
           ports:
