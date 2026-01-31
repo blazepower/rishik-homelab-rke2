@@ -1,0 +1,15 @@
+apiVersion: v2
+name: cooklang
+description: A Helm chart for Cooklang recipe server
+type: application
+version: 1.0.0
+appVersion: "0.10.1"
+keywords:
+  - cooklang
+  - recipes
+  - cooking
+home: https://cooklang.org
+sources:
+  - https://github.com/cooklang/cookcli
+maintainers:
+  - name: homelab

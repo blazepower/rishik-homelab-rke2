@@ -1,0 +1,14 @@
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: cooklang-tls
+  namespace: media
+spec:
+  secretName: cooklang-tls
+  issuerRef:
+    name: cluster-ca
+    kind: ClusterIssuer
+  commonName: cooklang.homelab
+  dnsNames:
+    - cooklang.homelab
