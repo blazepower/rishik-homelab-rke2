@@ -26,4 +26,4 @@ WORKDIR /recipes
 EXPOSE 9080
 
 ENTRYPOINT ["/usr/local/bin/cook"]
-CMD ["server", "--host", "0.0.0.0", "--port", "9080", "/recipes"]
+CMD ["server", "/recipes", "--host", "--port", "9080"]
