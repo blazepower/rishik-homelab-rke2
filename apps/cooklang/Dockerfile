@@ -2,7 +2,7 @@
 FROM alpine:3.21 AS builder
 
 ARG TARGETARCH
-ARG COOKCLI_VERSION=0.10.1
+ARG COOKCLI_VERSION=0.21.0
 
 RUN apk add --no-cache curl tar && \
     case "${TARGETARCH}" in \
