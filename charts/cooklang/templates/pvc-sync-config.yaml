@@ -1,0 +1,16 @@
+{{- if .Values.sync.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "cooklang.fullname" . }}-sync-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "cooklang.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.sync.persistence.accessMode }}
+  storageClassName: {{ .Values.sync.persistence.storageClass }}
+  resources:
+    requests:
+      storage: {{ .Values.sync.persistence.size }}
+{{- end }}

@@ -50,3 +50,12 @@ spec:
     
     env:
       TZ: America/Los_Angeles
+    
+    # Cook Cloud Sync
+    sync:
+      enabled: true
+      image:
+        repository: ghcr.io/blazepower/cook-sync
+        tag: "0.2.5"
+      vnc:
+        enabled: true  # Set to false after initial OTP login

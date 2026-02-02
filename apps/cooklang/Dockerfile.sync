@@ -1,0 +1,47 @@
+# Cook Desktop Sync Agent with Xvfb for headless operation
+FROM ubuntu:24.04
+
+ARG COOK_DESKTOP_VERSION=0.2.5
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV DISPLAY=:99
+ENV RECIPES_PATH=/recipes
+
+# Install dependencies for Tauri/WebKitGTK app + Xvfb + VNC
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    # Virtual display
+    xvfb \
+    x11vnc \
+    # Desktop environment basics
+    dbus-x11 \
+    # WebKitGTK dependencies (required for Tauri)
+    libwebkit2gtk-4.1-0 \
+    libgtk-3-0 \
+    libayatana-appindicator3-1 \
+    # Additional libs
+    libssl3 \
+    ca-certificates \
+    curl \
+    # Cleanup
+    && rm -rf /var/lib/apt/lists/*
+
+# Download and install Cook Desktop
+RUN curl -fsSL "https://downloads.cook.md/cook-desktop-v${COOK_DESKTOP_VERSION}/cook-desktop_${COOK_DESKTOP_VERSION}_linux_x86_64.deb" \
+    -o /tmp/cook-desktop.deb \
+    && dpkg -i /tmp/cook-desktop.deb || apt-get install -f -y \
+    && rm /tmp/cook-desktop.deb
+
+# Create directories
+RUN mkdir -p /recipes /config
+
+# Create entrypoint script
+COPY entrypoint-sync.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+# Config volume for session persistence
+VOLUME ["/config", "/recipes"]
+
+# VNC port (optional, for initial setup)
+EXPOSE 5900
+
+ENTRYPOINT ["/entrypoint.sh"]

@@ -1,0 +1,18 @@
+{{- if and .Values.sync.enabled .Values.sync.vnc.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "cooklang.fullname" . }}-vnc
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "cooklang.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5900
+      targetPort: vnc
+      protocol: TCP
+      name: vnc
+  selector:
+    {{- include "cooklang.selectorLabels" . | nindent 4 }}
+{{- end }}

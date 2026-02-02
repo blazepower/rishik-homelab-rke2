@@ -64,3 +64,24 @@ readinessProbe:
   initialDelaySeconds: 3
   periodSeconds: 5
   failureThreshold: 3
+
+## Cook Cloud Sync Configuration
+sync:
+  enabled: false
+  image:
+    repository: ghcr.io/blazepower/cook-sync
+    tag: "0.2.5"
+    pullPolicy: IfNotPresent
+  vnc:
+    enabled: true  # Enable for initial OTP login setup
+  persistence:
+    storageClass: longhorn
+    size: 100Mi
+    accessMode: ReadWriteOnce
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
