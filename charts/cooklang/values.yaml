@@ -13,7 +13,8 @@ service:
   targetPort: 9080
 
 persistence:
-  enabled: true
+  enabled: false
+  hostPath: ""  # Set to a path like /home/rishik/recipes for Syncthing sync
   storageClass: longhorn
   size: 1Gi
   accessMode: ReadWriteOnce

@@ -45,7 +45,11 @@ spec:
             {{- toYaml .Values.readinessProbe | nindent 12 }}
       volumes:
         - name: recipes
-          {{- if .Values.persistence.enabled }}
+          {{- if .Values.persistence.hostPath }}
+          hostPath:
+            path: {{ .Values.persistence.hostPath }}
+            type: DirectoryOrCreate
+          {{- else if .Values.persistence.enabled }}
           persistentVolumeClaim:
             claimName: {{ include "cooklang.fullname" . }}-recipes
           {{- else }}

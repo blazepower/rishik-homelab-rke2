@@ -28,6 +28,23 @@ spec:
       repository: ghcr.io/blazepower/cooklang
       tag: "0.21.0"
     
+    persistence:
+      hostPath: /home/rishik/recipes
+    
+    # Run as rishik user (UID 1000) to match host folder permissions
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 1000
+      runAsGroup: 1000
+      readOnlyRootFilesystem: true
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+          - ALL
+    
+    podSecurityContext:
+      fsGroup: 1000
+    
     nodeSelector:
       kubernetes.io/hostname: rishik-worker1
     
