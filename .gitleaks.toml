@@ -65,6 +65,8 @@ paths = [
   '''go\.sum$''',
   '''package-lock\.json$''',
   '''yarn\.lock$''',
+  # Cooklang entrypoint script with VNC_PASSWORD env variable (not a secret, just variable name)
+  '''apps/cooklang/entrypoint-sync\.sh$''',
   # Documentation files with example credentials
   # SECURITY NOTE: These files are allowlisted because they contain documentation with example
   # commands showing how to create sealed secrets. The patterns below (admin123, your-app-password,
