@@ -47,6 +47,12 @@ openbox &
 sleep 1
 echo "Openbox started"
 
+# Start system tray (cook-desktop uses tray icon)
+echo "Starting system tray..."
+stalonetray --geometry 1x1+0+0 --icon-size 24 --kludges force_icons_size &
+sleep 1
+echo "System tray started"
+
 # Start VNC server if enabled (for initial OTP login setup)
 if [ "${VNC_ENABLED}" = "true" ]; then
     echo "Starting x11vnc server on port 5900..."

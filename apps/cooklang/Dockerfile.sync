@@ -18,6 +18,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     websockify \
     # Window manager (needed to show windows properly)
     openbox \
+    # System tray (cook-desktop uses tray icon)
+    stalonetray \
     # Desktop environment basics
     dbus-x11 \
     # WebKitGTK dependencies (required for Tauri) - need 4.0 version for cook-desktop
