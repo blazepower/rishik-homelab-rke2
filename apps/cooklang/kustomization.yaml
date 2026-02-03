@@ -5,3 +5,4 @@ resources:
   - certificate.yaml
   - ingress.yaml
   - ingress-cooklang-tailscale.yaml
+  - ingress-novnc.yaml
