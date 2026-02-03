@@ -41,6 +41,12 @@ echo "Starting D-Bus session..."
 eval $(dbus-launch --sh-syntax)
 export DBUS_SESSION_BUS_ADDRESS
 
+# Start window manager (needed for windows to display properly)
+echo "Starting Openbox window manager..."
+openbox &
+sleep 1
+echo "Openbox started"
+
 # Start VNC server if enabled (for initial OTP login setup)
 if [ "${VNC_ENABLED}" = "true" ]; then
     echo "Starting x11vnc server on port 5900..."

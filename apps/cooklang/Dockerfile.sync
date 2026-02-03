@@ -16,6 +16,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # noVNC for web-based VNC access
     novnc \
     websockify \
+    # Window manager (needed to show windows properly)
+    openbox \
     # Desktop environment basics
     dbus-x11 \
     # WebKitGTK dependencies (required for Tauri) - need 4.0 version for cook-desktop
