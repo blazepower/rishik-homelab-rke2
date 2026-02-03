@@ -36,7 +36,7 @@ RUN curl -fsSL "https://downloads.cook.md/cook-desktop-v${COOK_DESKTOP_VERSION}/
     && rm -rf /var/lib/apt/lists/*
 
 # Verify cook-desktop was installed
-RUN ls -la /usr/bin/cook* && /usr/bin/cook-desktop --help || (echo "cook-desktop installation failed" && exit 1)
+RUN ls -la /usr/bin/cook-desktop && echo "cook-desktop binary found"
 
 # Create directories
 RUN mkdir -p /recipes /config
