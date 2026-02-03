@@ -1,6 +1,9 @@
 #!/bin/bash
 set -e
 
+# Increase file descriptor limit to prevent "Too many open files" errors
+ulimit -n 65536 2>/dev/null || echo "Warning: Could not increase file descriptor limit"
+
 # Configuration
 DISPLAY=${DISPLAY:-:99}
 VNC_ENABLED=${VNC_ENABLED:-true}
