@@ -58,6 +58,8 @@ spec:
               value: "/recipes"
             - name: CONFIG_HOME
               value: "/config"
+            - name: RUST_LOG
+              value: "debug"
           ports:
             {{- if .Values.sync.vnc.enabled }}
             - name: vnc
