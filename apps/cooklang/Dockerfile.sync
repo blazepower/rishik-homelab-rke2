@@ -1,5 +1,6 @@
 # Cook Desktop Sync Agent with Xvfb for headless operation
-FROM ubuntu:24.04
+# Using Ubuntu 22.04 because cook-desktop requires libwebkit2gtk-4.0-37
+FROM ubuntu:22.04
 
 ARG COOK_DESKTOP_VERSION=0.2.5
 
