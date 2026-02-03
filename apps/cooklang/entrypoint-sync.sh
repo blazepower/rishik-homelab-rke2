@@ -73,12 +73,20 @@ echo "Starting Cook Desktop..."
 echo "  If this is first run, connect via VNC to complete OTP login"
 
 # Find the cook-desktop binary
-COOK_DESKTOP_BIN=$(which cook-desktop 2>/dev/null || echo "/usr/bin/cook-desktop")
+COOK_DESKTOP_BIN="/usr/bin/cook-desktop"
 
 if [ ! -x "${COOK_DESKTOP_BIN}" ]; then
-    echo "ERROR: cook-desktop binary not found"
-    exit 1
+    # Try which as fallback
+    COOK_DESKTOP_BIN=$(which cook-desktop 2>/dev/null || echo "")
+    if [ -z "${COOK_DESKTOP_BIN}" ] || [ ! -x "${COOK_DESKTOP_BIN}" ]; then
+        echo "ERROR: cook-desktop binary not found"
+        echo "Checking /usr/bin contents:"
+        ls -la /usr/bin/cook* 2>/dev/null || echo "No cook* binaries found"
+        exit 1
+    fi
 fi
+
+echo "Using cook-desktop at: ${COOK_DESKTOP_BIN}"
 
 # Run Cook Desktop
 # The app should pick up RECIPES_PATH or be configured via its settings

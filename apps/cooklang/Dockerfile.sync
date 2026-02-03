@@ -28,8 +28,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Download and install Cook Desktop
 RUN curl -fsSL "https://downloads.cook.md/cook-desktop-v${COOK_DESKTOP_VERSION}/cook-desktop_${COOK_DESKTOP_VERSION}_linux_x86_64.deb" \
     -o /tmp/cook-desktop.deb \
+    && apt-get update \
     && dpkg -i /tmp/cook-desktop.deb || apt-get install -f -y \
-    && rm /tmp/cook-desktop.deb
+    && rm /tmp/cook-desktop.deb \
+    && rm -rf /var/lib/apt/lists/* \
+    && which cook-desktop && cook-desktop --version || echo "cook-desktop installed at /usr/bin/cook-desktop"
 
 # Create directories
 RUN mkdir -p /recipes /config
