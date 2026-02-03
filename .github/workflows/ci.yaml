@@ -5,10 +5,24 @@ on:
     branches:
       - master
       - main
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - '.github/ISSUE_TEMPLATE/**'
   pull_request:
     branches:
       - master
       - main
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - '.github/ISSUE_TEMPLATE/**'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -25,6 +39,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-yamllint-${{ runner.os }}
+
       - name: Install yamllint
         run: pip install yamllint
 
@@ -38,12 +58,29 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Cache kubeconform
+        id: cache-kubeconform
+        uses: actions/cache@v4
+        with:
+          path: /usr/local/bin/kubeconform
+          key: kubeconform-0.6.4-${{ runner.os }}
+
       - name: Install kubeconform
+        if: steps.cache-kubeconform.outputs.cache-hit != 'true'
         run: |
           curl -sL https://github.com/yannh/kubeconform/releases/download/v0.6.4/kubeconform-linux-amd64.tar.gz | tar xz
           sudo mv kubeconform /usr/local/bin/
 
+      - name: Cache Flux CRD schemas
+        id: cache-flux-schemas
+        uses: actions/cache@v4
+        with:
+          path: /tmp/flux-schemas
+          key: flux-schemas-${{ runner.os }}
+          restore-keys: flux-schemas-
+
       - name: Download Flux CRD schemas
+        if: steps.cache-flux-schemas.outputs.cache-hit != 'true'
         run: |
           mkdir -p /tmp/flux-schemas
           curl -sL https://github.com/fluxcd/flux2/releases/latest/download/crd-schemas.tar.gz | tar zxf - -C /tmp/flux-schemas
@@ -246,7 +283,15 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Cache gitleaks
+        id: cache-gitleaks
+        uses: actions/cache@v4
+        with:
+          path: /usr/local/bin/gitleaks
+          key: gitleaks-8.18.4-${{ runner.os }}
+
       - name: Install gitleaks
+        if: steps.cache-gitleaks.outputs.cache-hit != 'true'
         run: |
           curl -sL https://github.com/gitleaks/gitleaks/releases/download/v8.18.4/gitleaks_8.18.4_linux_x64.tar.gz | tar xz
           sudo mv gitleaks /usr/local/bin/
@@ -261,7 +306,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Cache kubesec
+        id: cache-kubesec
+        uses: actions/cache@v4
+        with:
+          path: /usr/local/bin/kubesec
+          key: kubesec-2.14.1-${{ runner.os }}
+
       - name: Install kubesec
+        if: steps.cache-kubesec.outputs.cache-hit != 'true'
         run: |
           curl -sL -o kubesec https://github.com/controlplaneio/kubesec/releases/download/v2.14.1/kubesec_linux_amd64
           chmod +x kubesec

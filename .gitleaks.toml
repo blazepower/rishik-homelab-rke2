@@ -94,6 +94,8 @@ regexes = [
   '''secretKeyRef:''',
   '''valueFrom:''',
   '''secretName:''',
+  # Allow VNC password environment variable name (not a secret, just variable name)
+  '''VNC_PASSWORD=\$\{VNC_PASSWORD:-\}''',
   # Allow documentation examples
   '''example\.com''',
   '''placeholder''',

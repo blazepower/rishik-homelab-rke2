@@ -28,18 +28,18 @@ spec:
     # Scan all namespaces
     targetNamespaces: ""
     excludeNamespaces: "kube-system,kube-node-lease,kube-public"
-    
+
     # Vulnerability scanning
     trivy:
       # Use standalone mode (no external Trivy server)
       mode: Standalone
-      
+
       # Severity threshold for reporting
       severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
-      
+
       # Skip unfixed vulnerabilities in reports
       ignoreUnfixed: false
-      
+
       # Resource limits for scan jobs
       resources:
         requests:
@@ -48,7 +48,7 @@ spec:
         limits:
           cpu: "500m"
           memory: "512Mi"
-    
+
     # Operator resources
     operator:
       replicas: 1
@@ -59,20 +59,20 @@ spec:
         limits:
           cpu: "200m"
           memory: "256Mi"
-      
+
       # Scan configuration
       vulnerabilityScannerEnabled: true
       configAuditScannerEnabled: true
       rbacAssessmentScannerEnabled: true
       infraAssessmentScannerEnabled: false  # Save resources
       clusterComplianceEnabled: false  # Save resources
-      
+
       # Scan existing workloads on startup
       scanJobsConcurrentLimit: 2
-      
+
       # How often to rescan
       vulnerabilityScannerScanOnlyCurrentRevisions: true
-      
+
     # Metrics for Prometheus
     serviceMonitor:
       enabled: true

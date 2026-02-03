@@ -66,6 +66,17 @@ Always validate the YAML renders logically (no duplicate names, missing fields, 
 
 Update README to make sure that the knowledge is retained
 
+📌 2.1 YAML Formatting Requirements (CRITICAL)
+You MUST:
+
+- Never leave trailing whitespace in any file
+- Use exactly 2 spaces for YAML indentation (no tabs)
+- Ensure all files end with exactly one newline (no trailing blank lines)
+- Keep all lines under 200 characters
+- For multi-line strings, use proper YAML block scalars (| or >)
+- Run yamllint mentally before providing YAML output
+- When creating new files, follow the .editorconfig settings in the repo
+
 You MUST NOT:
 
 Introduce Helm charts outside the existing structure.
