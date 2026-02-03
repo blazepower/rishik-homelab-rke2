@@ -50,13 +50,25 @@ jobs:
 
       - name: Run yamllint
         run: |
-          # Run yamllint with strict mode to only exit non-zero on errors
-          # The -s flag makes yamllint return 2 for warnings (which we ignore) and 1 for errors
-          yamllint -c .yamllint.yaml -s . || exit_code=$?
-          if [ "${exit_code:-0}" -eq 1 ]; then
-            echo "::error::yamllint found errors"
+          # Run yamllint and check exit code
+          # Without -s: exit 1 for any warning or error
+          # We want to allow warnings but fail on errors
+          set +e
+          yamllint -c .yamllint.yaml -f parsable . > /tmp/yamllint.out 2>&1
+          yamllint_exit=$?
+          set -e
+
+          # Show output
+          cat /tmp/yamllint.out
+
+          # Count errors (not warnings)
+          error_count=$(grep -c '\[error\]' /tmp/yamllint.out 2>/dev/null || echo 0)
+
+          if [ "$error_count" -gt 0 ]; then
+            echo "::error::yamllint found $error_count error(s)"
             exit 1
           fi
+
           echo "yamllint passed (warnings are acceptable)"
 
   kubernetes-validate:
