@@ -4,6 +4,7 @@ set -e
 # Configuration
 DISPLAY=${DISPLAY:-:99}
 VNC_ENABLED=${VNC_ENABLED:-true}
+NOVNC_ENABLED=${NOVNC_ENABLED:-true}
 VNC_PASSWORD=${VNC_PASSWORD:-}
 RECIPES_PATH=${RECIPES_PATH:-/recipes}
 CONFIG_HOME=${CONFIG_HOME:-/config}
@@ -52,13 +53,30 @@ if [ "${VNC_ENABLED}" = "true" ]; then
     VNC_PID=$!
     sleep 1
     echo "VNC server started (PID: $VNC_PID)"
-    echo ""
-    echo "=========================================="
-    echo "VNC ACCESS FOR INITIAL SETUP:"
-    echo "  kubectl port-forward svc/cooklang-vnc 5900:5900"
-    echo "  Then connect with VNC client to localhost:5900"
-    echo "=========================================="
-    echo ""
+    
+    # Start noVNC web interface if enabled
+    if [ "${NOVNC_ENABLED}" = "true" ]; then
+        echo "Starting noVNC web interface on port 6080..."
+        websockify --web=/usr/share/novnc 6080 localhost:5900 &
+        NOVNC_PID=$!
+        sleep 1
+        echo "noVNC started (PID: $NOVNC_PID)"
+        echo ""
+        echo "=========================================="
+        echo "WEB VNC ACCESS FOR INITIAL SETUP:"
+        echo "  kubectl port-forward svc/cooklang-novnc 6080:6080"
+        echo "  Then open in browser: http://localhost:6080/vnc.html"
+        echo "=========================================="
+        echo ""
+    else
+        echo ""
+        echo "=========================================="
+        echo "VNC ACCESS FOR INITIAL SETUP:"
+        echo "  kubectl port-forward svc/cooklang-vnc 5900:5900"
+        echo "  Then connect with VNC client to localhost:5900"
+        echo "=========================================="
+        echo ""
+    fi
 fi
 
 # Wait for recipes directory to be ready

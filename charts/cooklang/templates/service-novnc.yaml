@@ -1,0 +1,18 @@
+{{- if and .Values.sync.enabled .Values.sync.novnc.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "cooklang.fullname" . }}-novnc
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "cooklang.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: 6080
+      targetPort: novnc
+      protocol: TCP
+      name: novnc
+  selector:
+    {{- include "cooklang.selectorLabels" . | nindent 4 }}
+{{- end }}

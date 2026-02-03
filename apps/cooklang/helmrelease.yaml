@@ -60,3 +60,5 @@ spec:
         pullPolicy: Always
       vnc:
         enabled: true  # Set to false after initial OTP login
+      novnc:
+        enabled: true  # Web-based VNC access via browser

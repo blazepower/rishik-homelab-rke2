@@ -74,6 +74,8 @@ sync:
     pullPolicy: IfNotPresent
   vnc:
     enabled: true  # Enable for initial OTP login setup
+  novnc:
+    enabled: true  # Web-based VNC access (no VNC client needed)
   persistence:
     storageClass: longhorn
     size: 100Mi

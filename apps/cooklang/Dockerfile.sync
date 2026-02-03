@@ -8,11 +8,14 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV DISPLAY=:99
 ENV RECIPES_PATH=/recipes
 
-# Install dependencies for Tauri/WebKitGTK app + Xvfb + VNC
+# Install dependencies for Tauri/WebKitGTK app + Xvfb + VNC + noVNC
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # Virtual display
     xvfb \
     x11vnc \
+    # noVNC for web-based VNC access
+    novnc \
+    websockify \
     # Desktop environment basics
     dbus-x11 \
     # WebKitGTK dependencies (required for Tauri) - need 4.0 version for cook-desktop
@@ -48,7 +51,7 @@ RUN chmod +x /entrypoint.sh
 # Config volume for session persistence
 VOLUME ["/config", "/recipes"]
 
-# VNC port (optional, for initial setup)
-EXPOSE 5900
+# VNC port and noVNC web port
+EXPOSE 5900 6080
 
 ENTRYPOINT ["/entrypoint.sh"]
