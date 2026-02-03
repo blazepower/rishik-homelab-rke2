@@ -59,6 +59,6 @@ spec:
         tag: "0.2.5"
         pullPolicy: Always
       vnc:
-        enabled: true  # Set to false after initial OTP login
+        enabled: false  # Disabled after OTP login complete
       novnc:
-        enabled: true  # Web-based VNC access via browser
+        enabled: false  # Disabled after OTP login complete
