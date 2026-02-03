@@ -14,8 +14,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     x11vnc \
     # Desktop environment basics
     dbus-x11 \
-    # WebKitGTK dependencies (required for Tauri)
-    libwebkit2gtk-4.1-0 \
+    # WebKitGTK dependencies (required for Tauri) - need 4.0 version for cook-desktop
+    libwebkit2gtk-4.0-37 \
     libgtk-3-0 \
     libayatana-appindicator3-1 \
     # Additional libs
