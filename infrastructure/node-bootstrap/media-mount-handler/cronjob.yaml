@@ -1,0 +1,80 @@
+---
+# CronJob that checks if media-dependent pods have working mounts
+# Runs every 5 minutes and restarts pods if media mount is broken
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: media-mount-handler
+  namespace: kube-system
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      ttlSecondsAfterFinished: 300
+      template:
+        spec:
+          serviceAccountName: media-mount-handler
+          restartPolicy: OnFailure
+          containers:
+            - name: handler
+              image: bitnami/kubectl:1.33
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+                limits:
+                  cpu: 100m
+                  memory: 64Mi
+              command:
+                - /bin/bash
+                - -c
+                - |
+                  set -euo pipefail
+
+                  log() {
+                    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+                  }
+
+                  # Check if Plex can see its media directory
+                  check_plex_media() {
+                    local pod_name
+                    pod_name=$(kubectl get pods -n media -l app.kubernetes.io/name=plex-media-server -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+
+                    if [ -z "$pod_name" ]; then
+                      log "Plex pod not found, skipping check"
+                      return 0
+                    fi
+
+                    # Check if media directory has content
+                    local content
+                    content=$(kubectl exec -n media "$pod_name" -c plex-plex-media-server-pms -- ls /media 2>/dev/null || echo "")
+
+                    if [ -z "$content" ]; then
+                      log "WARNING: Plex media mount appears empty!"
+                      return 1
+                    fi
+
+                    log "Plex media mount OK (found content)"
+                    return 0
+                  }
+
+                  restart_plex() {
+                    log "Restarting Plex to re-mount media..."
+                    kubectl rollout restart statefulset -n media plex-plex-media-server
+                    log "Plex restart initiated"
+                  }
+
+                  main() {
+                    log "Media mount handler starting..."
+
+                    if ! check_plex_media; then
+                      restart_plex
+                    fi
+
+                    log "Media mount handler complete"
+                  }
+
+                  main

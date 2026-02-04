@@ -31,6 +31,8 @@ spec:
       rebootSentinelCommand: ""
       # Period to check for sentinel file
       period: "1h"
+      # Annotate nodes after reboot for post-reboot handler
+      annotateNodes: true
     metrics:
       enabled: true
       service:

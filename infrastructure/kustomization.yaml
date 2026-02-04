@@ -7,6 +7,7 @@ resources:
   - storage
   - node-bootstrap/iscsi
   - node-bootstrap/gpu
+  - node-bootstrap/media-mount-handler
   - monitoring
   - logging
   - cert-manager
