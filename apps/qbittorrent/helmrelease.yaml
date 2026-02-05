@@ -116,6 +116,53 @@ spec:
                 cpu: "2000m"
                 memory: "2Gi"
 
+          # Syncs VPN IP with MAM dynamic seedbox and qBittorrent port
+          vpn-sync:
+            dependsOn: gluetun
+            image:
+              repository: alpine
+              tag: "3.21"
+            env:
+              - name: MAM_ID
+                valueFrom:
+                  secretKeyRef:
+                    name: mam-credentials
+                    key: MAM_ID
+            command:
+              - /bin/sh
+              - -c
+              - |
+                echo "Waiting for gluetun..."
+                while [ ! -f /tmp/gluetun/forwarded_port ]; do sleep 5; done
+                until wget -qO- http://localhost:8080/api/v2/app/version >/dev/null 2>&1; do sleep 5; done
+                LAST_IP="" LAST_PORT=""
+                while true; do
+                  IP=$(wget -qO- http://localhost:8000/v1/publicip/ip 2>/dev/null | tr -d '"')
+                  PORT=$(cat /tmp/gluetun/forwarded_port 2>/dev/null)
+                  # Sync qBittorrent port
+                  if [ -n "$PORT" ] && [ "$PORT" != "$LAST_PORT" ]; then
+                    echo "Setting qBittorrent port to $PORT"
+                    wget -qO- --post-data="json={\"listen_port\":$PORT}" http://localhost:8080/api/v2/app/setPreferences
+                    LAST_PORT="$PORT"
+                  fi
+                  # Sync MAM dynamic seedbox IP
+                  if [ -n "$IP" ] && [ "$IP" != "$LAST_IP" ]; then
+                    echo "Updating MAM seedbox IP to $IP"
+                    RESP=$(wget -qO- --header="Cookie: mam_id=$MAM_ID" \
+                      "https://t.myanonamouse.net/json/dynamicSeedbox.php" 2>&1)
+                    echo "MAM response: $RESP"
+                    LAST_IP="$IP"
+                  fi
+                  sleep 300
+                done
+            resources:
+              requests:
+                cpu: "5m"
+                memory: "16Mi"
+              limits:
+                cpu: "50m"
+                memory: "32Mi"
+
     service:
       app:
         controller: qbittorrent
@@ -126,13 +173,26 @@ spec:
     persistence:
       config:
         existingClaim: qbittorrent-config
-        globalMounts:
-          - path: /config
+        advancedMounts:
+          qbittorrent:
+            app:
+              - path: /config
       media:
         type: hostPath
         hostPath: /media/rishik/Expansion
-        globalMounts:
-          - path: /media
+        advancedMounts:
+          qbittorrent:
+            app:
+              - path: /media
+      gluetun-data:
+        type: emptyDir
+        advancedMounts:
+          qbittorrent:
+            gluetun:
+              - path: /tmp/gluetun
+            vpn-sync:
+              - path: /tmp/gluetun
+                readOnly: true
 
     defaultPodOptions:
       nodeSelector:
