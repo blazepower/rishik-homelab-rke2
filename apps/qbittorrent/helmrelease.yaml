@@ -48,6 +48,8 @@ spec:
                 value: "true"
               - name: SERVER_COUNTRIES
                 value: "United States"
+              - name: SERVER_CITIES
+                value: "Seattle"
               - name: WIREGUARD_PRIVATE_KEY
                 valueFrom:
                   secretKeyRef:
