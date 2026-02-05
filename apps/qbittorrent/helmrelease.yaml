@@ -83,37 +83,6 @@ spec:
                 cpu: "500m"
                 memory: "512Mi"
 
-          port-forward-sync:
-            dependsOn: gluetun
-            image:
-              repository: alpine
-              tag: "3.21"
-            command:
-              - /bin/sh
-              - -c
-              - |
-                echo "Waiting for gluetun port forward..."
-                while [ ! -f /tmp/gluetun/forwarded_port ]; do sleep 5; done
-                echo "Waiting for qBittorrent to start..."
-                until wget -qO- http://localhost:8080/api/v2/app/version >/dev/null 2>&1; do sleep 5; done
-                LAST_PORT=""
-                while true; do
-                  PORT=$(cat /tmp/gluetun/forwarded_port 2>/dev/null)
-                  if [ -n "$PORT" ] && [ "$PORT" != "$LAST_PORT" ]; then
-                    echo "Setting qBittorrent listen port to $PORT"
-                    wget -qO- --post-data="json={\"listen_port\":$PORT}" http://localhost:8080/api/v2/app/setPreferences
-                    LAST_PORT="$PORT"
-                  fi
-                  sleep 60
-                done
-            resources:
-              requests:
-                cpu: "5m"
-                memory: "16Mi"
-              limits:
-                cpu: "50m"
-                memory: "32Mi"
-
           app:
             dependsOn: gluetun
             image:
@@ -155,26 +124,13 @@ spec:
     persistence:
       config:
         existingClaim: qbittorrent-config
-        advancedMounts:
-          qbittorrent:
-            app:
-              - path: /config
+        globalMounts:
+          - path: /config
       media:
         type: hostPath
         hostPath: /media/rishik/Expansion
-        advancedMounts:
-          qbittorrent:
-            app:
-              - path: /media
-      gluetun-data:
-        type: emptyDir
-        advancedMounts:
-          qbittorrent:
-            gluetun:
-              - path: /tmp/gluetun
-            port-forward-sync:
-              - path: /tmp/gluetun
-                readOnly: true
+        globalMounts:
+          - path: /media
 
     defaultPodOptions:
       nodeSelector:
