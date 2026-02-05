@@ -137,7 +137,7 @@ spec:
                 until wget -qO- http://localhost:8080/api/v2/app/version >/dev/null 2>&1; do sleep 5; done
                 LAST_IP="" LAST_PORT=""
                 while true; do
-                  IP=$(wget -qO- http://localhost:8000/v1/publicip/ip 2>/dev/null | tr -d '"')
+                  IP=$(wget -qO- http://localhost:8000/v1/publicip/ip 2>/dev/null | sed 's/"//g' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+')
                   PORT=$(cat /tmp/gluetun/forwarded_port 2>/dev/null)
                   # Sync qBittorrent port
                   if [ -n "$PORT" ] && [ "$PORT" != "$LAST_PORT" ]; then
@@ -149,7 +149,7 @@ spec:
                   if [ -n "$IP" ] && [ "$IP" != "$LAST_IP" ]; then
                     echo "Updating MAM seedbox IP to $IP"
                     RESP=$(wget -qO- --header="Cookie: mam_id=$MAM_ID" \
-                      "https://t.myanonamouse.net/json/dynamicSeedbox.php" 2>&1)
+                      "https://t.myanonamouse.net/json/dynamicSeedbox.php?requestingIP=1" 2>&1)
                     echo "MAM response: $RESP"
                     LAST_IP="$IP"
                   fi
