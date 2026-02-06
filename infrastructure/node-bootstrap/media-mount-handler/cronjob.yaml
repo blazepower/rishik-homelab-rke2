@@ -38,39 +38,40 @@ spec:
                     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
                   }
 
-                  # Check if Plex can see its media directory
-                  check_plex_media() {
-                    pod_name=$(kubectl get pods -n media -l app.kubernetes.io/name=plex-media-server -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+                  # Check if a pod can see media directory content
+                  check_media_mount() {
+                    app_label="$1"
+                    container="$2"
+                    workload_type="$3"
+                    workload_name="$4"
+
+                    pod_name=$(kubectl get pods -n media -l "app.kubernetes.io/name=$app_label" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
 
                     if [ -z "$pod_name" ]; then
-                      log "Plex pod not found, skipping check"
+                      log "$app_label pod not found, skipping"
                       return 0
                     fi
 
-                    # Check if media directory has content
-                    content=$(kubectl exec -n media "$pod_name" -c plex-plex-media-server-pms -- ls /media 2>/dev/null || echo "")
+                    content=$(kubectl exec -n media "$pod_name" -c "$container" -- ls /media 2>/dev/null || echo "")
 
                     if [ -z "$content" ]; then
-                      log "WARNING: Plex media mount appears empty!"
+                      log "WARNING: $app_label media mount empty, restarting..."
+                      kubectl rollout restart "$workload_type" -n media "$workload_name"
                       return 1
                     fi
 
-                    log "Plex media mount OK (found content)"
+                    log "$app_label media mount OK"
                     return 0
-                  }
-
-                  restart_plex() {
-                    log "Restarting Plex to re-mount media..."
-                    kubectl rollout restart statefulset -n media plex-plex-media-server
-                    log "Plex restart initiated"
                   }
 
                   main() {
                     log "Media mount handler starting..."
 
-                    if ! check_plex_media; then
-                      restart_plex
-                    fi
+                    check_media_mount "plex-media-server" "plex-plex-media-server-pms" "statefulset" "plex-plex-media-server"
+                    check_media_mount "sabnzbd" "sabnzbd" "deployment" "sabnzbd"
+                    check_media_mount "qbittorrent" "app" "deployment" "qbittorrent"
+                    check_media_mount "radarr" "radarr" "deployment" "radarr"
+                    check_media_mount "sonarr" "sonarr" "deployment" "sonarr"
 
                     log "Media mount handler complete"
                   }
