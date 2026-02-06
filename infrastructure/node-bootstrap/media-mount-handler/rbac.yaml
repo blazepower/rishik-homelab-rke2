@@ -11,7 +11,7 @@ metadata:
   name: media-mount-handler
 rules:
   - apiGroups: ["apps"]
-    resources: ["statefulsets"]
+    resources: ["statefulsets", "deployments"]
     verbs: ["get", "list", "patch"]
   - apiGroups: [""]
     resources: ["pods"]

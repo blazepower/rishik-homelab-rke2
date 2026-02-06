@@ -39,24 +39,26 @@ spec:
                   }
 
                   # Check if a pod can see media directory content
+                  # Args: namespace app_label container workload_type workload_name
                   check_media_mount() {
-                    app_label="$1"
-                    container="$2"
-                    workload_type="$3"
-                    workload_name="$4"
+                    namespace="$1"
+                    app_label="$2"
+                    container="$3"
+                    workload_type="$4"
+                    workload_name="$5"
 
-                    pod_name=$(kubectl get pods -n media -l "app.kubernetes.io/name=$app_label" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+                    pod_name=$(kubectl get pods -n "$namespace" -l "app.kubernetes.io/name=$app_label" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
 
                     if [ -z "$pod_name" ]; then
                       log "$app_label pod not found, skipping"
                       return 0
                     fi
 
-                    content=$(kubectl exec -n media "$pod_name" -c "$container" -- ls /media 2>/dev/null || echo "")
+                    content=$(kubectl exec -n "$namespace" "$pod_name" -c "$container" -- ls /media 2>/dev/null || echo "")
 
                     if [ -z "$content" ]; then
                       log "WARNING: $app_label media mount empty, restarting..."
-                      kubectl rollout restart "$workload_type" -n media "$workload_name"
+                      kubectl rollout restart "$workload_type" -n "$namespace" "$workload_name"
                       return 1
                     fi
 
@@ -67,11 +69,21 @@ spec:
                   main() {
                     log "Media mount handler starting..."
 
-                    check_media_mount "plex-media-server" "plex-plex-media-server-pms" "statefulset" "plex-plex-media-server"
-                    check_media_mount "sabnzbd" "sabnzbd" "deployment" "sabnzbd"
-                    check_media_mount "qbittorrent" "app" "deployment" "qbittorrent"
-                    check_media_mount "radarr" "radarr" "deployment" "radarr"
-                    check_media_mount "sonarr" "sonarr" "deployment" "sonarr"
+                    # Media namespace apps
+                    check_media_mount "media" "plex-media-server" "plex-plex-media-server-pms" "statefulset" "plex-plex-media-server"
+                    check_media_mount "media" "sabnzbd" "sabnzbd" "deployment" "sabnzbd"
+                    check_media_mount "media" "qbittorrent" "app" "deployment" "qbittorrent"
+                    check_media_mount "media" "radarr" "radarr" "deployment" "radarr"
+                    check_media_mount "media" "sonarr" "sonarr" "deployment" "sonarr"
+                    check_media_mount "media" "bazarr" "app" "deployment" "bazarr"
+                    check_media_mount "media" "bookshelf" "app" "deployment" "bookshelf"
+                    check_media_mount "media" "calibre-web" "app" "deployment" "calibre-web"
+                    check_media_mount "media" "kindle-sender" "app" "deployment" "kindle-sender"
+                    check_media_mount "media" "syncthing" "app" "deployment" "syncthing"
+
+                    # Siloarr namespace apps
+                    check_media_mount "siloarr" "stash" "app" "deployment" "stash"
+                    check_media_mount "siloarr" "whisparr" "app" "deployment" "whisparr"
 
                     log "Media mount handler complete"
                   }
