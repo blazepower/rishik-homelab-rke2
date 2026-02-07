@@ -3,7 +3,7 @@
 ## Image configuration
 image:
   repository: ghcr.io/we-promise/sure
-  tag: "0.6.6-alpha.4"
+  tag: "0.6.8-alpha.4"
   pullPolicy: IfNotPresent
 
 ## Replica count
