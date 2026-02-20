@@ -12,7 +12,7 @@ spec:
   chart:
     spec:
       chart: longhorn
-      version: "1.10.x"  # Pin to 1.10.x to avoid unexpected upgrades
+      version: "1.11.x"  # Pin to 1.10.x to avoid unexpected upgrades
       sourceRef:
         kind: HelmRepository
         name: longhorn
