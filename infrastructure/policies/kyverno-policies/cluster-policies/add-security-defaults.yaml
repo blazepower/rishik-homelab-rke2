@@ -37,22 +37,27 @@ spec:
                 - media
                 - siloarr
                 - trivy-system
+                - adguard-home
+                - kaneo
       mutate:
         foreach:
           - list: "request.object.spec.containers"
-            patchesJson6902: |-
-              - op: add
-                path: /spec/containers/{{elementIndex}}/securityContext
-                value:
-                  allowPrivilegeEscalation: false
-                  capabilities:
-                    drop:
-                      - ALL
+            patchStrategicMerge:
+              spec:
+                containers:
+                  - (name): "{{ element.name }}"
+                    securityContext:
+                      allowPrivilegeEscalation: false
+                      capabilities:
+                        drop:
+                          - ALL
             preconditions:
               all:
-                - key: "{{ element.securityContext.allowPrivilegeEscalation || '' }}"
-                  operator: Equals
-                  value: ""
+                - key: "{{ element.securityContext.allowPrivilegeEscalation }}"
+                  operator: NotIn
+                  value:
+                    - true
+                    - false
     - name: add-security-context-init-containers
       match:
         any:
@@ -77,19 +82,24 @@ spec:
                 - media
                 - siloarr
                 - trivy-system
+                - adguard-home
+                - kaneo
       mutate:
         foreach:
           - list: "request.object.spec.initContainers || []"
-            patchesJson6902: |-
-              - op: add
-                path: /spec/initContainers/{{elementIndex}}/securityContext
-                value:
-                  allowPrivilegeEscalation: false
-                  capabilities:
-                    drop:
-                      - ALL
+            patchStrategicMerge:
+              spec:
+                initContainers:
+                  - (name): "{{ element.name }}"
+                    securityContext:
+                      allowPrivilegeEscalation: false
+                      capabilities:
+                        drop:
+                          - ALL
             preconditions:
               all:
-                - key: "{{ element.securityContext.allowPrivilegeEscalation || '' }}"
-                  operator: Equals
-                  value: ""
+                - key: "{{ element.securityContext.allowPrivilegeEscalation }}"
+                  operator: NotIn
+                  value:
+                    - true
+                    - false
