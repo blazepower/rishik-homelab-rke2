@@ -41,7 +41,7 @@ spec:
           app:
             image:
               repository: syncthing/syncthing
-              tag: 1.28.1
+              tag: 1.30.0
             args:
               - serve
               - --home=/config
