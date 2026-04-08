@@ -1,4 +1,4 @@
-apiVersion: helm.toolkit.fluxcd.io/v2beta2
+apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
   name: cert-manager
@@ -15,6 +15,8 @@ spec:
         namespace: cert-manager
   install:
     createNamespace: true
+    remediation:
+      retries: 3
   upgrade:
     remediation:
       retries: 3
