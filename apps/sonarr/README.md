@@ -78,6 +78,10 @@ Configured via ConfigMap:
 - `PGID=1000` - Group ID for file permissions
 - `TZ=America/Los_Angeles` - Timezone for scheduling
 
+Configured directly in HelmRelease (Sonarr v4 config overrides using `SONARR__<XML_TAG>` format):
+- `SONARR__AUTHENTICATIONMETHOD=Forms` - Use web-based login form instead of browser Basic auth prompt
+- `SONARR__AUTHENTICATIONREQUIRED=DisabledForLocalAddresses` - Disable authentication for local/private network addresses (e.g. behind Tailscale or Traefik ingress)
+
 ## Integration
 
 Sonarr integrates with:
