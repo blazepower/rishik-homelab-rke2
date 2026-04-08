@@ -51,7 +51,9 @@ spec:
                   configMapKeyRef:
                     name: sonarr-config
                     key: TZ
-              - name: SONARR__AUTH__REQUIRED
+              - name: SONARR__AUTHENTICATIONMETHOD
+                value: "Forms"
+              - name: SONARR__AUTHENTICATIONREQUIRED
                 value: "DisabledForLocalAddresses"
             resources:
               requests:
