@@ -51,6 +51,8 @@ spec:
                   configMapKeyRef:
                     name: sonarr-config
                     key: TZ
+              - name: SONARR__AUTH__REQUIRED
+                value: "DisabledForLocalAddresses"
             resources:
               requests:
                 cpu: "100m"
