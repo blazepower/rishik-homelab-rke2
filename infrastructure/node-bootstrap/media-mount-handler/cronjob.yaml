@@ -52,7 +52,20 @@ spec:
                       return 0
                     fi
 
-                    content=$(kubectl exec -n "$namespace" "$pod_name" -c "$container" -- ls /media 2>/dev/null || echo "")
+                    # Capture stdout, stderr, and exit code separately so that an
+                    # exec failure (e.g. wrong container name, pod not ready) is
+                    # NOT misinterpreted as an empty mount and used to justify a
+                    # destructive rollout restart.
+                    exec_err=$(mktemp)
+                    content=$(kubectl exec -n "$namespace" "$pod_name" -c "$container" -- ls /media 2>"$exec_err")
+                    exec_rc=$?
+                    err_msg=$(cat "$exec_err")
+                    rm -f "$exec_err"
+
+                    if [ "$exec_rc" -ne 0 ]; then
+                      log "$app_label exec failed (rc=$exec_rc), skipping: $err_msg"
+                      return 0
+                    fi
 
                     if [ -z "$content" ]; then
                       log "WARNING: $app_label media mount empty, restarting..."
@@ -69,10 +82,10 @@ spec:
 
                     # Media namespace apps
                     check_media_mount "media" "plex-media-server" "plex-plex-media-server-pms" "statefulset" "plex-plex-media-server"
-                    check_media_mount "media" "sabnzbd" "sabnzbd" "deployment" "sabnzbd"
+                    check_media_mount "media" "sabnzbd" "app" "deployment" "sabnzbd"
                     check_media_mount "media" "qbittorrent" "app" "deployment" "qbittorrent"
-                    check_media_mount "media" "radarr" "radarr" "deployment" "radarr"
-                    check_media_mount "media" "sonarr" "sonarr" "deployment" "sonarr"
+                    check_media_mount "media" "radarr" "app" "deployment" "radarr"
+                    check_media_mount "media" "sonarr" "app" "deployment" "sonarr"
                     check_media_mount "media" "bazarr" "app" "deployment" "bazarr"
                     check_media_mount "media" "bookshelf" "app" "deployment" "bookshelf"
                     check_media_mount "media" "calibre-web" "app" "deployment" "calibre-web"
