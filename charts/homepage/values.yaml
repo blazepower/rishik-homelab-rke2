@@ -3,7 +3,7 @@
 ## Image configuration
 image:
   repository: ghcr.io/gethomepage/homepage
-  tag: "v0.9.10"  # Pin to a specific version for stability; update as needed
+  tag: "v0.10.9"  # Pin to a specific version for stability; update as needed
   pullPolicy: IfNotPresent
 
 ## Replica count
