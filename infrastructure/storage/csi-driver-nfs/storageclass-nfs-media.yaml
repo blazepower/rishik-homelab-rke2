@@ -1,0 +1,23 @@
+---
+# Dynamic StorageClass for new ad-hoc NFS shares only. Media libraries with
+# pre-created NAS directories (movies/, tv/, downloads/, etc.) should use
+# static PVs that point directly at those subdirectories instead.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: nfs-media
+provisioner: nfs.csi.k8s.io
+parameters:
+  server: 192.168.1.215
+  share: /volume1/media
+  subDir: ${pvc.metadata.namespace}-${pvc.metadata.name}
+  mountPermissions: "0775"
+reclaimPolicy: Retain
+volumeBindingMode: Immediate
+allowVolumeExpansion: true
+mountOptions:
+  - nfsvers=3
+  - hard
+  - nolock
+  - noatime
+  - _netdev
