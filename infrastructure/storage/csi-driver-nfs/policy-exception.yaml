@@ -2,7 +2,7 @@
 apiVersion: kyverno.io/v2
 kind: PolicyException
 metadata:
-  name: csi-driver-nfs-node
+  name: csi-driver-nfs
   namespace: csi-driver-nfs
 spec:
   exceptions:
@@ -37,6 +37,7 @@ spec:
         - autogen-deny-host-path-volumes
   match:
     any:
+      # csi-nfs-node DaemonSet + pods (privileged mounts, hostNetwork, hostPath)
       - resources:
           kinds:
             - DaemonSet
@@ -51,3 +52,25 @@ spec:
             - csi-driver-nfs
           names:
             - csi-nfs-node-*
+      # csi-nfs-controller Deployment + pods (hostNetwork, hostPath /var/lib/kubelet, no privileged but blocked by same policies)
+      - resources:
+          kinds:
+            - Deployment
+          namespaces:
+            - csi-driver-nfs
+          names:
+            - csi-nfs-controller
+      - resources:
+          kinds:
+            - ReplicaSet
+          namespaces:
+            - csi-driver-nfs
+          names:
+            - csi-nfs-controller-*
+      - resources:
+          kinds:
+            - Pod
+          namespaces:
+            - csi-driver-nfs
+          names:
+            - csi-nfs-controller-*
