@@ -83,11 +83,11 @@ spec:
         existingClaim: bookshelf-config
         globalMounts:
           - path: /config
-      media:
-        type: hostPath
-        hostPath: /media/rishik/Expansion
+      media-books:
+        existingClaim: media-root
         globalMounts:
-          - path: /media
+          - path: /media/books
+            subPath: books
 
     defaultPodOptions:
       nodeSelector:

@@ -122,11 +122,11 @@ spec:
         existingClaim: kindle-sender-data
         globalMounts:
           - path: /data
-      media:
-        type: hostPath
-        hostPath: /media/rishik/Expansion
+      media-books:
+        existingClaim: media-root
         globalMounts:
-          - path: /media
+          - path: /media/books
+            subPath: books
             readOnly: true
 
     service:
