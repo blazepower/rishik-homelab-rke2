@@ -53,7 +53,7 @@ spec:
                           - ALL
             preconditions:
               all:
-                - key: "{{ element.securityContext.allowPrivilegeEscalation }}"
+                - key: "{{ element.securityContext.allowPrivilegeEscalation || 'unset' }}"
                   operator: NotIn
                   value:
                     - true
@@ -98,7 +98,7 @@ spec:
                           - ALL
             preconditions:
               all:
-                - key: "{{ element.securityContext.allowPrivilegeEscalation }}"
+                - key: "{{ element.securityContext.allowPrivilegeEscalation || 'unset' }}"
                   operator: NotIn
                   value:
                     - true
