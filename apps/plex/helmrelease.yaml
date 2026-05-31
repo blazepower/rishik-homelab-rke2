@@ -84,18 +84,32 @@ spec:
           name: plex-config
 
     extraVolumes:
-      - name: media
-        hostPath:
-          path: /media/rishik/Expansion
-          type: Directory
+      - name: media-movies
+        persistentVolumeClaim:
+          claimName: media-root
+      - name: media-tv
+        persistentVolumeClaim:
+          claimName: media-root
+      - name: media-books
+        persistentVolumeClaim:
+          claimName: media-root
       - name: dri
         hostPath:
           path: /dev/dri
           type: Directory
 
     extraVolumeMounts:
-      - name: media
-        mountPath: /media
+      - name: media-movies
+        mountPath: /media/Movies
+        subPath: movies
+        readOnly: true
+      - name: media-tv
+        mountPath: /media/TV Shows
+        subPath: tv
+        readOnly: true
+      - name: media-books
+        mountPath: /media/books
+        subPath: books
         readOnly: true
       - name: dri
         mountPath: /dev/dri
