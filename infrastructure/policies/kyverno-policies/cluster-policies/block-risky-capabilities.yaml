@@ -33,6 +33,7 @@ spec:
                 - storage
                 - monitoring
                 - cert-manager
+                - csi-driver-nfs
       validate:
         message: >-
           Privileged containers are not allowed in user namespaces.
@@ -77,6 +78,7 @@ spec:
                 - storage
                 - monitoring
                 - cert-manager
+                - csi-driver-nfs
       validate:
         message: "hostNetwork is not allowed in user namespaces."
         pattern:
@@ -104,6 +106,7 @@ spec:
                 - media
                 - siloarr
                 - tailscale
+                - csi-driver-nfs
       validate:
         message: "hostPath volumes are not allowed in user namespaces."
         pattern:

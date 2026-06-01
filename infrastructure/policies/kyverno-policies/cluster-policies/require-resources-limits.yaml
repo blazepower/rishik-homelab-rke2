@@ -34,6 +34,7 @@ spec:
                 - monitoring
                 - cert-manager
                 - tailscale
+                - csi-driver-nfs
       validate:
         message: >-
           All containers must have CPU and memory requests and limits defined.

@@ -35,6 +35,7 @@ spec:
                 - monitoring
                 - cert-manager
                 - tailscale
+                - csi-driver-nfs
       validate:
         message: >-
           Privilege escalation is not allowed. All containers
