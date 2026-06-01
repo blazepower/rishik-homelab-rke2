@@ -40,7 +40,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Cache pip packages
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/pip
           key: pip-yamllint-${{ runner.os }}
@@ -80,7 +80,7 @@ jobs:
 
       - name: Cache kubeconform
         id: cache-kubeconform
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: /usr/local/bin/kubeconform
           key: kubeconform-0.6.4-${{ runner.os }}
@@ -93,7 +93,7 @@ jobs:
 
       - name: Cache Flux CRD schemas
         id: cache-flux-schemas
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: /tmp/flux-schemas
           key: flux-schemas-${{ runner.os }}
@@ -305,7 +305,7 @@ jobs:
 
       - name: Cache gitleaks
         id: cache-gitleaks
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: /usr/local/bin/gitleaks
           key: gitleaks-8.18.4-${{ runner.os }}
@@ -328,7 +328,7 @@ jobs:
 
       - name: Cache kubesec
         id: cache-kubesec
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: /usr/local/bin/kubesec
           key: kubesec-2.14.1-${{ runner.os }}
