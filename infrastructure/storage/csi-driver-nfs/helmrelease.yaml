@@ -26,7 +26,11 @@ spec:
   values:
     kubeletDir: /var/lib/kubelet
     controller:
-      replicas: 2
+      # Only 1 schedulable worker (rishik-controller is cordoned), and the
+      # controller uses hostNetwork=true, so a second replica can't coexist
+      # on the same node (hostPort conflict). Bump to 2 once a second
+      # worker is added.
+      replicas: 1
     driver:
       mountPermissions: 0
     feature:
