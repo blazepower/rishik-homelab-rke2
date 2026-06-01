@@ -36,6 +36,7 @@ spec:
                 - monitoring
                 - cert-manager
                 - tailscale
+                - csi-driver-nfs
       validate:
         message: >-
           Containers must drop all capabilities. Add 'ALL' to
@@ -82,6 +83,7 @@ spec:
                 - monitoring
                 - cert-manager
                 - tailscale
+                - csi-driver-nfs
       validate:
         message: >-
           Only safe capabilities may be added. Allowed: CHOWN, DAC_OVERRIDE,

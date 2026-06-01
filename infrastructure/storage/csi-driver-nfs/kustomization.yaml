@@ -5,4 +5,3 @@ resources:
   - helmrepository.yaml
   - helmrelease.yaml
   - storageclass-nfs-media.yaml
-  - policy-exception.yaml
