@@ -35,6 +35,7 @@ spec:
                 - cert-manager
                 - metallb-system
                 - tailscale
+                - csi-driver-nfs
       validate:
         message: "Host ports are not allowed in user namespaces."
         pattern:
