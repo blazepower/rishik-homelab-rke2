@@ -26,7 +26,7 @@ spec:
   values:
     # Use pinned version, not latest
     image:
-      tag: "2.20.15"
+      tag: "2.13.5"
 
     # Environment variables are already set in chart defaults
     # No need to override unless different from defaults
