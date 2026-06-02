@@ -83,6 +83,7 @@ docs/                           # Detailed component documentation
 | **Node Bootstrap** | Automated iSCSI and GPU bootstrap | [docs/node-bootstrap.md](docs/node-bootstrap.md) |
 | **GPU Acceleration** | Intel QuickSync hardware transcoding | [infrastructure/accelerators/intel-gpu/](infrastructure/accelerators/intel-gpu/) |
 | **CI/CD** | Validation and security scanning pipeline | [docs/ci-cd.md](docs/ci-cd.md) |
+| **Charts** | bjw-s app-template conventions and gotchas | [docs/charts.md](docs/charts.md) |
 
 ## Power Efficiency
 
