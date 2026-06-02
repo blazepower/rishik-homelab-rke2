@@ -35,7 +35,10 @@ spec:
           app:
             image:
               repository: lscr.io/linuxserver/calibre-web
-              tag: "5.33.2"
+              # PR #146 (renovate) bumped 0.6.24 → 5.33.2 but the 5.33.2 image
+              # has no ENTRYPOINT/CMD and fails with "no command specified".
+              # Pin to last known-good until linuxserver fixes the image config.
+              tag: "0.6.24"
             env:
               - name: PUID
                 valueFrom:
