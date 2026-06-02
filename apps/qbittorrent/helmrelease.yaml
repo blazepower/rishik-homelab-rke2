@@ -177,32 +177,20 @@ spec:
           qbittorrent:
             app:
               - path: /config
-      media-torrents:
+      # Single persistence entry with multiple mounts so kubelet sees one
+      # volume reference per pod (multiple entries pointing to the same PVC
+      # cause WaitForAttachAndMount to hang — see plex-cutover-runbook).
+      media:
         existingClaim: media-root
         advancedMounts:
           qbittorrent:
             app:
               - path: /media/torrents
                 subPath: downloads/torrents
-      media-movies:
-        existingClaim: media-root
-        advancedMounts:
-          qbittorrent:
-            app:
               - path: /media/Movies
                 subPath: movies
-      media-tv:
-        existingClaim: media-root
-        advancedMounts:
-          qbittorrent:
-            app:
               - path: /media/TV Shows
                 subPath: tv
-      media-xxx:
-        existingClaim: media-root
-        advancedMounts:
-          qbittorrent:
-            app:
               - path: /media/TestX
                 subPath: xxx
       gluetun-data:

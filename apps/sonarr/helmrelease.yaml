@@ -75,14 +75,14 @@ spec:
         existingClaim: sonarr-config
         globalMounts:
           - path: /config
-      media-tv:
+      # Single persistence entry with multiple mounts so kubelet sees one
+      # volume reference per pod (multiple entries pointing to the same PVC
+      # cause WaitForAttachAndMount to hang — see plex-cutover-runbook).
+      media:
         existingClaim: media-root
         globalMounts:
           - path: /media/TV Shows
             subPath: tv
-      media-torrents:
-        existingClaim: media-root
-        globalMounts:
           - path: /media/torrents
             subPath: downloads/torrents
 

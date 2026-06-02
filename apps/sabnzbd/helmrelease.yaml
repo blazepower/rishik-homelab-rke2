@@ -95,19 +95,16 @@ spec:
         existingClaim: sabnzbd-config
         globalMounts:
           - path: /config
-      media-torrents:
+      # Single persistence entry with multiple mounts so kubelet sees one
+      # volume reference per pod (multiple entries pointing to the same PVC
+      # cause WaitForAttachAndMount to hang — see plex-cutover-runbook).
+      media:
         existingClaim: media-root
         globalMounts:
           - path: /media/torrents
             subPath: downloads/torrents
-      media-movies:
-        existingClaim: media-root
-        globalMounts:
           - path: /media/Movies
             subPath: movies
-      media-tv:
-        existingClaim: media-root
-        globalMounts:
           - path: /media/TV Shows
             subPath: tv
 
