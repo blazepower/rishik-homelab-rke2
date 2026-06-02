@@ -71,11 +71,16 @@ spec:
         existingClaim: whisparr-config
         globalMounts:
           - path: /config
+      # Single persistence entry with multiple mounts so kubelet sees one
+      # volume reference per pod (multiple entries pointing to the same PVC
+      # cause WaitForAttachAndMount to hang — see plex-cutover-runbook).
       media:
-        type: hostPath
-        hostPath: /media/rishik/Expansion
+        existingClaim: media-root
         globalMounts:
-          - path: /media
+          - path: /media/TestX
+            subPath: xxx
+          - path: /media/torrents
+            subPath: downloads/torrents
 
     defaultPodOptions:
       nodeSelector:

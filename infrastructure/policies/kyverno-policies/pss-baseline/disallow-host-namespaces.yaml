@@ -36,6 +36,7 @@ spec:
                 - monitoring
                 - cert-manager
                 - tailscale
+                - csi-driver-nfs
       validate:
         message: "Sharing the host PID namespace is not allowed."
         pattern:
@@ -61,6 +62,7 @@ spec:
                 - monitoring
                 - cert-manager
                 - tailscale
+                - csi-driver-nfs
       validate:
         message: "Sharing the host IPC namespace is not allowed."
         pattern:

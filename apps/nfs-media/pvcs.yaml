@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: media-root
+  namespace: media
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: nfs-media
+  volumeName: media-root-media
+  resources:
+    requests:
+      storage: 25Ti
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: media-root
+  namespace: siloarr
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: nfs-media
+  volumeName: media-root-siloarr
+  resources:
+    requests:
+      storage: 25Ti

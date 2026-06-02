@@ -1,4 +1,4 @@
-apiVersion: helm.toolkit.fluxcd.io/v2beta2
+apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
   name: tailscale-operator
@@ -12,7 +12,13 @@ spec:
         kind: HelmRepository
         name: tailscale
         namespace: flux-system
-      version: "1.90.9"
+      version: "1.98.4"
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
   valuesFrom:
     - kind: Secret
       name: tailscale-auth

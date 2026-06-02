@@ -34,7 +34,7 @@ spec:
           app:
             image:
               repository: lscr.io/linuxserver/sabnzbd
-              tag: "4.5.5"
+              tag: "5.0.3"
             env:
               - name: PUID
                 valueFrom:
@@ -95,11 +95,18 @@ spec:
         existingClaim: sabnzbd-config
         globalMounts:
           - path: /config
+      # Single persistence entry with multiple mounts so kubelet sees one
+      # volume reference per pod (multiple entries pointing to the same PVC
+      # cause WaitForAttachAndMount to hang — see plex-cutover-runbook).
       media:
-        type: hostPath
-        hostPath: /media/rishik/Expansion
+        existingClaim: media-root
         globalMounts:
-          - path: /media
+          - path: /media/torrents
+            subPath: downloads/torrents
+          - path: /media/Movies
+            subPath: movies
+          - path: /media/TV Shows
+            subPath: tv
 
     defaultPodOptions:
       nodeSelector:

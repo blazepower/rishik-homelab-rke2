@@ -162,10 +162,10 @@ spec:
       # Books sync folder - syncs to the calibre library
       books:
         enabled: true
-        type: hostPath
-        hostPath: /media/rishik/Expansion/books
+        existingClaim: media-root
         globalMounts:
           - path: /data/books
+            subPath: books
 
     defaultPodOptions:
       nodeSelector:

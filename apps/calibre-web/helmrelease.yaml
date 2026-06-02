@@ -35,6 +35,9 @@ spec:
           app:
             image:
               repository: lscr.io/linuxserver/calibre-web
+              # PR #146 (renovate) bumped 0.6.24 → 5.33.2 but the 5.33.2 image
+              # has no ENTRYPOINT/CMD and fails with "no command specified".
+              # Pin to last known-good until linuxserver fixes the image config.
               tag: "0.6.24"
             env:
               - name: PUID
@@ -85,11 +88,11 @@ spec:
         existingClaim: calibre-web-config
         globalMounts:
           - path: /config
-      media:
-        type: hostPath
-        hostPath: /media/rishik/Expansion
+      media-books:
+        existingClaim: media-root
         globalMounts:
-          - path: /media
+          - path: /media/books
+            subPath: books
 
     defaultPodOptions:
       nodeSelector:
