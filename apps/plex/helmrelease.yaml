@@ -17,12 +17,12 @@ spec:
   install:
     createNamespace: false
     remediation:
-      retries: 3
-    timeout: 15m
+      retries: 0
+    timeout: 30m
   upgrade:
     remediation:
-      retries: 3
-    timeout: 15m
+      retries: 0
+    timeout: 30m
   values:
     nodeSelector:
       kubernetes.io/hostname: rishik-worker1
@@ -87,14 +87,11 @@ spec:
       - configMapRef:
           name: plex-config
 
+    # Single PVC reference with multiple mounts. Declaring the same PVC under
+    # multiple extraVolumes entries trips a kubelet WaitForAttachAndMount hang
+    # (see docs/charts.md gotcha #1).
     extraVolumes:
-      - name: media-movies
-        persistentVolumeClaim:
-          claimName: media-root
-      - name: media-tv
-        persistentVolumeClaim:
-          claimName: media-root
-      - name: media-books
+      - name: media
         persistentVolumeClaim:
           claimName: media-root
       - name: dri
@@ -103,15 +100,15 @@ spec:
           type: Directory
 
     extraVolumeMounts:
-      - name: media-movies
+      - name: media
         mountPath: /media/Movies
         subPath: movies
         readOnly: true
-      - name: media-tv
+      - name: media
         mountPath: /media/TV Shows
         subPath: tv
         readOnly: true
-      - name: media-books
+      - name: media
         mountPath: /media/books
         subPath: books
         readOnly: true
