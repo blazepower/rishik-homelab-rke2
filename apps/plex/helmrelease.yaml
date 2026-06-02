@@ -27,6 +27,10 @@ spec:
     nodeSelector:
       kubernetes.io/hostname: rishik-worker1
 
+    image:
+      repository: plexinc/pms-docker
+      tag: "1.43.0.10492-121068a07"
+
     pms:
       configExistingClaim: plex-config
       resources:
