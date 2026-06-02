@@ -79,11 +79,11 @@ spec:
         existingClaim: stash-config
         globalMounts:
           - path: /root/.stash
-      media:
-        type: hostPath
-        hostPath: /media/rishik/Expansion
+      media-xxx:
+        existingClaim: media-root
         globalMounts:
-          - path: /media
+          - path: /media/TestX
+            subPath: xxx
 
     defaultPodOptions:
       nodeSelector:

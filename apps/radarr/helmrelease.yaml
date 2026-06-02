@@ -71,11 +71,16 @@ spec:
         existingClaim: radarr-config
         globalMounts:
           - path: /config
-      media:
-        type: hostPath
-        hostPath: /media/rishik/Expansion
+      media-movies:
+        existingClaim: media-root
         globalMounts:
-          - path: /media
+          - path: /media/Movies
+            subPath: movies
+      media-torrents:
+        existingClaim: media-root
+        globalMounts:
+          - path: /media/torrents
+            subPath: downloads/torrents
 
     defaultPodOptions:
       nodeSelector:

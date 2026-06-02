@@ -71,11 +71,16 @@ spec:
         existingClaim: whisparr-config
         globalMounts:
           - path: /config
-      media:
-        type: hostPath
-        hostPath: /media/rishik/Expansion
+      media-xxx:
+        existingClaim: media-root
         globalMounts:
-          - path: /media
+          - path: /media/TestX
+            subPath: xxx
+      media-torrents:
+        existingClaim: media-root
+        globalMounts:
+          - path: /media/torrents
+            subPath: downloads/torrents
 
     defaultPodOptions:
       nodeSelector:

@@ -177,13 +177,34 @@ spec:
           qbittorrent:
             app:
               - path: /config
-      media:
-        type: hostPath
-        hostPath: /media/rishik/Expansion
+      media-torrents:
+        existingClaim: media-root
         advancedMounts:
           qbittorrent:
             app:
-              - path: /media
+              - path: /media/torrents
+                subPath: downloads/torrents
+      media-movies:
+        existingClaim: media-root
+        advancedMounts:
+          qbittorrent:
+            app:
+              - path: /media/Movies
+                subPath: movies
+      media-tv:
+        existingClaim: media-root
+        advancedMounts:
+          qbittorrent:
+            app:
+              - path: /media/TV Shows
+                subPath: tv
+      media-xxx:
+        existingClaim: media-root
+        advancedMounts:
+          qbittorrent:
+            app:
+              - path: /media/TestX
+                subPath: xxx
       gluetun-data:
         type: emptyDir
         advancedMounts:
