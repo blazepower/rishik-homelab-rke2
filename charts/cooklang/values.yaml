@@ -14,7 +14,9 @@ service:
 
 persistence:
   enabled: false
-  hostPath: ""  # Set to a path like /home/rishik/recipes for Syncthing sync
+  hostPath: ""  # Set to a path like /home/rishik/recipes for local-host sync
+  existingClaim: ""  # Set to reuse an existing PVC (e.g. shared media-root); takes precedence over chart-managed PVC
+  subPath: ""  # Optional subPath inside the existingClaim (e.g. "recipes" under media-root)
   storageClass: longhorn
   size: 1Gi
   accessMode: ReadWriteOnce

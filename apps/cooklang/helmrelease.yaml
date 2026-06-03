@@ -29,7 +29,9 @@ spec:
       tag: "0.21.0"
 
     persistence:
-      hostPath: /home/rishik/recipes
+      enabled: true
+      existingClaim: media-root
+      subPath: recipes
 
     # Run as rishik user (UID 1000) to match host folder permissions
     securityContext:
@@ -44,9 +46,6 @@ spec:
 
     podSecurityContext:
       fsGroup: 1000
-
-    nodeSelector:
-      kubernetes.io/hostname: rishik-worker1
 
     env:
       TZ: America/Los_Angeles

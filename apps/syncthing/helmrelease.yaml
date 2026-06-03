@@ -166,7 +166,3 @@ spec:
         globalMounts:
           - path: /data/books
             subPath: books
-
-    defaultPodOptions:
-      nodeSelector:
-        kubernetes.io/hostname: rishik-worker1

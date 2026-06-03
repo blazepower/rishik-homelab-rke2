@@ -81,7 +81,3 @@ spec:
             subPath: movies
           - path: /media/TV Shows
             subPath: tv
-
-    defaultPodOptions:
-      nodeSelector:
-        kubernetes.io/hostname: rishik-worker1
