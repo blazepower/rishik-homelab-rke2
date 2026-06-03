@@ -81,7 +81,3 @@ spec:
             subPath: xxx
           - path: /media/torrents
             subPath: downloads/torrents
-
-    defaultPodOptions:
-      nodeSelector:
-        kubernetes.io/hostname: rishik-worker1

@@ -90,7 +90,5 @@ spec:
             subPath: books
 
     defaultPodOptions:
-      nodeSelector:
-        kubernetes.io/hostname: rishik-worker1
       securityContext:
         fsGroup: 1000

@@ -202,7 +202,3 @@ spec:
             vpn-sync:
               - path: /tmp/gluetun
                 readOnly: true
-
-    defaultPodOptions:
-      nodeSelector:
-        kubernetes.io/hostname: rishik-worker1

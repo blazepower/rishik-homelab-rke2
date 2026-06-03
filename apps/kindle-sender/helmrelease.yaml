@@ -148,8 +148,6 @@ spec:
             interval: 30s
 
     defaultPodOptions:
-      nodeSelector:
-        kubernetes.io/hostname: rishik-worker1
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000

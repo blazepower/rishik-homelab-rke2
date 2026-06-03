@@ -71,7 +71,3 @@ spec:
         existingClaim: overseerr-config
         globalMounts:
           - path: /app/config
-
-    defaultPodOptions:
-      nodeSelector:
-        kubernetes.io/hostname: rishik-worker1

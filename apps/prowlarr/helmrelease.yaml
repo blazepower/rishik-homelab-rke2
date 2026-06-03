@@ -71,7 +71,3 @@ spec:
         existingClaim: prowlarr-config
         globalMounts:
           - path: /config
-
-    defaultPodOptions:
-      nodeSelector:
-        kubernetes.io/hostname: rishik-worker1

@@ -84,7 +84,3 @@ spec:
         globalMounts:
           - path: /media/TestX
             subPath: xxx
-
-    defaultPodOptions:
-      nodeSelector:
-        kubernetes.io/hostname: rishik-worker1

@@ -20,8 +20,6 @@ spec:
             app.kubernetes.io/instance: hardcover-sync
         spec:
           restartPolicy: OnFailure
-          nodeSelector:
-            kubernetes.io/hostname: rishik-worker1
           securityContext:
             runAsNonRoot: true
             runAsUser: 65532
