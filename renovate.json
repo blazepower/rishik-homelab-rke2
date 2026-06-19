@@ -2,20 +2,18 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:recommended",
-    ":disableRateLimiting",
-    ":semanticCommits",
     ":dependencyDashboard",
+    ":semanticCommits",
+    ":timezone(America/Los_Angeles)",
     "helpers:pinGitHubActionDigests"
   ],
-  "timezone": "America/Los_Angeles",
-  "schedule": ["at any time"],
   "labels": ["renovate", "dependencies"],
   "commitMessagePrefix": "chore(deps):",
   "automerge": false,
   "platformAutomerge": false,
   "separateMajorMinor": true,
-  "prHourlyLimit": 0,
-  "prConcurrentLimit": 20,
+  "prHourlyLimit": 4,
+  "prConcurrentLimit": 10,
   "enabledManagers": [
     "flux",
     "helm-values",
@@ -34,7 +32,8 @@
   },
   "helm-values": {
     "managerFilePatterns": [
-      "/(^|/)(apps|infrastructure)/.+helmrelease.*\\.ya?ml$/",
+      "/(^|/)apps/.+\\.ya?ml$/",
+      "/(^|/)infrastructure/.+\\.ya?ml$/",
       "/(^|/)charts/.+/values\\.ya?ml$/"
     ]
   },
@@ -45,9 +44,9 @@
   },
   "kubernetes": {
     "managerFilePatterns": [
-      "/(^|/)clusters/.+\\.ya?ml$/",
-      "/(^|/)infrastructure/node-bootstrap/.+\\.ya?ml$/",
-      "/(^|/)(apps|infrastructure)/.+/(cronjob|deployment|statefulset|daemonset|job|postgresql|pod).*\\.ya?ml$/"
+      "/(^|/)apps/.+\\.ya?ml$/",
+      "/(^|/)infrastructure/.+\\.ya?ml$/",
+      "/(^|/)clusters/.+\\.ya?ml$/"
     ]
   },
   "customManagers": [
@@ -55,7 +54,10 @@
       "customType": "regex",
       "description": "Fallback Docker image repository/tag pairs in YAML",
       "managerFilePatterns": [
-        "/(^|/)charts/.+/templates/.+\\.ya?ml$/"
+        "/(^|/)apps/.+\\.ya?ml$/",
+        "/(^|/)infrastructure/.+\\.ya?ml$/",
+        "/(^|/)clusters/.+\\.ya?ml$/",
+        "/(^|/)charts/.+/(values|templates/.+)\\.ya?ml$/"
       ],
       "matchStrings": [
         "(?m)^\\s*repository:\\s*[\\\"']?(?<depName>[^\\\"'\\s#]+)[\\\"']?\\s*(?:#.*)?\\r?\\n\\s*tag:\\s*[\\\"']?(?<currentValue>[^\\\"'\\s#]+)[\\\"']?"
@@ -67,7 +69,10 @@
       "customType": "regex",
       "description": "Fallback single-line Docker images in YAML",
       "managerFilePatterns": [
-        "/(^|/)charts/.+/templates/.+\\.ya?ml$/"
+        "/(^|/)apps/.+\\.ya?ml$/",
+        "/(^|/)infrastructure/.+\\.ya?ml$/",
+        "/(^|/)clusters/.+\\.ya?ml$/",
+        "/(^|/)charts/.+/(values|templates/.+)\\.ya?ml$/"
       ],
       "matchStrings": [
         "(?m)^\\s*image:\\s*[\\\"']?(?<depName>(?:[\\w.-]+(?::\\d+)?/)?[\\w./-]+):(?<currentValue>[^@\\\"'\\s#]+)(?:@(?<currentDigest>sha256:[a-f0-9]+))?[\\\"']?"
@@ -78,9 +83,30 @@
   ],
   "packageRules": [
     {
+      "description": "Keep minor and patch updates visible but do not automerge by default",
+      "matchUpdateTypes": ["minor", "patch"],
+      "matchCurrentVersion": "!/^0/",
+      "automerge": false
+    },
+    {
       "description": "Label and separate major updates",
       "matchUpdateTypes": ["major"],
       "addLabels": ["major-update"]
+    },
+    {
+      "description": "Label container image updates",
+      "matchDatasources": ["docker"],
+      "addLabels": ["container"]
+    },
+    {
+      "description": "Label Helm chart updates",
+      "matchDatasources": ["helm"],
+      "addLabels": ["helm"]
+    },
+    {
+      "description": "Label Flux-managed updates",
+      "matchManagers": ["flux"],
+      "addLabels": ["flux"]
     },
     {
       "description": "Group GitHub Actions updates",
@@ -126,7 +152,17 @@
       "matchDatasources": ["docker"],
       "matchPackageNames": ["/(^|/)linuxserver\\//"],
       "groupName": "linuxserver-images",
-      "labels": ["renovate", "docker", "linuxserver"]
+      "labels": ["renovate", "container", "linuxserver"]
+    },
+    {
+      "description": "Label media stack images",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": [
+        "fallenbagel/jellyseerr",
+        "sctx/overseerr",
+        "/(^|/)linuxserver/(qbittorrent|sonarr|radarr|prowlarr|sabnzbd)$/"
+      ],
+      "addLabels": ["media-stack"]
     },
     {
       "description": "Group arr stack images",
@@ -136,7 +172,7 @@
         "/(^|/)(sonarr|radarr|prowlarr|bazarr|overseerr|whisparr)(:|$)/"
       ],
       "groupName": "arr-stack",
-      "labels": ["renovate", "docker", "arr-stack"]
+      "labels": ["renovate", "container", "arr-stack"]
     },
     {
       "description": "Pin known rolling Docker tags to digests",
@@ -174,19 +210,6 @@
       "matchPackageNames": ["ghcr.io/we-promise/sure"],
       "ignoreUnstable": false,
       "respectLatest": false
-    },
-    {
-      "description": "Automerge digest updates",
-      "matchUpdateTypes": ["digest"],
-      "automerge": true,
-      "automergeType": "pr"
-    },
-    {
-      "description": "Automerge low-risk patch updates",
-      "matchUpdateTypes": ["patch"],
-      "automerge": true,
-      "automergeType": "pr",
-      "matchPackageNames": ["!cert-manager", "!kyverno", "!longhorn"]
     }
   ],
   "ignoreDeps": [
