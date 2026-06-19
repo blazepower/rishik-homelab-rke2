@@ -19,6 +19,8 @@ spec:
         checksum/config-widgets: {{ include (print $.Template.BasePath "/configmap-widgets.yaml") . | sha256sum }}
         checksum/config-settings: {{ include (print $.Template.BasePath "/configmap-settings.yaml") . | sha256sum }}
         checksum/config-kubernetes: {{ include (print $.Template.BasePath "/configmap-kubernetes.yaml") . | sha256sum }}
+        checksum/config-bookmarks: {{ include (print $.Template.BasePath "/configmap-bookmarks.yaml") . | sha256sum }}
+        checksum/config-docker: {{ include (print $.Template.BasePath "/configmap-docker.yaml") . | sha256sum }}
       labels:
         {{- include "homepage.selectorLabels" . | nindent 8 }}
     spec:
@@ -51,6 +53,12 @@ spec:
             - name: config-kubernetes
               mountPath: /app/config/kubernetes.yaml
               subPath: kubernetes.yaml
+            - name: config-bookmarks
+              mountPath: /app/config/bookmarks.yaml
+              subPath: bookmarks.yaml
+            - name: config-docker
+              mountPath: /app/config/docker.yaml
+              subPath: docker.yaml
             - name: logs
               mountPath: /app/config/logs
           resources:
@@ -72,5 +80,11 @@ spec:
         - name: config-kubernetes
           configMap:
             name: {{ include "homepage.fullname" . }}-kubernetes
+        - name: config-bookmarks
+          configMap:
+            name: {{ include "homepage.fullname" . }}-bookmarks
+        - name: config-docker
+          configMap:
+            name: {{ include "homepage.fullname" . }}-docker
         - name: logs
           emptyDir: {}
