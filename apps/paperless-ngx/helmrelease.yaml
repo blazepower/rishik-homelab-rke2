@@ -24,9 +24,7 @@ spec:
       retries: 3
     timeout: 10m
   values:
-    # Use pinned version, not latest
-    image:
-      tag: "2.13.5"
+    # Image tag is pinned in charts/paperless-ngx/values.yaml (Renovate-managed)
 
     # Environment variables are already set in chart defaults
     # No need to override unless different from defaults
