@@ -1,0 +1,94 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: rke2-node-bootstrap-kubelet-config
+  namespace: kube-system
+  labels:
+    app: rke2-node-bootstrap-kubelet-config
+spec:
+  selector:
+    matchLabels:
+      app: rke2-node-bootstrap-kubelet-config
+  template:
+    metadata:
+      labels:
+        app: rke2-node-bootstrap-kubelet-config
+    spec:
+      hostPID: true
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: installer
+          image: ubuntu:22.04
+          securityContext:
+            privileged: true
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -euo pipefail
+              CONF_DIR=/host/etc/rancher/rke2/config.yaml.d
+              CONF_FILE="${CONF_DIR}/99-max-pods.yaml"
+              mkdir -p "${CONF_DIR}"
+              if ! cmp -s /scripts/99-max-pods.yaml "${CONF_FILE}" 2>/dev/null; then
+                cp /scripts/99-max-pods.yaml "${CONF_FILE}"
+                chmod 0644 "${CONF_FILE}"
+                echo "[BOOTSTRAP] kubelet config written to ${CONF_FILE}"
+                echo "[BOOTSTRAP] NOTE: requires 'systemctl restart rke2-agent' (worker)"
+                echo "[BOOTSTRAP] NOTE: or 'systemctl restart rke2-server' (control-plane)"
+                echo "[BOOTSTRAP] NOTE: kured reboots will also pick this up automatically."
+              else
+                echo "[BOOTSTRAP] kubelet config already up to date at ${CONF_FILE}"
+              fi
+              touch /tmp/healthy
+              sleep infinity
+          resources:
+            requests:
+              cpu: "10m"
+              memory: "32Mi"
+            limits:
+              cpu: "50m"
+              memory: "64Mi"
+          livenessProbe:
+            exec:
+              command:
+                - cat
+                - /tmp/healthy
+            initialDelaySeconds: 30
+            periodSeconds: 60
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - test
+                - -f
+                - /host/etc/rancher/rke2/config.yaml.d/99-max-pods.yaml
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            failureThreshold: 3
+          volumeMounts:
+            - name: host-root
+              mountPath: /host
+            - name: script-files
+              mountPath: /scripts
+      volumes:
+        - name: host-root
+          hostPath:
+            path: /
+        - name: script-files
+          configMap:
+            name: kubelet-config-cm
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kubelet-config-cm
+  namespace: kube-system
+data:
+  99-max-pods.yaml: |
+    # Managed by GitOps (infrastructure/node-bootstrap/kubelet-config).
+    # Raises kubelet maxPods well above the default 110 so worker1 can host
+    # the full media + tailscale-operator + storage stack without scheduling
+    # pressure. RKE2 merges all files in /etc/rancher/rke2/config.yaml.d/.
+    kubelet-arg:
+      - "max-pods=250"
