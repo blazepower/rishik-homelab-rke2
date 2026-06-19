@@ -57,6 +57,10 @@ config:
   kubernetes:
     mode: cluster
 
+  # Optional Homepage config files required by newer releases.
+  bookmarks: []
+  docker: {}
+
   # Services configuration
   services:
     - Media:
