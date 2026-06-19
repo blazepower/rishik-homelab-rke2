@@ -66,6 +66,10 @@ spec:
                   name: {{ .Values.existingSecret }}
                   key: paperless-admin-password
           volumeMounts:
+            - name: run
+              mountPath: /run
+            - name: tmp
+              mountPath: /tmp
             - name: data
               mountPath: /usr/src/paperless/data
             - name: media
@@ -81,6 +85,13 @@ spec:
           readinessProbe:
             {{- toYaml .Values.readinessProbe | nindent 12 }}
       volumes:
+        - name: run
+          emptyDir:
+            medium: Memory
+            sizeLimit: 64Mi
+        - name: tmp
+          emptyDir:
+            sizeLimit: 1Gi
         - name: data
           persistentVolumeClaim:
             claimName: {{ include "paperless-ngx.fullname" . }}-data
