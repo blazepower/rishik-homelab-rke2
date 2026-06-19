@@ -59,6 +59,15 @@ spec:
             - name: config-docker
               mountPath: /app/config/docker.yaml
               subPath: docker.yaml
+            - name: config-custom-css
+              mountPath: /app/config/custom.css
+              subPath: custom.css
+            - name: config-custom-js
+              mountPath: /app/config/custom.js
+              subPath: custom.js
+            - name: config-proxmox
+              mountPath: /app/config/proxmox.yaml
+              subPath: proxmox.yaml
             - name: logs
               mountPath: /app/config/logs
           resources:
@@ -86,5 +95,14 @@ spec:
         - name: config-docker
           configMap:
             name: {{ include "homepage.fullname" . }}-docker
+        - name: config-custom-css
+          configMap:
+            name: {{ include "homepage.fullname" . }}-custom-css
+        - name: config-custom-js
+          configMap:
+            name: {{ include "homepage.fullname" . }}-custom-js
+        - name: config-proxmox
+          configMap:
+            name: {{ include "homepage.fullname" . }}-proxmox
         - name: logs
           emptyDir: {}

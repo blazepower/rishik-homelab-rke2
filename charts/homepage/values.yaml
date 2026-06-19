@@ -60,6 +60,7 @@ config:
   # Optional Homepage config files required by newer releases.
   bookmarks: []
   docker: {}
+  proxmox: {}
 
   # Services configuration
   services:
@@ -267,14 +268,16 @@ livenessProbe:
   httpGet:
     path: /
     port: 3000
-  initialDelaySeconds: 10
-  periodSeconds: 10
-  failureThreshold: 3
+  initialDelaySeconds: 30
+  periodSeconds: 15
+  timeoutSeconds: 5
+  failureThreshold: 5
 
 readinessProbe:
   httpGet:
     path: /
     port: 3000
-  initialDelaySeconds: 5
-  periodSeconds: 10
-  failureThreshold: 3
+  initialDelaySeconds: 10
+  periodSeconds: 15
+  timeoutSeconds: 5
+  failureThreshold: 5
