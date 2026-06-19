@@ -1,10 +1,12 @@
-# Overseerr
+# Overseerr → Seerr
 
-Overseerr is a request management and media discovery tool built to work with your existing Plex ecosystem. It provides a user-friendly interface for requesting new content.
+This deployment now runs **[Seerr](https://github.com/seerr-team/seerr)** (`ghcr.io/seerr-team/seerr`), the actively maintained successor to Overseerr/Jellyseerr. On first boot, Seerr automatically migrates the existing Overseerr SQLite DB (`/app/config/db/db.sqlite3`) and `settings.json` — no manual steps required.
+
+The Helm release name, deployment name, PVC (`overseerr-config`), Service, and Ingress hostname are intentionally **kept as `overseerr`** to avoid breaking Flux state, ingress URLs, and dependent apps (Sonarr/Radarr webhooks, Homepage widgets). Rename later if desired.
 
 ## Overview
 
-This deployment uses the [bjw-s app-template Helm chart](https://github.com/bjw-s/helm-charts/tree/main/charts/other/app-template) with the linuxserver.io Overseerr container image.
+This deployment uses the [bjw-s app-template Helm chart](https://github.com/bjw-s/helm-charts/tree/main/charts/other/app-template) with the official Seerr container image.
 
 ## Configuration
 
@@ -14,7 +16,7 @@ This deployment uses the [bjw-s app-template Helm chart](https://github.com/bjw-
 | **Node** | `rishik-worker1` (pinned via nodeSelector) |
 | **Storage Class** | `longhorn` |
 | **Config PVC Size** | 1Gi |
-| **User/Group** | PUID=1000, PGID=1000 |
+| **User/Group** | runAsUser=1000 / runAsGroup=1000 (image's `node` user; PUID/PGID env removed — no longer applicable) |
 | **Timezone** | America/Los_Angeles |
 | **Service Type** | ClusterIP (internal only) |
 | **Ingress** | `overseerr.homelab` |
