@@ -3,6 +3,7 @@ kind: Kustomization
 resources:
   - configmap.yaml
   - sealedsecret-vpn.yaml
+  - sealedsecret-mam-credentials.yaml
   - pvc.yaml
   - helmrelease.yaml
   - certificate.yaml
