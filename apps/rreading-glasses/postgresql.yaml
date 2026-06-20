@@ -27,7 +27,7 @@ spec:
         fsGroup: 999
       containers:
         - name: postgresql
-          image: postgres:16.6-alpine
+          image: postgres:16.14-alpine
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 5432
