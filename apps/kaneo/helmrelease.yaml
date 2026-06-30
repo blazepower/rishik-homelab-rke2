@@ -53,7 +53,7 @@ spec:
     api:
       image:
         repository: ghcr.io/usekaneo/api
-        tag: "v2.1.23"
+        tag: "2.9.0"
         pullPolicy: IfNotPresent
       service:
         type: ClusterIP
