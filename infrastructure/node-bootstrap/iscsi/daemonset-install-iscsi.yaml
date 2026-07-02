@@ -17,7 +17,7 @@ spec:
         - operator: Exists
       containers:
         - name: installer
-          image: ubuntu:22.04
+          image: ubuntu:26.04
           securityContext:
             privileged: true
           command:
