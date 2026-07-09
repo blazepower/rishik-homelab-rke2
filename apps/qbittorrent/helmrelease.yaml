@@ -121,7 +121,7 @@ spec:
             dependsOn: gluetun
             image:
               repository: curlimages/curl
-              tag: "8.11.1"
+              tag: "8.21.0"
             env:
               - name: MAM_ID
                 valueFrom:
