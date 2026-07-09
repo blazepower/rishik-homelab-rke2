@@ -111,12 +111,15 @@ spec:
 
     service:
       app:
+        primary: false
         controller: syncthing
         type: ClusterIP
         ports:
           http:
             port: 8384
       sync:
+        primary: true
+        nameOverride: sync
         controller: syncthing
         type: LoadBalancer
         ports:
