@@ -1,0 +1,102 @@
+name: 'Setup Kubernetes JSON Schemas'
+description: >-
+  Fetches standard Kubernetes JSON schemas (yannh/kubernetes-json-schema) and
+  the datreeio CRDs catalog into local cached directories, so kubeconform runs
+  do not depend on live raw.githubusercontent.com fetches at validation time.
+  This eliminates flaky CI failures caused by 429 rate-limits and TLS-cert
+  breakage on the kubernetesjsonschema.dev fallback host.
+
+inputs:
+  kubernetes-version:
+    description: 'Kubernetes version to fetch standalone-strict schemas for (e.g. 1.29.0)'
+    required: true
+
+outputs:
+  k8s-schemas-dir:
+    description: 'Directory containing standard Kubernetes schemas'
+    value: /tmp/k8s-schemas
+  crds-catalog-dir:
+    description: 'Directory containing datreeio CRD schemas'
+    value: /tmp/crds-catalog
+
+runs:
+  using: composite
+  steps:
+    - name: Cache k8s + CRD schemas
+      id: cache
+      uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+      with:
+        path: |
+          /tmp/k8s-schemas
+          /tmp/crds-catalog
+        # Bump the cache-key suffix if you upgrade Kubernetes version or want
+        # to force a refresh of the datreeio CRD catalog.
+        key: k8s-crd-schemas-${{ inputs.kubernetes-version }}-v1
+        restore-keys: |
+          k8s-crd-schemas-${{ inputs.kubernetes-version }}-
+          k8s-crd-schemas-
+
+    - name: Fetch k8s core schemas (yannh/kubernetes-json-schema)
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        rm -rf /tmp/k8s-schemas
+        # Retry the clone up to 5 times with exponential backoff because
+        # github.com occasionally rate-limits unauthenticated git fetches.
+        for attempt in 1 2 3 4 5; do
+          if git clone --depth=1 --filter=blob:none --sparse \
+              https://github.com/yannh/kubernetes-json-schema.git \
+              /tmp/k8s-schemas; then
+            break
+          fi
+          echo "yannh/kubernetes-json-schema clone attempt ${attempt} failed; sleeping..."
+          rm -rf /tmp/k8s-schemas
+          sleep $((attempt * 15))
+        done
+        if [[ ! -d /tmp/k8s-schemas/.git ]]; then
+          echo "::error::Failed to clone yannh/kubernetes-json-schema after 5 attempts"
+          exit 1
+        fi
+        cd /tmp/k8s-schemas
+        git sparse-checkout set \
+          "v${{ inputs.kubernetes-version }}-standalone-strict" \
+          "master-standalone-strict"
+
+    - name: Fetch datreeio CRDs catalog
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        rm -rf /tmp/crds-catalog
+        for attempt in 1 2 3 4 5; do
+          if git clone --depth=1 \
+              https://github.com/datreeio/CRDs-catalog.git \
+              /tmp/crds-catalog; then
+            break
+          fi
+          echo "datreeio/CRDs-catalog clone attempt ${attempt} failed; sleeping..."
+          rm -rf /tmp/crds-catalog
+          sleep $((attempt * 15))
+        done
+        if [[ ! -d /tmp/crds-catalog/.git ]]; then
+          echo "::error::Failed to clone datreeio/CRDs-catalog after 5 attempts"
+          exit 1
+        fi
+
+    - name: Verify schema directories
+      shell: bash
+      run: |
+        set -euo pipefail
+        expected="/tmp/k8s-schemas/v${{ inputs.kubernetes-version }}-standalone-strict"
+        if [[ ! -d "$expected" ]]; then
+          echo "::error::Expected schema directory $expected not found. Cache may be stale — bump the cache key."
+          ls /tmp/k8s-schemas || true
+          exit 1
+        fi
+        if [[ ! -d /tmp/crds-catalog ]]; then
+          echo "::error::CRDs catalog directory not found at /tmp/crds-catalog"
+          exit 1
+        fi
+        echo "k8s schemas: $(find "$expected" -maxdepth 1 -name '*.json' | wc -l) files"
+        echo "CRDs catalog: $(find /tmp/crds-catalog -maxdepth 3 -name '*.json' | wc -l) files"
