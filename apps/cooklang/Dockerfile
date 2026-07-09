@@ -1,5 +1,5 @@
 # Stage 1: Download cookcli binary
-FROM alpine:3.21 AS builder
+FROM alpine:3.24 AS builder
 
 ARG TARGETARCH
 ARG COOKCLI_VERSION=0.21.0
