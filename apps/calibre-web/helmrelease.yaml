@@ -38,7 +38,7 @@ spec:
               # PR #146 (renovate) bumped 0.6.24 → 5.33.2 but the 5.33.2 image
               # has no ENTRYPOINT/CMD and fails with "no command specified".
               # Pin to last known-good until linuxserver fixes the image config.
-              tag: "0.6.24"
+              tag: "5.33.2"
             env:
               - name: PUID
                 valueFrom:
