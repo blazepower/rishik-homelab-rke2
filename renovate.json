@@ -109,6 +109,12 @@
       "addLabels": ["flux"]
     },
     {
+      "description": "gotk-components.yaml is managed via `flux install --export`; use a coordinated Flux distribution bump PR instead of per-controller Renovate PRs.",
+      "matchFileNames": ["clusters/**/flux-system/gotk-components.yaml"],
+      "matchPackageNames": ["/^ghcr\\.io\\/fluxcd\\//"],
+      "enabled": false
+    },
+    {
       "description": "Group GitHub Actions updates",
       "matchManagers": ["github-actions"],
       "groupName": "github-actions",

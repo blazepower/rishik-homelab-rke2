@@ -46,6 +46,22 @@ held `tag: 5.33.2`. Every reconcile therefore restored the broken image.
   upstream `0.6.x` stream.
 - **LinuxServer major bumps require Dependency Dashboard approval** — their
   tagging scheme varies per image and majors have burned us before.
+- **Flux controller images in `gotk-components.yaml` are disabled** —
+  regenerate the whole Flux distribution instead of taking per-controller PRs.
+
+## Flux distribution bumps
+
+At the Flux 2.8→2.9 boundary, separate Renovate PRs tried to bump
+helm-controller, kustomize-controller, and source-controller images while
+leaving the generated CRDs and notification-controller on Flux 2.8.8. Avoid
+that mixed-version state by closing per-controller PRs and opening one
+coordinated PR generated with:
+
+```powershell
+flux install --export --version=<flux-vX.Y.Z> > clusters\production\flux-system\gotk-components.yaml
+```
+
+Review the generated CRD, RBAC, and controller image changes together.
 
 ## When to add more guardrails
 
