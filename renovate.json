@@ -199,10 +199,31 @@
       "versioning": "loose"
     },
     {
-      "description": "Plex image tags use loose versioning",
+      "description": "Plex image tags use loose versioning; reject arch-suffixed tags (amd64 tag is bare, others are -armhf/-arm64v8/-aarch64) so Renovate cannot silently swap architectures. See docs/renovate-guardrails.md.",
       "matchDatasources": ["docker"],
       "matchPackageNames": ["plexinc/pms-docker"],
-      "versioning": "loose"
+      "versioning": "loose",
+      "allowedVersions": "!/-(armhf|arm64v8|aarch64|arm)$/"
+    },
+    {
+      "description": "linuxserver/calibre-web only publishes real releases in the 0.x stream; the 5.x tags are orphaned 2021 pushes with a broken OCI config (no ENTRYPOINT). Use loose versioning so LinuxServer's `-lsNNN` build suffix isn't treated as a semver prerelease and excluded. See docs/renovate-guardrails.md.",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["lscr.io/linuxserver/calibre-web"],
+      "versioning": "loose",
+      "allowedVersions": "<1.0.0"
+    },
+    {
+      "description": "LinuxServer images: reject arch-prefixed tags (e.g. amd64-<ver>, arm64v8-<ver>) so Renovate can't silently swap architectures. Symmetric to the Plex guard above; covers bazarr/prowlarr/radarr/sonarr/sabnzbd/qbittorrent/etc.",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["/(^|/)linuxserver\\//"],
+      "allowedVersions": "!/^(amd64|arm64v8|arm32v7|arm32v6|aarch64)-/"
+    },
+    {
+      "description": "LinuxServer images: require Dependency Dashboard approval for major bumps. Their tagging scheme is inconsistent across images and majors have caused breakage before (e.g. calibre-web 0.6.x -> 5.33.x).",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["/(^|/)linuxserver\\//"],
+      "matchUpdateTypes": ["major"],
+      "dependencyDashboardApproval": true
     },
     {
       "description": "Sure Finance publishes prerelease tags",

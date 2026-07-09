@@ -35,9 +35,14 @@ spec:
           app:
             image:
               repository: lscr.io/linuxserver/calibre-web
-              # PR #146 (renovate) bumped 0.6.24 → 5.33.2 but the 5.33.2 image
-              # has no ENTRYPOINT/CMD and fails with "no command specified".
-              # Pin to last known-good until linuxserver fixes the image config.
+              # Pinned to 0.6.x — see docs/renovate-guardrails.md.
+              # LinuxServer's real calibre-web release stream is 0.6.x
+              # (current 0.6.26). The 5.x tags are orphaned 2021 pushes
+              # with a broken OCI config (no ENTRYPOINT/CMD, amd64-only).
+              # Semver-wise 5.x > 0.6.x so Renovate has re-selected them
+              # twice already (PR #146 and PR #185). The
+              # `allowedVersions: "<1.0.0"` rule in renovate.json now
+              # prevents recurrence.
               tag: "0.6.24"
             env:
               - name: PUID

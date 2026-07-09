@@ -30,6 +30,12 @@ permissions:
 env:
   KUBERNETES_VERSION: "1.29.0"
   KUSTOMIZE_VERSION: "5.4.2"
+  # Schemas are fetched into local caches by .github/actions/setup-k8s-schemas
+  # so kubeconform runs never hit raw.githubusercontent.com (429 rate limits)
+  # or kubernetesjsonschema.dev (broken TLS cert) at validation time.
+  KUBERNETES_SCHEMA_LOCATION: "/tmp/k8s-schemas/v1.29.0-standalone-strict/{{.ResourceKind}}{{.KindSuffix}}.json"
+  KUBERNETES_SCHEMA_LOCATION_FALLBACK: "/tmp/k8s-schemas/master-standalone-strict/{{.ResourceKind}}{{.KindSuffix}}.json"
+  CRDS_CATALOG_SCHEMA_LOCATION: "/tmp/crds-catalog/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json"
 
 jobs:
   yaml-lint:
@@ -105,15 +111,21 @@ jobs:
           mkdir -p /tmp/flux-schemas
           curl -sL https://github.com/fluxcd/flux2/releases/latest/download/crd-schemas.tar.gz | tar zxf - -C /tmp/flux-schemas
 
+      - name: Set up local k8s + CRD schemas
+        uses: ./.github/actions/setup-k8s-schemas
+        with:
+          kubernetes-version: ${{ env.KUBERNETES_VERSION }}
+
       - name: Validate apps with kubeconform
         run: |
           find apps -name '*.yaml' -type f ! -name 'kustomization.yaml' | xargs -I {} kubeconform \
             -strict \
             -ignore-missing-schemas \
             -kubernetes-version ${{ env.KUBERNETES_VERSION }} \
-            -schema-location default \
+            -schema-location '${{ env.KUBERNETES_SCHEMA_LOCATION }}' \
+            -schema-location '${{ env.KUBERNETES_SCHEMA_LOCATION_FALLBACK }}' \
             -schema-location '/tmp/flux-schemas/{{ .ResourceKind }}{{ .KindSuffix }}.json' \
-            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
+            -schema-location '${{ env.CRDS_CATALOG_SCHEMA_LOCATION }}' \
             -summary \
             {}
 
@@ -123,9 +135,10 @@ jobs:
             -strict \
             -ignore-missing-schemas \
             -kubernetes-version ${{ env.KUBERNETES_VERSION }} \
-            -schema-location default \
+            -schema-location '${{ env.KUBERNETES_SCHEMA_LOCATION }}' \
+            -schema-location '${{ env.KUBERNETES_SCHEMA_LOCATION_FALLBACK }}' \
             -schema-location '/tmp/flux-schemas/{{ .ResourceKind }}{{ .KindSuffix }}.json' \
-            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
+            -schema-location '${{ env.CRDS_CATALOG_SCHEMA_LOCATION }}' \
             -summary \
             {}
 
@@ -135,9 +148,10 @@ jobs:
             -strict \
             -ignore-missing-schemas \
             -kubernetes-version ${{ env.KUBERNETES_VERSION }} \
-            -schema-location default \
+            -schema-location '${{ env.KUBERNETES_SCHEMA_LOCATION }}' \
+            -schema-location '${{ env.KUBERNETES_SCHEMA_LOCATION_FALLBACK }}' \
             -schema-location '/tmp/flux-schemas/{{ .ResourceKind }}{{ .KindSuffix }}.json' \
-            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
+            -schema-location '${{ env.CRDS_CATALOG_SCHEMA_LOCATION }}' \
             -summary \
             {}
 
@@ -184,11 +198,10 @@ jobs:
           mkdir -p /tmp/flux-schemas
           curl -sL https://github.com/fluxcd/flux2/releases/latest/download/crd-schemas.tar.gz | tar zxf - -C /tmp/flux-schemas
 
-      - name: Download Kubernetes schemas
-        run: |
-          mkdir -p /tmp/kubernetes-json-schema /tmp/kubeconform-cache
-          curl -sL https://github.com/yannh/kubernetes-json-schema/archive/refs/heads/master.tar.gz \
-            | tar xzf - -C /tmp/kubernetes-json-schema --strip-components=1 --wildcards '*/v${{ env.KUBERNETES_VERSION }}-standalone-strict/*'
+      - name: Set up local k8s + CRD schemas
+        uses: ./.github/actions/setup-k8s-schemas
+        with:
+          kubernetes-version: ${{ env.KUBERNETES_VERSION }}
 
       - name: Dry run apps manifests
         run: |
@@ -200,12 +213,11 @@ jobs:
             kubeconform \
               -strict \
               -ignore-missing-schemas \
-              -n 1 \
-              -cache /tmp/kubeconform-cache \
               -kubernetes-version ${{ env.KUBERNETES_VERSION }} \
-              -schema-location '/tmp/kubernetes-json-schema/v${{ env.KUBERNETES_VERSION }}-standalone-strict/{{ .ResourceKind }}{{ .KindSuffix }}.json' \
+              -schema-location '${{ env.KUBERNETES_SCHEMA_LOCATION }}' \
+              -schema-location '${{ env.KUBERNETES_SCHEMA_LOCATION_FALLBACK }}' \
               -schema-location '/tmp/flux-schemas/{{ .ResourceKind }}{{ .KindSuffix }}.json' \
-              -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
+              -schema-location '${{ env.CRDS_CATALOG_SCHEMA_LOCATION }}' \
               -summary \
               /tmp/apps-manifests.yaml
           else
@@ -222,12 +234,11 @@ jobs:
             kubeconform \
               -strict \
               -ignore-missing-schemas \
-              -n 1 \
-              -cache /tmp/kubeconform-cache \
               -kubernetes-version ${{ env.KUBERNETES_VERSION }} \
-              -schema-location '/tmp/kubernetes-json-schema/v${{ env.KUBERNETES_VERSION }}-standalone-strict/{{ .ResourceKind }}{{ .KindSuffix }}.json' \
+              -schema-location '${{ env.KUBERNETES_SCHEMA_LOCATION }}' \
+              -schema-location '${{ env.KUBERNETES_SCHEMA_LOCATION_FALLBACK }}' \
               -schema-location '/tmp/flux-schemas/{{ .ResourceKind }}{{ .KindSuffix }}.json' \
-              -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
+              -schema-location '${{ env.CRDS_CATALOG_SCHEMA_LOCATION }}' \
               -summary \
               /tmp/infrastructure-manifests.yaml
           else
@@ -243,10 +254,9 @@ jobs:
               echo "Validating $file..."
               kubeconform \
                 -strict \
-                -n 1 \
-                -cache /tmp/kubeconform-cache \
                 -kubernetes-version ${{ env.KUBERNETES_VERSION }} \
-                -schema-location '/tmp/kubernetes-json-schema/v${{ env.KUBERNETES_VERSION }}-standalone-strict/{{ .ResourceKind }}{{ .KindSuffix }}.json' \
+                -schema-location '${{ env.KUBERNETES_SCHEMA_LOCATION }}' \
+                -schema-location '${{ env.KUBERNETES_SCHEMA_LOCATION_FALLBACK }}' \
                 "$file"
               if [[ $? -eq 0 ]]; then
                 echo "  ✓ $file passes validation"
@@ -271,12 +281,11 @@ jobs:
               kubeconform \
                 -strict \
                 -ignore-missing-schemas \
-                -n 1 \
-                -cache /tmp/kubeconform-cache \
                 -kubernetes-version ${{ env.KUBERNETES_VERSION }} \
-                -schema-location '/tmp/kubernetes-json-schema/v${{ env.KUBERNETES_VERSION }}-standalone-strict/{{ .ResourceKind }}{{ .KindSuffix }}.json' \
+                -schema-location '${{ env.KUBERNETES_SCHEMA_LOCATION }}' \
+                -schema-location '${{ env.KUBERNETES_SCHEMA_LOCATION_FALLBACK }}' \
                 -schema-location '/tmp/flux-schemas/{{ .ResourceKind }}{{ .KindSuffix }}.json' \
-                -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
+                -schema-location '${{ env.CRDS_CATALOG_SCHEMA_LOCATION }}' \
                 -summary \
                 /tmp/logging-manifests.yaml
               echo "Logging manifests validation complete"
@@ -297,12 +306,11 @@ jobs:
             kubeconform \
               -strict \
               -ignore-missing-schemas \
-              -n 1 \
-              -cache /tmp/kubeconform-cache \
               -kubernetes-version ${{ env.KUBERNETES_VERSION }} \
-              -schema-location '/tmp/kubernetes-json-schema/v${{ env.KUBERNETES_VERSION }}-standalone-strict/{{ .ResourceKind }}{{ .KindSuffix }}.json' \
+              -schema-location '${{ env.KUBERNETES_SCHEMA_LOCATION }}' \
+              -schema-location '${{ env.KUBERNETES_SCHEMA_LOCATION_FALLBACK }}' \
               -schema-location '/tmp/flux-schemas/{{ .ResourceKind }}{{ .KindSuffix }}.json' \
-              -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
+              -schema-location '${{ env.CRDS_CATALOG_SCHEMA_LOCATION }}' \
               -summary \
               /tmp/clusters-manifests.yaml
             echo "Cluster manifests validation passed"
