@@ -101,7 +101,7 @@ spec:
     web:
       image:
         repository: ghcr.io/usekaneo/web
-        tag: "v2.1.23"
+        tag: "2.9.0"
         pullPolicy: IfNotPresent
       env:
         apiUrl: "https://kaneo.homelab"
