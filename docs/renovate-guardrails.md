@@ -18,7 +18,7 @@ Two workloads were simultaneously in a failed state:
 
 1. **Plex** — `plexinc/pms-docker` publishes per-arch tags where the amd64
    variant is the *bare* tag (`1.43.2.10687-<sha>`) and other architectures
-   use suffixes (`-armhf`, `-arm64v8`, `-aarch64`). Renovate has no way to
+   use suffixes (`-armhf`, `-arm64`, `-arm64v8`, `-aarch64`). Renovate has no way to
    know a `-armhf` suffix means "different architecture" rather than
    "newer build metadata", so PR #166 updated our (amd64) cluster to the
    ARMv7 image, which fails immediately at exec time.
@@ -40,12 +40,29 @@ held `tag: 5.33.2`. Every reconcile therefore restored the broken image.
 ## Guardrails now in `renovate.json`
 
 - **Plex `allowedVersions`** rejects any tag ending in an architecture
-  suffix (`-armhf`, `-arm64v8`, `-aarch64`, `-arm`). Only the bare (amd64)
-  tag stream is considered.
+  suffix (`-armhf`, `-arm64`, `-arm64v8`, `-arm32v7`, `-arm32v6`,
+  `-aarch64`, `-amd64`). Only the bare (amd64) tag stream is considered.
 - **calibre-web `allowedVersions: "<1.0.0"`** confines Renovate to the real
   upstream `0.6.x` stream.
+- **LinuxServer `allowedVersions`** rejects common architecture prefixes and
+  suffixes (`amd64`, `arm64v8`, `arm32v7`, `arm32v6`, `aarch64`, `arm64`,
+  `arm`, `i386`, `x86_64`) so Renovate does not select a single-arch tag.
 - **LinuxServer major bumps require Dependency Dashboard approval** — their
   tagging scheme varies per image and majors have burned us before.
+
+> **PR #192 regression:** PR #187 added the Plex suffix denylist as
+> `!/(armhf|arm64v8|aarch64|arm)$/`, but omitted the exact `arm64`
+> alternation. Because `$` anchored immediately after `arm`, `-arm64` did not
+> match either `arm` or `arm64v8`, and Renovate opened PR #192 for the
+> arm64-only tag `1.43.2.10687-563d026ea-arm64`. The guard now includes the
+> full suffix list and is covered by automated tests.
+
+## Automated guardrail tests
+
+`.github/scripts/test-renovate-guards.py` parses `renovate.json`, finds
+negated-regex `allowedVersions` rules, and verifies known-bad arch variants
+are rejected while normal tags are allowed. CI runs it as the fast
+`renovate-guardrails-test` job.
 
 ## When to add more guardrails
 
