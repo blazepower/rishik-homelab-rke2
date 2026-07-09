@@ -30,6 +30,7 @@ permissions:
 env:
   KUBERNETES_VERSION: "1.29.0"
   KUSTOMIZE_VERSION: "5.4.2"
+  KUBERNETES_SCHEMA_LOCATION: "https://kubernetesjsonschema.dev/{{.NormalizedKubernetesVersion}}-standalone{{.StrictSuffix}}/{{.ResourceKind}}{{.KindSuffix}}.json"
 
 jobs:
   yaml-lint:
@@ -111,7 +112,7 @@ jobs:
             -strict \
             -ignore-missing-schemas \
             -kubernetes-version ${{ env.KUBERNETES_VERSION }} \
-            -schema-location default \
+            -schema-location '${{ env.KUBERNETES_SCHEMA_LOCATION }}' \
             -schema-location '/tmp/flux-schemas/{{ .ResourceKind }}{{ .KindSuffix }}.json' \
             -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
             -summary \
@@ -123,7 +124,7 @@ jobs:
             -strict \
             -ignore-missing-schemas \
             -kubernetes-version ${{ env.KUBERNETES_VERSION }} \
-            -schema-location default \
+            -schema-location '${{ env.KUBERNETES_SCHEMA_LOCATION }}' \
             -schema-location '/tmp/flux-schemas/{{ .ResourceKind }}{{ .KindSuffix }}.json' \
             -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
             -summary \
@@ -135,7 +136,7 @@ jobs:
             -strict \
             -ignore-missing-schemas \
             -kubernetes-version ${{ env.KUBERNETES_VERSION }} \
-            -schema-location default \
+            -schema-location '${{ env.KUBERNETES_SCHEMA_LOCATION }}' \
             -schema-location '/tmp/flux-schemas/{{ .ResourceKind }}{{ .KindSuffix }}.json' \
             -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
             -summary \
@@ -195,7 +196,7 @@ jobs:
               -strict \
               -ignore-missing-schemas \
               -kubernetes-version ${{ env.KUBERNETES_VERSION }} \
-              -schema-location default \
+              -schema-location '${{ env.KUBERNETES_SCHEMA_LOCATION }}' \
               -schema-location '/tmp/flux-schemas/{{ .ResourceKind }}{{ .KindSuffix }}.json' \
               -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
               -summary \
@@ -215,7 +216,7 @@ jobs:
               -strict \
               -ignore-missing-schemas \
               -kubernetes-version ${{ env.KUBERNETES_VERSION }} \
-              -schema-location default \
+              -schema-location '${{ env.KUBERNETES_SCHEMA_LOCATION }}' \
               -schema-location '/tmp/flux-schemas/{{ .ResourceKind }}{{ .KindSuffix }}.json' \
               -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
               -summary \
@@ -234,7 +235,7 @@ jobs:
               kubeconform \
                 -strict \
                 -kubernetes-version ${{ env.KUBERNETES_VERSION }} \
-                -schema-location default \
+                -schema-location '${{ env.KUBERNETES_SCHEMA_LOCATION }}' \
                 "$file"
               if [[ $? -eq 0 ]]; then
                 echo "  ✓ $file passes validation"
@@ -260,7 +261,7 @@ jobs:
                 -strict \
                 -ignore-missing-schemas \
                 -kubernetes-version ${{ env.KUBERNETES_VERSION }} \
-                -schema-location default \
+                -schema-location '${{ env.KUBERNETES_SCHEMA_LOCATION }}' \
                 -schema-location '/tmp/flux-schemas/{{ .ResourceKind }}{{ .KindSuffix }}.json' \
                 -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
                 -summary \
@@ -284,7 +285,7 @@ jobs:
               -strict \
               -ignore-missing-schemas \
               -kubernetes-version ${{ env.KUBERNETES_VERSION }} \
-              -schema-location default \
+              -schema-location '${{ env.KUBERNETES_SCHEMA_LOCATION }}' \
               -schema-location '/tmp/flux-schemas/{{ .ResourceKind }}{{ .KindSuffix }}.json' \
               -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
               -summary \
