@@ -16,16 +16,16 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: kaneo-api
+                name: kaneo-kaneo
                 port:
-                  number: 1337
+                  number: 5173
           - path: /
             pathType: Prefix
             backend:
               service:
-                name: kaneo-web
+                name: kaneo-kaneo
                 port:
-                  number: 80
+                  number: 5173
   tls:
     - hosts:
         - kaneo.homelab
