@@ -67,23 +67,40 @@ Break the loop manually:
 # 1. Stop Flux from fighting you.
 flux -n <ns> suspend hr <release>
 
-# 2. Find the last good revision (one whose values had a working tag).
+# 2. (Recommended) Set spec.upgrade.remediation.retries: 0 on the
+#    HelmRelease before resuming, so if the git-pinned version still
+#    can't converge for an unrelated reason (bad probe, missing PVC,
+#    etc.) the upgrade fails loudly instead of rolling back into the
+#    same broken revision that caused the loop. Optionally also set
+#    spec.upgrade.remediation.strategy: uninstall.
+
+# 3. Find the last good revision (one whose values had a working tag).
 helm -n <ns> history <release>
 
-# 3. Roll back to that revision. This overwrites the "previous release"
-#    slot that helm-controller would otherwise remediate to.
+# 4. Roll back to that revision. This overwrites the "previous release"
+#    slot that helm-controller would otherwise remediate to. Helm marks
+#    all prior revisions "superseded" when a new revision starts, so if
+#    you deleted the pending secret manually you may need to `helm
+#    rollback` to the last known-deployed rev just to restore a
+#    `deployed`-status entry in history.
 helm -n <ns> rollback <release> <good-rev>
 
-# 4. Confirm pods are healthy, then let Flux take over again.
+# 5. Directly patch the workload image to a known-good tag if the
+#    rolled-back release still points at the bad image (kubectl set
+#    image sts/... or deploy/...). This bypasses helm entirely and
+#    heals the pod immediately.
+
+# 6. Confirm pods are healthy, then let Flux take over again.
 kubectl -n <ns> get pods -l app.kubernetes.io/instance=<release>
 flux -n <ns> resume hr <release>
 flux -n <ns> reconcile hr <release> --with-source
 ```
 
-For releases that repeatedly fail to converge, also consider setting
-`spec.upgrade.remediation.retries: 0` (and/or `spec.upgrade.remediation.strategy: uninstall`)
-on the HelmRelease so a bad upgrade fails loudly instead of oscillating
-back to the previously-broken revision.
+Note: `HelmRelease.spec.chart.spec.version` must be a version helm-controller
+can actually install successfully. If the chart version in git differs from
+what you rolled back to, the next reconcile will attempt an upgrade
+regardless — so make sure the pinned image tag is compatible with the
+chart version that will be applied.
 
 ## Related gotcha
 
