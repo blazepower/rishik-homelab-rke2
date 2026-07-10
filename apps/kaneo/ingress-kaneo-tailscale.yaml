@@ -9,9 +9,9 @@ spec:
   ingressClassName: tailscale
   defaultBackend:
     service:
-      name: kaneo-api
+      name: kaneo-kaneo
       port:
-        number: 1337
+        number: 5173
   tls:
     - hosts:
         - kaneo
