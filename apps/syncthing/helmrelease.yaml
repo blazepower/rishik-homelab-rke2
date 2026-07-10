@@ -9,7 +9,7 @@ spec:
   chart:
     spec:
       chart: app-template
-      version: "3.7.3"
+      version: "5.0.1"
       sourceRef:
         kind: HelmRepository
         name: bjw-s
@@ -19,10 +19,12 @@ spec:
     createNamespace: false
     remediation:
       retries: 3
+    replace: true
     timeout: 15m
   upgrade:
     remediation:
-      retries: 3
+      retries: 1
+      strategy: uninstall
     timeout: 15m
   values:
     controllers:
@@ -122,6 +124,9 @@ spec:
         nameOverride: sync
         controller: syncthing
         type: LoadBalancer
+        annotations:
+          metallb.universe.tf/loadBalancerIPs: 192.168.1.151
+        loadBalancerIP: 192.168.1.151
         ports:
           sync-tcp:
             port: 22000
@@ -155,17 +160,11 @@ spec:
 
     persistence:
       config:
-        enabled: true
-        type: persistentVolumeClaim
-        retain: true
-        accessMode: ReadWriteOnce
-        size: 1Gi
-        storageClass: longhorn
+        existingClaim: syncthing-config
         globalMounts:
           - path: /config
       # Books sync folder - syncs to the calibre library
       books:
-        enabled: true
         existingClaim: media-root
         globalMounts:
           - path: /data/books
