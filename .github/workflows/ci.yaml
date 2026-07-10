@@ -38,6 +38,16 @@ env:
   CRDS_CATALOG_SCHEMA_LOCATION: "/tmp/crds-catalog/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json"
 
 jobs:
+  renovate-guardrails-test:
+    name: renovate-guardrails-test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - name: Test Renovate regex guardrails
+        run: python3 .github/scripts/test-renovate-guards.py
+
   yaml-lint:
     name: YAML Lint
     runs-on: ubuntu-latest
