@@ -61,6 +61,7 @@ spec:
     persistence:
       data:
         enabled: true
+        retain: true
         storageClass: longhorn
         accessMode: ReadWriteOnce
         size: 5Gi
