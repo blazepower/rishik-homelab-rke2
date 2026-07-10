@@ -43,7 +43,7 @@ spec:
               # twice already (PR #146 and PR #185). The
               # `allowedVersions: "<1.0.0"` rule in renovate.json now
               # prevents recurrence.
-              tag: "0.6.24"
+              tag: "0.6.26"
             env:
               - name: PUID
                 valueFrom:
