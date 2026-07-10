@@ -9,7 +9,7 @@ spec:
   chart:
     spec:
       chart: app-template
-      version: "3.7.3"
+      version: "5.0.1"
       sourceRef:
         kind: HelmRepository
         name: bjw-s
@@ -19,10 +19,12 @@ spec:
     createNamespace: false
     remediation:
       retries: 3
+    replace: true
     timeout: 15m
   upgrade:
     remediation:
-      retries: 3
+      retries: 1
+      strategy: uninstall
     timeout: 15m
   values:
     controllers:
