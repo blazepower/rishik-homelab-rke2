@@ -121,7 +121,6 @@ spec:
             port: 8384
       sync:
         primary: true
-        nameOverride: sync
         controller: syncthing
         type: LoadBalancer
         annotations:
