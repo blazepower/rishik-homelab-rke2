@@ -3,6 +3,7 @@ kind: Kustomization
 namespace: homebox
 resources:
   - namespace.yaml
+  - sealedsecret-homebox-credentials.yaml
   - helmrelease.yaml
   - ingress.yaml
   - ingress-homebox-tailscale.yaml
