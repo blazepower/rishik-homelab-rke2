@@ -45,6 +45,11 @@ spec:
                 value: "info"
               - name: TZ
                 value: "UTC"
+              - name: HBOX_AUTH_API_KEY_PEPPER
+                valueFrom:
+                  secretKeyRef:
+                    name: homebox-credentials
+                    key: api-key-pepper
             resources:
               requests:
                 cpu: "50m"
