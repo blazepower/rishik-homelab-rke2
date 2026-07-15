@@ -37,7 +37,7 @@ spec:
           app:
             image:
               repository: ghcr.io/sysadminsmedia/homebox
-              tag: main
+              tag: v0.26.2
             env:
               - name: HOMEBOX_ALLOW_REGISTRATION
                 value: "true"
