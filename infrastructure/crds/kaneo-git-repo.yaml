@@ -8,4 +8,4 @@ spec:
   url: https://github.com/usekaneo/kaneo
   ref:
     # renovate: datasource=github-tags depName=usekaneo/kaneo
-    tag: v2.9.0
+    tag: v2.9.8
