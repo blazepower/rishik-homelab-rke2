@@ -71,6 +71,10 @@ def image_parts(image: str) -> tuple[str, str]:
 
 def main() -> int:
     config = json.loads(RENOVATE_CONFIG.read_text(encoding="utf-8"))
+    if config.get("ignoreUnstable") is not True:
+        print("FAIL: Renovate must ignore unstable releases globally")
+        return 1
+
     negated_regex_rules = [
         rule
         for rule in config.get("packageRules", [])
@@ -100,6 +104,11 @@ def main() -> int:
         GuardTest("linuxserver rejects amd64 suffix", *image_parts("lscr.io/linuxserver/foo:1.0.0-ls123-amd64"), True),
         GuardTest("linuxserver rejects mixed-case arch suffix", *image_parts("lscr.io/linuxserver/foo:1.0.0-ls123-AMD64"), True),
         GuardTest("linuxserver allows normal build tag", *image_parts("lscr.io/linuxserver/foo:1.0.0-ls123"), False),
+        GuardTest("sure rejects alpha prerelease", *image_parts("ghcr.io/we-promise/sure:0.7.2-alpha.4"), True),
+        GuardTest("sure rejects release candidate", *image_parts("ghcr.io/we-promise/sure:0.8.0-rc1"), True),
+        GuardTest("sure allows stable release", *image_parts("ghcr.io/we-promise/sure:0.8.0"), False),
+        GuardTest("sure allows distro suffix", *image_parts("ghcr.io/we-promise/sure:0.8.0-alpine"), False),
+        GuardTest("unrelated image allows prerelease-like compatibility suffix", *image_parts("node:24-alpine"), False),
     ]
 
     failures = 0
