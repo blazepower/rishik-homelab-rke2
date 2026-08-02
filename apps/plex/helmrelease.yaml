@@ -29,7 +29,7 @@ spec:
 
     image:
       repository: plexinc/pms-docker
-      tag: "1.43.2.10687-563d026ea"
+      tag: "1.43.3.10828-00f62d37d"
 
     pms:
       configExistingClaim: plex-config
