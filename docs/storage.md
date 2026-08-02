@@ -10,7 +10,10 @@
 - Installed in the `storage` namespace
 - Set as the default StorageClass
 - Data path: `/var/lib/longhorn`
-- Default replica count: 1 (increase to 2+ after adding additional nodes)
+- Default replica count: 2, with one replica per cluster node
+- Daily backups retained for 14 days on
+  `nfs://192.168.1.215:/volume1/media/longhorn-backups`
+- Weekly local snapshots retained for 4 weeks
 - Longhorn UI exposed via Traefik ingress at `https://longhorn.homelab`
 - Guaranteed instance manager CPU: 5%
 
@@ -63,3 +66,7 @@ spec:
 ### Prerequisites
 
 Longhorn requires open-iscsi to be installed on all cluster nodes. This is handled automatically by the node bootstrap automation. See [docs/node-bootstrap.md](node-bootstrap.md) for details.
+
+The NAS backup directory must exist and remain writable from every cluster node.
+Do not use the NFS share as Longhorn's live data path. Longhorn replicas remain
+on node-local storage, while the NAS is an independent backup target.

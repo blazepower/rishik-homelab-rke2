@@ -13,6 +13,8 @@ spec:
     metadata:
       labels:
         app: rke2-node-bootstrap-kubelet-config
+      annotations:
+        bootstrap.homelab/config-version: "2026-08-01"
     spec:
       hostPID: true
       tolerations:
@@ -29,9 +31,13 @@ spec:
               set -euo pipefail
               CONF_DIR=/host/etc/rancher/rke2/config.yaml.d
               CONF_FILE="${CONF_DIR}/99-max-pods.yaml"
+              SOURCE_FILE=/scripts/99-max-pods.yaml
+              if [[ "${NODE_NAME}" == "rishik-controller" ]]; then
+                SOURCE_FILE=/scripts/99-controller.yaml
+              fi
               mkdir -p "${CONF_DIR}"
-              if ! cmp -s /scripts/99-max-pods.yaml "${CONF_FILE}" 2>/dev/null; then
-                cp /scripts/99-max-pods.yaml "${CONF_FILE}"
+              if ! cmp -s "${SOURCE_FILE}" "${CONF_FILE}" 2>/dev/null; then
+                cp "${SOURCE_FILE}" "${CONF_FILE}"
                 chmod 0644 "${CONF_FILE}"
                 echo "[BOOTSTRAP] kubelet config written to ${CONF_FILE}"
                 echo "[BOOTSTRAP] NOTE: requires 'systemctl restart rke2-agent' (worker)"
@@ -42,6 +48,11 @@ spec:
               fi
               touch /tmp/healthy
               sleep infinity
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
           resources:
             requests:
               cpu: "10m"
@@ -87,8 +98,14 @@ metadata:
 data:
   99-max-pods.yaml: |
     # Managed by GitOps (infrastructure/node-bootstrap/kubelet-config).
-    # Raises kubelet maxPods well above the default 110 so worker1 can host
-    # the full media + tailscale-operator + storage stack without scheduling
-    # pressure. RKE2 merges all files in /etc/rancher/rke2/config.yaml.d/.
+    # RKE2 merges all files in /etc/rancher/rke2/config.yaml.d/.
     kubelet-arg:
       - "max-pods=250"
+  99-controller.yaml: |
+    # Managed by GitOps (infrastructure/node-bootstrap/kubelet-config).
+    # Preserve control-plane headroom when regular workloads are scheduled.
+    kubelet-arg:
+      - "max-pods=250"
+      - "kube-reserved=cpu=1,memory=2Gi,ephemeral-storage=4Gi"
+      - "system-reserved=cpu=1,memory=2Gi,ephemeral-storage=4Gi"
+      - "eviction-hard=memory.available<1Gi,nodefs.available<10%,imagefs.available<10%,nodefs.inodesFree<5%,imagefs.inodesFree<5%"
