@@ -53,7 +53,8 @@ spec:
       # Remove or set to false - this can interfere with Helm operations
       # deleting-confirmation-flag: true
     defaultBackupStore:
-      backupTarget: "nfs://192.168.1.215:/volume1/media/longhorn-backups"
+      # Synology NFSv4 paths are relative to the shared-folder pseudo root.
+      backupTarget: "nfs://192.168.1.215:/media/longhorn-backups"
       backupTargetCredentialSecret: ""
       pollInterval: 300
     longhornManager:
