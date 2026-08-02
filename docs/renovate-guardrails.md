@@ -49,6 +49,12 @@ held `tag: 5.33.2`. Every reconcile therefore restored the broken image.
   `arm`, `i386`, `x86_64`) so Renovate does not select a single-arch tag.
 - **LinuxServer major bumps require Dependency Dashboard approval** — their
   tagging scheme varies per image and majors have burned us before.
+- **Prereleases are ignored globally.** Sure Finance is pinned to an alpha
+  today, so its package rule additionally rejects explicit prerelease channel
+  markers (`alpha`, `beta`, `rc`, `preview`, etc.). The rule is package-scoped
+  and marker-aware rather than rejecting every hyphenated Docker tag, so stable
+  compatibility/build tags such as `-alpine`, `-bookworm`, and `-ls123` remain
+  eligible.
 
 > **PR #192 regression:** PR #187 added the Plex suffix denylist as
 > `!/(armhf|arm64v8|aarch64|arm)$/`, but omitted the exact `arm64`

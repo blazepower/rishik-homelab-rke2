@@ -9,6 +9,7 @@
   ],
   "labels": ["renovate", "dependencies"],
   "commitMessagePrefix": "chore(deps):",
+  "ignoreUnstable": true,
   "automerge": false,
   "platformAutomerge": false,
   "separateMajorMinor": true,
@@ -226,10 +227,10 @@
       "dependencyDashboardApproval": true
     },
     {
-      "description": "Sure Finance publishes prerelease tags",
+      "description": "Sure Finance: only recommend stable releases, even while the current pin is a prerelease. Reject explicit prerelease channel markers without treating every Docker hyphen suffix (such as distro or build suffixes) as unstable.",
       "matchDatasources": ["docker"],
       "matchPackageNames": ["ghcr.io/we-promise/sure"],
-      "ignoreUnstable": false,
+      "allowedVersions": "!/(^|[._-])(alpha|beta|rc|preview|pre|dev|snapshot|nightly|canary)([._-]|[0-9]|$)/i",
       "respectLatest": false
     }
   ],
