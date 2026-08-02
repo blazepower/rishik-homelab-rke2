@@ -36,19 +36,26 @@ spec:
     timeout: 10m
   values:
     persistence:
+      createStorageClass: true
       defaultClass: true
-      defaultClassReplicaCount: 1
+      defaultClassReplicaCount: 2
+      recurringJobSelector:
+        enable: true
+        jobList: '[{"name":"snapshot-weekly","isGroup":false},{"name":"backup-daily","isGroup":false}]'
     defaultSettings:
       defaultDataPath: "/var/lib/longhorn"
       guaranteedInstanceManagerCPU: 5
       concurrentAutomaticEngineUpgradePerNodeLimit: 1
-      backupTarget: ""
-      backupTargetCredentialSecret: ""
+      allowRecurringJobWhileVolumeDetached: true
       replicaAutoBalance: "disabled"
       storageMinimalAvailablePercentage: 15
       orphanAutoDeletion: true
       # Remove or set to false - this can interfere with Helm operations
       # deleting-confirmation-flag: true
+    defaultBackupStore:
+      backupTarget: "nfs://192.168.1.215:/volume1/media/longhorn-backups"
+      backupTargetCredentialSecret: ""
+      pollInterval: 300
     longhornManager:
       priorityClass: core-critical
       resources:
