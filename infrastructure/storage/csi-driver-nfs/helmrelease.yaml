@@ -28,6 +28,14 @@ spec:
     controller:
       # Run one controller on each schedulable node.
       replicas: 2
+      runOnControlPlane: true
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: csi-nfs-controller
+              topologyKey: kubernetes.io/hostname
     driver:
       mountPermissions: 0
     feature:
