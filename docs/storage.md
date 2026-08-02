@@ -12,7 +12,7 @@
 - Data path: `/var/lib/longhorn`
 - Default replica count: 2, with one replica per cluster node
 - Daily backups retained for 14 days on
-  `nfs://192.168.1.215:/volume1/media/longhorn-backups`
+  `nfs://192.168.1.215:/media/longhorn-backups`
 - Weekly local snapshots retained for 4 weeks
 - Longhorn UI exposed via Traefik ingress at `https://longhorn.homelab`
 - Guaranteed instance manager CPU: 5%
@@ -67,6 +67,10 @@ spec:
 
 Longhorn requires open-iscsi to be installed on all cluster nodes. This is handled automatically by the node bootstrap automation. See [docs/node-bootstrap.md](node-bootstrap.md) for details.
 
-The NAS backup directory must exist and remain writable from every cluster node.
+The Synology NAS must have NFSv4.1 enabled, and the `media` shared folder must
+grant read/write NFS access to both cluster nodes. NFSv4 paths are relative to
+the shared-folder pseudo root, so they do not include `/volume1`. The backup
+directory must exist and remain writable from every cluster node.
+
 Do not use the NFS share as Longhorn's live data path. Longhorn replicas remain
 on node-local storage, while the NAS is an independent backup target.
