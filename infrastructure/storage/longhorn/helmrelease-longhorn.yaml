@@ -47,6 +47,7 @@ spec:
       guaranteedInstanceManagerCPU: 5
       concurrentAutomaticEngineUpgradePerNodeLimit: 1
       allowRecurringJobWhileVolumeDetached: true
+      disableSchedulingOnCordonedNode: false
       replicaAutoBalance: "disabled"
       storageMinimalAvailablePercentage: 15
       orphanAutoDeletion: true

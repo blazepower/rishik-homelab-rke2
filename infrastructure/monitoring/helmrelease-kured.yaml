@@ -4,6 +4,9 @@ metadata:
   name: kured
   namespace: monitoring
 spec:
+  # Disabled until single-replica PDBs and maintenance capacity allow a
+  # worker drain to complete without overloading the controller.
+  suspend: true
   interval: 10m
   chart:
     spec:
