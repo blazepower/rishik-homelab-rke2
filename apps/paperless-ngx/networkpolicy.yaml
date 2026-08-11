@@ -19,6 +19,14 @@ spec:
       ports:
         - protocol: TCP
           port: 8000
+    # Allow the KEDA HTTP interceptor to wake and proxy Paperless.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: keda
+      ports:
+        - protocol: TCP
+          port: 8000
     # Allow internal communication within namespace (paperless, postgresql, redis)
     - from:
         - namespaceSelector:

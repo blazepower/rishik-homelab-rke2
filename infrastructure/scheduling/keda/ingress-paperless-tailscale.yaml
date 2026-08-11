@@ -2,16 +2,16 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: paperless-tailscale
-  namespace: paperless
+  namespace: keda
   annotations:
     tailscale.com/tags: "tag:k8s-operator"
 spec:
   ingressClassName: tailscale
   defaultBackend:
     service:
-      name: paperless-paperless-ngx
+      name: keda-add-ons-http-interceptor-proxy
       port:
-        number: 8000
+        number: 8080
   tls:
     - hosts:
         - paperless

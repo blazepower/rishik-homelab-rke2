@@ -24,7 +24,6 @@ resources:
   - probe-bazarr.yaml
   - probe-prowlarr.yaml
   - probe-sabnzbd.yaml
-  - probe-paperless.yaml
   - probe-calibre.yaml
   - probe-bookshelf.yaml
   - probe-kaneo.yaml
