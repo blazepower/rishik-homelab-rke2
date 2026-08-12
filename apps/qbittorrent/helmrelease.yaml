@@ -165,6 +165,97 @@ spec:
                 cpu: "50m"
                 memory: "32Mi"
 
+          seed-policy:
+            dependsOn: app
+            image:
+              repository: python
+              tag: "3.13-alpine"
+            env:
+              - name: SEED_CATEGORY
+                value: "books"
+              - name: POLL_INTERVAL_SECONDS
+                value: "15"
+            command:
+              - python
+              - -c
+              - |
+                import json
+                import os
+                import time
+                import urllib.error
+                import urllib.parse
+                import urllib.request
+
+                base_url = "http://localhost:8080/api/v2"
+                seed_category = os.environ["SEED_CATEGORY"]
+                poll_interval = int(os.environ["POLL_INTERVAL_SECONDS"])
+                seeding_states = {"uploading", "stalledUP", "queuedUP", "forcedUP"}
+
+                def get_torrents():
+                    with urllib.request.urlopen(
+                        f"{base_url}/torrents/info?filter=all", timeout=10
+                    ) as response:
+                        return json.load(response)
+
+                def change_state(action, hashes):
+                    for offset in range(0, len(hashes), 100):
+                        data = urllib.parse.urlencode(
+                            {"hashes": "|".join(hashes[offset : offset + 100])}
+                        ).encode()
+                        request = urllib.request.Request(
+                            f"{base_url}/torrents/{action}", data=data
+                        )
+                        with urllib.request.urlopen(request, timeout=10):
+                            pass
+
+                while True:
+                    try:
+                        torrents = get_torrents()
+                        resume_hashes = [
+                            torrent["hash"]
+                            for torrent in torrents
+                            if torrent["category"] == seed_category
+                            and torrent["progress"] >= 1
+                            and torrent["state"] == "pausedUP"
+                        ]
+                        pause_hashes = [
+                            torrent["hash"]
+                            for torrent in torrents
+                            if torrent["category"] != seed_category
+                            and torrent["progress"] >= 1
+                            and torrent["state"] in seeding_states
+                        ]
+                        if resume_hashes:
+                            change_state("resume", resume_hashes)
+                            print(
+                                f"Resumed {len(resume_hashes)} completed "
+                                f"{seed_category} torrent(s)",
+                                flush=True,
+                            )
+                        if pause_hashes:
+                            change_state("pause", pause_hashes)
+                            print(
+                                f"Paused {len(pause_hashes)} completed "
+                                f"non-{seed_category} torrent(s)",
+                                flush=True,
+                            )
+                    except (
+                        urllib.error.URLError,
+                        TimeoutError,
+                        json.JSONDecodeError,
+                        KeyError,
+                        ValueError,
+                    ) as error:
+                        print(f"Seed policy error: {error}", flush=True)
+                    time.sleep(poll_interval)
+            resources:
+              requests:
+                cpu: "5m"
+                memory: "24Mi"
+              limits:
+                cpu: "50m"
+                memory: "64Mi"
+
     service:
       app:
         controller: qbittorrent
