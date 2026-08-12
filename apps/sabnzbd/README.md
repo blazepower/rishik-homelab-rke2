@@ -6,6 +6,10 @@ SABnzbd is a free and open-source binary newsreader. It simplifies the process o
 
 This deployment uses the [bjw-s app-template Helm chart](https://github.com/bjw-s/helm-charts/tree/main/charts/other/app-template) with the linuxserver.io SABnzbd container image.
 
+## SABnzbd 5.1
+
+The 5.1 container automatically benefits from retrying only missing articles, container-aware Article Cache limits, and improved shutdown handling. Future post-processing scripts must parse `SAB_FILES` as a JSON list rather than treating it as a plain string.
+
 ## Configuration
 
 | Setting | Value |

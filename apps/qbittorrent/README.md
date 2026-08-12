@@ -9,6 +9,19 @@ qBittorrent torrent client running behind ProtonVPN WireGuard VPN via gluetun si
 - All qBittorrent traffic is forced through VPN (kill switch enabled)
 - Port forwarding enabled for better speeds and seeding
 
+## qBittorrent 5 migration
+
+The deployment uses LinuxServer `5.2.3_v2.0.14-ls471` (qBittorrent 5.2.3
+with libtorrent 2.0.14).
+
+- Back up the `qbittorrent-config` PVC before rollout. Let the pod stop
+  cleanly; migrated 5.x state may not be safe to downgrade to 4.x.
+- Web API automation must use `stoppedUP` and the `start`/`stop` endpoints;
+  the seed-policy sidecar follows these 5.x semantics.
+- Useful 5.x additions include faster resume-data loading, category-level
+  share limits, a separate tracker-status filter, and improved WebUI table
+  performance.
+
 ## Access
 
 - Local: https://qbittorrent.homelab

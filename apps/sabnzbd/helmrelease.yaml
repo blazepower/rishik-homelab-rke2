@@ -32,6 +32,9 @@ spec:
         annotations:
           reloader.stakater.com/auto: "true"
 
+        pod:
+          terminationGracePeriodSeconds: 60
+
         containers:
           app:
             image:

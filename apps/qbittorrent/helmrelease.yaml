@@ -32,6 +32,9 @@ spec:
         annotations:
           reloader.stakater.com/auto: "true"
 
+        pod:
+          terminationGracePeriodSeconds: 60
+
         containers:
           gluetun:
             image:
@@ -91,7 +94,7 @@ spec:
             dependsOn: gluetun
             image:
               repository: lscr.io/linuxserver/qbittorrent
-              tag: "20.04.1"
+              tag: "5.2.3_v2.0.14-ls471"
             env:
               - name: PUID
                 valueFrom:
@@ -211,31 +214,31 @@ spec:
                 while True:
                     try:
                         torrents = get_torrents()
-                        resume_hashes = [
+                        start_hashes = [
                             torrent["hash"]
                             for torrent in torrents
                             if torrent["category"] == seed_category
                             and torrent["progress"] >= 1
-                            and torrent["state"] == "pausedUP"
+                            and torrent["state"] == "stoppedUP"
                         ]
-                        pause_hashes = [
+                        stop_hashes = [
                             torrent["hash"]
                             for torrent in torrents
                             if torrent["category"] != seed_category
                             and torrent["progress"] >= 1
                             and torrent["state"] in seeding_states
                         ]
-                        if resume_hashes:
-                            change_state("resume", resume_hashes)
+                        if start_hashes:
+                            change_state("start", start_hashes)
                             print(
-                                f"Resumed {len(resume_hashes)} completed "
+                                f"Started {len(start_hashes)} completed "
                                 f"{seed_category} torrent(s)",
                                 flush=True,
                             )
-                        if pause_hashes:
-                            change_state("pause", pause_hashes)
+                        if stop_hashes:
+                            change_state("stop", stop_hashes)
                             print(
-                                f"Paused {len(pause_hashes)} completed "
+                                f"Stopped {len(stop_hashes)} completed "
                                 f"non-{seed_category} torrent(s)",
                                 flush=True,
                             )
