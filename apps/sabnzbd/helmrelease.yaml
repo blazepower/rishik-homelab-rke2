@@ -36,7 +36,7 @@ spec:
           app:
             image:
               repository: lscr.io/linuxserver/sabnzbd # renovate: packageName=linuxserver/sabnzbd
-              tag: "5.0.4"
+              tag: "5.1.0"
             env:
               - name: PUID
                 valueFrom:
