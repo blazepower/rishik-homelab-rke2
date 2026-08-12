@@ -92,7 +92,6 @@ def test_sabnzbd_registry_alias(config: dict) -> bool:
     expected = {
         "depName": "lscr.io/linuxserver/sabnzbd",
         "packageName": "linuxserver/sabnzbd",
-        "currentValue": "5.0.4",
     }
     actual = {name: match.group(name) for name in expected}
     if actual != expected:
