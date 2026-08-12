@@ -42,8 +42,13 @@ held `tag: 5.33.2`. Every reconcile therefore restored the broken image.
 - **Plex `allowedVersions`** rejects any tag ending in an architecture
   suffix (`-armhf`, `-arm64`, `-arm64v8`, `-arm32v7`, `-arm32v6`,
   `-aarch64`, `-amd64`). Only the bare (amd64) tag stream is considered.
-- **calibre-web `allowedVersions: "<1.0.0"`** confines Renovate to the real
-  upstream `0.6.x` stream.
+- **calibre-web uses one final positive `allowedVersions` regex** that accepts
+  only numeric `0.x.y` releases with an optional LinuxServer `-lsNNN` build
+  suffix. This simultaneously excludes the orphaned `5.33.2`/`6.x` streams
+  and architecture-prefixed or architecture-suffixed tags. It intentionally
+  comes after the generic LinuxServer rule because Renovate merges matching
+  package rules in order and later scalar values such as `allowedVersions`
+  win.
 - **LinuxServer `allowedVersions`** rejects common architecture prefixes and
   suffixes (`amd64`, `arm64v8`, `arm32v7`, `arm32v6`, `aarch64`, `arm64`,
   `arm`, `i386`, `x86_64`) so Renovate does not select a single-arch tag.
@@ -65,10 +70,11 @@ held `tag: 5.33.2`. Every reconcile therefore restored the broken image.
 
 ## Automated guardrail tests
 
-`.github/scripts/test-renovate-guards.py` parses `renovate.json`, finds
-negated-regex `allowedVersions` rules, and verifies known-bad arch variants
-are rejected while normal tags are allowed. CI runs it as the fast
-`renovate-guardrails-test` job.
+`.github/scripts/test-renovate-guards.py` parses `renovate.json`, models the
+ordered effective `allowedVersions` value for each package, and verifies
+known-bad arch variants and calibre-web `5.33.2`/`6.x` tags are rejected while
+normal tags and valid calibre-web `0.6.x` LinuxServer tags are allowed. CI runs
+it as the fast `renovate-guardrails-test` job.
 
 ## When to add more guardrails
 
