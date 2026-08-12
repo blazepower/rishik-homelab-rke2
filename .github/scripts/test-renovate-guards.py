@@ -56,13 +56,23 @@ def package_matches(rule: dict, package: str) -> bool:
     return False
 
 
-def rule_rejects(rule: dict, package: str, version: str) -> bool:
-    allowed_versions = rule.get("allowedVersions")
-    if not isinstance(allowed_versions, str) or not allowed_versions.startswith("!/"):
+def effective_allowed_versions(config: dict, package: str) -> str | None:
+    """Model Renovate's ordered merge: later matching scalar values win."""
+    effective = None
+    for rule in config.get("packageRules", []):
+        if package_matches(rule, package) and isinstance(rule.get("allowedVersions"), str):
+            effective = rule["allowedVersions"]
+    return effective
+
+
+def version_is_rejected(allowed_versions: str | None, version: str) -> bool:
+    if allowed_versions is None:
         return False
-    if not package_matches(rule, package):
-        return False
-    return bool(parse_renovate_regex(allowed_versions).search(version))
+    if allowed_versions.startswith("!/"):
+        return bool(parse_renovate_regex(allowed_versions).search(version))
+    if allowed_versions.startswith("/"):
+        return not bool(parse_renovate_regex(allowed_versions).search(version))
+    raise ValueError(f"unsupported allowedVersions test constraint: {allowed_versions!r}")
 
 
 def image_parts(image: str) -> tuple[str, str]:
@@ -113,13 +123,6 @@ def main() -> int:
         print("FAIL: Renovate must ignore unstable releases globally")
         return 1
 
-    negated_regex_rules = [
-        rule
-        for rule in config.get("packageRules", [])
-        if isinstance(rule.get("allowedVersions"), str)
-        and rule["allowedVersions"].startswith("!/")
-    ]
-
     tests = [
         GuardTest("plex rejects PR-192 arm64 suffix", *image_parts("plexinc/pms-docker:1.43.2-arm64"), True),
         GuardTest("plex rejects armhf suffix", *image_parts("plexinc/pms-docker:1.43.2-armhf"), True),
@@ -142,6 +145,12 @@ def main() -> int:
         GuardTest("linuxserver rejects amd64 suffix", *image_parts("lscr.io/linuxserver/foo:1.0.0-ls123-amd64"), True),
         GuardTest("linuxserver rejects mixed-case arch suffix", *image_parts("lscr.io/linuxserver/foo:1.0.0-ls123-AMD64"), True),
         GuardTest("linuxserver allows normal build tag", *image_parts("lscr.io/linuxserver/foo:1.0.0-ls123"), False),
+        GuardTest("calibre-web rejects orphaned 5.33.2 tag", *image_parts("lscr.io/linuxserver/calibre-web:5.33.2"), True),
+        GuardTest("calibre-web rejects 6.x tag", *image_parts("lscr.io/linuxserver/calibre-web:6.0.0"), True),
+        GuardTest("calibre-web rejects arch-prefixed 0.6 tag", *image_parts("lscr.io/linuxserver/calibre-web:amd64-0.6.26-ls123"), True),
+        GuardTest("calibre-web rejects arch-suffixed 0.6 tag", *image_parts("lscr.io/linuxserver/calibre-web:0.6.26-ls123-arm64v8"), True),
+        GuardTest("calibre-web allows bare 0.6 release", *image_parts("lscr.io/linuxserver/calibre-web:0.6.26"), False),
+        GuardTest("calibre-web allows LinuxServer 0.6 build tag", *image_parts("lscr.io/linuxserver/calibre-web:0.6.26-ls123"), False),
         GuardTest("sure rejects alpha prerelease", *image_parts("ghcr.io/we-promise/sure:0.7.2-alpha.4"), True),
         GuardTest("sure rejects release candidate", *image_parts("ghcr.io/we-promise/sure:0.8.0-rc1"), True),
         GuardTest("sure allows stable release", *image_parts("ghcr.io/we-promise/sure:0.8.0"), False),
@@ -154,7 +163,8 @@ def main() -> int:
         failures += 1
 
     for test in tests:
-        rejected = any(rule_rejects(rule, test.package, test.version) for rule in negated_regex_rules)
+        allowed_versions = effective_allowed_versions(config, test.package)
+        rejected = version_is_rejected(allowed_versions, test.version)
         passed = rejected == test.should_reject
         status = "PASS" if passed else "FAIL"
         expectation = "reject" if test.should_reject else "allow"

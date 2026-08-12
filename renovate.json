@@ -208,17 +208,17 @@
       "allowedVersions": "!/-(armhf|arm64|arm64v8|arm32v7|arm32v6|aarch64|amd64)$/i"
     },
     {
-      "description": "linuxserver/calibre-web only publishes real releases in the 0.x stream; the 5.x tags are orphaned 2021 pushes with a broken OCI config (no ENTRYPOINT). Use loose versioning so LinuxServer's `-lsNNN` build suffix isn't treated as a semver prerelease and excluded. See docs/renovate-guardrails.md.",
-      "matchDatasources": ["docker"],
-      "matchPackageNames": ["lscr.io/linuxserver/calibre-web"],
-      "versioning": "loose",
-      "allowedVersions": "<1.0.0"
-    },
-    {
       "description": "LinuxServer images: reject arch-prefixed or arch-suffixed tags (e.g. amd64-<ver>, arm64v8-<ver>, <ver>-amd64) so Renovate can't silently swap architectures. Symmetric to the Plex guard above; covers bazarr/prowlarr/radarr/sonarr/sabnzbd/qbittorrent/etc.",
       "matchDatasources": ["docker"],
       "matchPackageNames": ["/(^|/)linuxserver\\//"],
       "allowedVersions": "!/(^(amd64|arm64v8|arm32v7|arm32v6|aarch64|arm64|arm|i386|x86_64)-|-(amd64|arm64v8|arm32v7|arm32v6|aarch64|arm64|arm|i386|x86_64)$)/i"
+    },
+    {
+      "description": "linuxserver/calibre-web only publishes real releases in the 0.x stream; allow only its numeric 0.x tags with an optional LinuxServer -lsNNN build suffix. This single final rule also excludes architecture-specific tags and prevents the generic LinuxServer allowedVersions rule from overriding the release-stream guard. See docs/renovate-guardrails.md.",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["lscr.io/linuxserver/calibre-web"],
+      "versioning": "loose",
+      "allowedVersions": "/^0\\.\\d+\\.\\d+(?:-ls\\d+)?$/i"
     },
     {
       "description": "LinuxServer images: require Dependency Dashboard approval for major bumps. Their tagging scheme is inconsistent across images and majors have caused breakage before (e.g. calibre-web 0.6.x -> 5.33.x).",
