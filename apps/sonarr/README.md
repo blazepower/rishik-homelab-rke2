@@ -88,3 +88,15 @@ Sonarr integrates with:
 - **Prowlarr**: For indexer management
 - **SABnzbd**: For downloading content
 - **Plex**: For media library updates
+
+## Superseded Download Cleanup
+
+The `sonarr-queue-cleanup` CronJob runs hourly and removes completed downloads
+that Sonarr has rejected only because an equal or better episode file already
+exists. A download must remain in the warning state for at least 24 hours
+before cleanup.
+
+The cleanup removes the item from Sonarr and its download client, deletes its
+downloaded files, and does not blocklist the release. Warnings involving
+unmatched episodes, missing files, permissions, or other import errors are
+preserved for manual review.

@@ -1,0 +1,110 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sonarr-queue-cleanup
+  namespace: media
+data:
+  cleanup.py: |
+    import json
+    import os
+    import sys
+    import urllib.error
+    import urllib.parse
+    import urllib.request
+    import xml.etree.ElementTree as ET
+    from datetime import datetime, timedelta, timezone
+
+    SONARR_URL = os.environ.get("SONARR_URL", "http://sonarr:8989").rstrip("/")
+    CONFIG_PATH = os.environ.get("SONARR_CONFIG_PATH", "/sonarr-config/config.xml")
+    GRACE_PERIOD = timedelta(hours=int(os.environ.get("GRACE_HOURS", "24")))
+    DRY_RUN = os.environ.get("DRY_RUN", "false").lower() == "true"
+    SUPERSEDED_REASONS = (
+        "Not a quality revision upgrade for existing episode file(s)",
+        "Not a Custom Format upgrade for existing episode file(s)",
+        "Not an upgrade for existing episode file(s)",
+    )
+
+
+    def request(api_key, path, method="GET"):
+        req = urllib.request.Request(
+            f"{SONARR_URL}{path}",
+            headers={"X-Api-Key": api_key},
+            method=method,
+        )
+        with urllib.request.urlopen(req, timeout=30) as response:
+            body = response.read()
+            return json.loads(body) if body else None
+
+
+    def parse_timestamp(value):
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+    def status_messages(record):
+        return [
+            message
+            for status in record.get("statusMessages", [])
+            for message in status.get("messages", [])
+        ]
+
+
+    def is_superseded(record, cutoff):
+        messages = status_messages(record)
+        return (
+            record.get("status") == "completed"
+            and record.get("trackedDownloadStatus") == "warning"
+            and parse_timestamp(record["added"]) <= cutoff
+            and messages
+            and all(message.startswith(SUPERSEDED_REASONS) for message in messages)
+        )
+
+
+    def main():
+        api_key = ET.parse(CONFIG_PATH).findtext("ApiKey")
+        if not api_key:
+            raise RuntimeError(f"ApiKey is missing from {CONFIG_PATH}")
+
+        queue = request(
+            api_key,
+            "/api/v3/queue?page=1&pageSize=1000&includeUnknownSeriesItems=true",
+        )
+        cutoff = datetime.now(timezone.utc) - GRACE_PERIOD
+        candidates = [
+            record for record in queue.get("records", []) if is_superseded(record, cutoff)
+        ]
+
+        if not candidates:
+            print("No superseded completed downloads are eligible for cleanup.")
+            return
+
+        for record in candidates:
+            if DRY_RUN:
+                print(f"Would remove superseded download: {record['title']}")
+                continue
+
+            query = urllib.parse.urlencode(
+                {
+                    "removeFromClient": "true",
+                    "blocklist": "false",
+                    "deleteFiles": "true",
+                }
+            )
+            request(api_key, f"/api/v3/queue/{record['id']}?{query}", method="DELETE")
+            print(f"Removed superseded download: {record['title']}")
+
+
+    if __name__ == "__main__":
+        try:
+            main()
+        except (
+            json.JSONDecodeError,
+            KeyError,
+            RuntimeError,
+            ValueError,
+            OSError,
+            ET.ParseError,
+            urllib.error.URLError,
+        ) as error:
+            print(f"Sonarr queue cleanup failed: {error}", file=sys.stderr)
+            raise

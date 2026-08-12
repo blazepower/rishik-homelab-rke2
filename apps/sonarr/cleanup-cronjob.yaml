@@ -1,0 +1,83 @@
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: sonarr-queue-cleanup
+  namespace: media
+spec:
+  schedule: "17 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 300
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: sonarr-queue-cleanup
+            app.kubernetes.io/instance: sonarr
+        spec:
+          restartPolicy: OnFailure
+          affinity:
+            podAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                - labelSelector:
+                    matchLabels:
+                      app.kubernetes.io/name: sonarr
+                  topologyKey: kubernetes.io/hostname
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: cleanup
+              image: python:3.13-alpine
+              imagePullPolicy: IfNotPresent
+              command:
+                - python
+                - /scripts/cleanup.py
+              env:
+                - name: PYTHONDONTWRITEBYTECODE
+                  value: "1"
+                - name: SONARR_URL
+                  value: http://sonarr:8989
+                - name: SONARR_CONFIG_PATH
+                  value: /sonarr-config/config.xml
+                - name: GRACE_HOURS
+                  value: "24"
+                - name: DRY_RUN
+                  value: "false"
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 24Mi
+                limits:
+                  cpu: 100m
+                  memory: 64Mi
+              volumeMounts:
+                - name: script
+                  mountPath: /scripts
+                  readOnly: true
+                - name: sonarr-config
+                  mountPath: /sonarr-config
+                  readOnly: true
+          volumes:
+            - name: script
+              configMap:
+                name: sonarr-queue-cleanup
+                defaultMode: 0555
+            - name: sonarr-config
+              persistentVolumeClaim:
+                claimName: sonarr-config
+                readOnly: true
