@@ -91,10 +91,10 @@ Sonarr integrates with:
 
 ## Superseded Download Cleanup
 
-The `sonarr-queue-cleanup` CronJob runs hourly and removes completed downloads
-that Sonarr has rejected only because an equal or better episode file already
-exists. A download must remain in the warning state for at least 24 hours
-before cleanup.
+The `sonarr-queue-cleanup` CronJob runs every 12 hours and removes completed
+downloads that Sonarr has rejected only because an equal or better episode
+file already exists. A download must remain in the warning state for at least
+24 hours before cleanup.
 
 The cleanup removes the item from Sonarr and its download client, deletes its
 downloaded files, and does not blocklist the release. Warnings involving
