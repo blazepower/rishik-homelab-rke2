@@ -1,0 +1,20 @@
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: paperless-scaler
+  namespace: paperless
+spec:
+  scaleTargetRef:
+    name: paperless-paperless-ngx
+  pollingInterval: 5
+  cooldownPeriod: 900
+  minReplicaCount: 0
+  maxReplicaCount: 1
+  fallback:
+    failureThreshold: 3
+    replicas: 1
+  triggers:
+    - type: external-push
+      metadata:
+        scalerAddress: keda-add-ons-http-external-scaler.keda:9090
+        interceptorRoute: paperless

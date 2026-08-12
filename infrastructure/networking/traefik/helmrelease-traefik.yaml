@@ -51,3 +51,8 @@ spec:
     ingressClass:
       enabled: true
       isDefaultClass: true
+    providers:
+      kubernetesIngress:
+        allowExternalNameServices: true
+      kubernetesCRD:
+        allowExternalNameServices: true

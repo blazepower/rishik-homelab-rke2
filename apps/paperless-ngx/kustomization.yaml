@@ -4,8 +4,10 @@ namespace: paperless
 resources:
   - namespace.yaml
   - helmrelease.yaml
+  - service-keda-interceptor.yaml
+  - interceptorroute.yaml
+  - scaledobject.yaml
   - ingress.yaml
-  - ingress-paperless-tailscale.yaml
   - certificate.yaml
   - networkpolicy.yaml
   - sealedsecret-paperless-credentials.yaml

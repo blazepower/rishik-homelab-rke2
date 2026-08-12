@@ -1,0 +1,18 @@
+apiVersion: http.keda.sh/v1beta1
+kind: InterceptorRoute
+metadata:
+  name: paperless
+  namespace: paperless
+spec:
+  target:
+    service: paperless-paperless-ngx
+    port: 8000
+  rules:
+    - hosts:
+        - paperless.homelab
+        - paperless.tail4217c.ts.net
+      paths:
+        - value: /
+  scalingMetric:
+    concurrency:
+      targetValue: 10

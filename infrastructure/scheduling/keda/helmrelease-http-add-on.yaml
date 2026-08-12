@@ -1,0 +1,57 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: keda-add-ons-http
+  namespace: keda
+spec:
+  interval: 30m
+  dependsOn:
+    - name: keda
+      namespace: keda
+  chart:
+    spec:
+      chart: keda-add-ons-http
+      version: "0.15.0"
+      sourceRef:
+        kind: HelmRepository
+        name: kedacore
+        namespace: flux-system
+  install:
+    createNamespace: false
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+  values:
+    operator:
+      resources:
+        requests:
+          cpu: 10m
+          memory: 20Mi
+        limits:
+          cpu: 100m
+          memory: 64Mi
+    scaler:
+      replicas: 1
+      resources:
+        requests:
+          cpu: 10m
+          memory: 20Mi
+        limits:
+          cpu: 100m
+          memory: 64Mi
+    interceptor:
+      directPodRouting: false
+      readinessTimeout: 180s
+      requestTimeout: 180s
+      replicas:
+        min: 1
+        max: 2
+      resources:
+        requests:
+          cpu: 10m
+          memory: 20Mi
+        limits:
+          cpu: 200m
+          memory: 64Mi

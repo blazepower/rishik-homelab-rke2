@@ -16,9 +16,9 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: paperless-paperless-ngx
+                name: paperless-keda-interceptor
                 port:
-                  number: 8000
+                  number: 8080
   tls:
     - hosts:
         - paperless.homelab

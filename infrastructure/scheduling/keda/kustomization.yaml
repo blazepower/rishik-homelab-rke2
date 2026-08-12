@@ -5,3 +5,5 @@ resources:
   - namespace.yaml
   - helmrepository-keda.yaml
   - helmrelease-keda.yaml
+  - helmrelease-http-add-on.yaml
+  - ingress-paperless-tailscale.yaml
