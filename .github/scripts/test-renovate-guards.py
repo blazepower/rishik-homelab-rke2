@@ -12,6 +12,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 RENOVATE_CONFIG = REPO_ROOT / "renovate.json"
+SABNZBD_HELMRELEASE = REPO_ROOT / "apps" / "sabnzbd" / "helmrelease.yaml"
 
 
 @dataclass(frozen=True)
@@ -69,6 +70,44 @@ def image_parts(image: str) -> tuple[str, str]:
     return package, version
 
 
+def test_sabnzbd_registry_alias(config: dict) -> bool:
+    manager = next(
+        (
+            item
+            for item in config.get("customManagers", [])
+            if item.get("description") == "Fallback Docker image repository/tag pairs in YAML"
+        ),
+        None,
+    )
+    if manager is None:
+        print("FAIL: repository/tag custom manager is missing")
+        return False
+
+    pattern = manager["matchStrings"][0].replace("(?<", "(?P<")
+    match = re.search(pattern, SABNZBD_HELMRELEASE.read_text(encoding="utf-8"))
+    if match is None:
+        print("FAIL: repository/tag custom manager does not match SABnzbd")
+        return False
+
+    expected = {
+        "depName": "lscr.io/linuxserver/sabnzbd",
+        "packageName": "linuxserver/sabnzbd",
+        "currentValue": "5.0.4",
+    }
+    actual = {name: match.group(name) for name in expected}
+    if actual != expected:
+        print(f"FAIL: SABnzbd registry alias extraction was {actual!r}, expected {expected!r}")
+        return False
+
+    expected_template = "{{#if packageName}}{{{packageName}}}{{else}}{{{depName}}}{{/if}}"
+    if manager.get("packageNameTemplate") != expected_template:
+        print("FAIL: repository/tag custom manager does not prefer the registry lookup alias")
+        return False
+
+    print("PASS: SABnzbd deploys from LSCR but Renovate looks up tags on Docker Hub")
+    return True
+
+
 def main() -> int:
     config = json.loads(RENOVATE_CONFIG.read_text(encoding="utf-8"))
     if config.get("ignoreUnstable") is not True:
@@ -112,6 +151,9 @@ def main() -> int:
     ]
 
     failures = 0
+    if not test_sabnzbd_registry_alias(config):
+        failures += 1
+
     for test in tests:
         rejected = any(rule_rejects(rule, test.package, test.version) for rule in negated_regex_rules)
         passed = rejected == test.should_reject
