@@ -47,8 +47,8 @@ spec:
       guaranteedInstanceManagerCPU: 5
       concurrentAutomaticEngineUpgradePerNodeLimit: 1
       allowRecurringJobWhileVolumeDetached: true
-      disableSchedulingOnCordonedNode: false
-      replicaAutoBalance: "disabled"
+      disableSchedulingOnCordonedNode: true
+      replicaAutoBalance: "best-effort"
       storageMinimalAvailablePercentage: 15
       orphanAutoDeletion: true
       # Remove or set to false - this can interfere with Helm operations
