@@ -32,6 +32,17 @@ spec:
         # Alertmanager cluster communication (gossip)
         - protocol: TCP
           port: 9094
+        # Loki HTTP API used by Promtail
+        - protocol: TCP
+          port: 3100
+        # Loki gRPC API
+        - protocol: TCP
+          port: 9095
+        # Loki memberlist gossip
+        - protocol: TCP
+          port: 7946
+        - protocol: UDP
+          port: 7946
         # Thanos sidecar gRPC (if using Thanos)
         - protocol: TCP
           port: 10901
