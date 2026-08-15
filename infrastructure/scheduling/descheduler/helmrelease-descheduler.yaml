@@ -32,8 +32,8 @@ spec:
         cpu: "100m"
         memory: "128Mi"
 
-    # Rebalance often enough for a small cluster without causing pod churn.
-    deschedulingInterval: 30m
+    # Run every hour.
+    deschedulingInterval: 1h
 
     deschedulerPolicy:
       profiles:
