@@ -32,8 +32,8 @@ spec:
         cpu: "100m"
         memory: "128Mi"
 
-    # Run every hour
-    deschedulingInterval: 1h
+    # Rebalance often enough for a small cluster without causing pod churn.
+    deschedulingInterval: 30m
 
     deschedulerPolicy:
       profiles:
@@ -58,7 +58,9 @@ spec:
             - name: LowNodeUtilization
               args:
                 thresholds:
-                  cpu: 20
+                  # System DaemonSets consume about 25% of a worker's CPU
+                  # requests before application workloads are scheduled.
+                  cpu: 30
                   memory: 20
                   pods: 20
                 targetThresholds:
