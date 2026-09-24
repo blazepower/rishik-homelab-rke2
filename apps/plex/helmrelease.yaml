@@ -112,6 +112,10 @@ spec:
         mountPath: /media/books
         subPath: books
         readOnly: true
+      - name: media
+        mountPath: /media/TestX
+        subPath: xxx
+        readOnly: true
       - name: dri
         mountPath: /dev/dri
 
