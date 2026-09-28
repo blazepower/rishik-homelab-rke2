@@ -28,6 +28,9 @@ spec:
       repository: ghcr.io/blazepower/cooklang
       tag: "0.21.0"
 
+    strategy:
+      type: Recreate
+
     persistence:
       enabled: true
       existingClaim: media-root

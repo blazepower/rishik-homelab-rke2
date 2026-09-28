@@ -11,7 +11,7 @@ spec:
     matchLabels:
       {{- include "cooklang.selectorLabels" . | nindent 6 }}
   strategy:
-    type: RollingUpdate
+    type: {{ .Values.strategy.type }}
   template:
     metadata:
       labels:
