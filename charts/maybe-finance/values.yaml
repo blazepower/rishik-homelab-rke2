@@ -61,6 +61,16 @@ simplefin:
   enabled: false
   secretKey: simplefin-access-url
 
+## Sidekiq background worker configuration
+sidekiq:
+  resources:
+    requests:
+      cpu: 25m
+      memory: 384Mi
+    limits:
+      cpu: 200m
+      memory: 768Mi
+
 ## Redis configuration (required for Sidekiq background jobs)
 redis:
   enabled: true

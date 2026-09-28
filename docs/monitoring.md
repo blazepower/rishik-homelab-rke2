@@ -9,7 +9,7 @@
 - Deployed via Helm chart from `https://prometheus-community.github.io/helm-charts`
 - Installed in the `monitoring` namespace
 - Prometheus retention: 7 days
-- Scrape interval: 30 seconds
+- Scrape interval: 60 seconds
 - Grafana exposed via Traefik ingress at `https://grafana.homelab`
 - Alertmanager enabled
 - Loki configured as additional data source for log querying
@@ -52,6 +52,18 @@ Comprehensive alerting is configured via PrometheusRules in `prometheusrules-ale
 - **PVCAlmostFull**: PVC usage exceeds 85%
 - **PVCCriticallyFull**: PVC usage exceeds 95%
 - **LonghornVolumeActualSpaceLow**: Longhorn volume using more than 85% capacity
+- **LonghornVolumeDegraded/Faulted**: Longhorn volume robustness remains degraded or faulted
+- **LonghornRecurringBackupFailed/Stuck**: A recurring backup errors or remains incomplete for 4 hours
+- **LonghornVolumeBackupStale**: A previously backed-up volume has no successful backup for 36 hours
+- **LonghornDiskSmartFailed**: Longhorn's disk health collector reports a SMART failure
+- **StorageContainerOOMKilled/RestartPressure**: Critical Longhorn or CSI containers OOM or restart repeatedly
+
+#### Controller and Filesystem Health
+- **ControllerUnreclaimableKernelMemoryHigh/Critical**: Controller `SUnreclaim` exceeds 1 GiB or 4 GiB
+- **NodeReadonlyFilesystem**: Node Problem Detector observes a read-only filesystem remount
+- **NodeFilesystemIOError**: Node Problem Detector observes an ext4 or buffer I/O error
+
+The existing **NodeNotReady** alert covers all nodes, including `rishik-worker1`.
 
 #### Flux Health
 - **FluxReconciliationFailure**: Flux reconciliation failing for 10 minutes
@@ -78,6 +90,8 @@ The Loki data source enables log querying directly from Grafana's Explore interf
 - `infrastructure/monitoring/helmrepository-grafana.yaml` - Grafana Helm repository
 - `infrastructure/monitoring/helmrelease-kube-prometheus-stack.yaml` - Helm release configuration
 - `infrastructure/monitoring/prometheusrules-alerts.yaml` - PrometheusRules for alerting
+- `infrastructure/monitoring/prometheusrules-storage-health-alerts.yaml` - Storage failure-containment alerts
+- `infrastructure/monitoring/servicemonitor-longhorn.yaml` - Longhorn manager metrics discovery
 - `infrastructure/monitoring/ingress-grafana.yaml` - Ingress for Grafana UI (HTTPS)
 - `infrastructure/monitoring/kustomization.yaml` - Kustomization for monitoring resources
 - `infrastructure/monitoring/custom-dashboards/` - Custom Grafana dashboards as ConfigMaps

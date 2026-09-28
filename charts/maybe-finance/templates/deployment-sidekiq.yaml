@@ -67,10 +67,5 @@ spec:
               value: "redis://{{ include "maybe-finance.fullname" . }}-redis:6379/1"
             {{- end }}
           resources:
-            requests:
-              cpu: 25m
-              memory: 128Mi
-            limits:
-              cpu: 200m
-              memory: 384Mi
+            {{- toYaml .Values.sidekiq.resources | nindent 12 }}
 {{- end }}

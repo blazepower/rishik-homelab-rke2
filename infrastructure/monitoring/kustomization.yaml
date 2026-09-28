@@ -11,12 +11,14 @@ resources:
   - sealedsecret-grafana-admin-creds.yaml
   - prometheusrules-alerts.yaml
   - prometheusrules-node-health-alerts.yaml
+  - prometheusrules-storage-health-alerts.yaml
   - ingress-grafana.yaml
   - ingress-grafana-tailscale.yaml
   - servicemonitor-node-feature-discovery.yaml
   - servicemonitor-intel-gpu-plugin.yaml
   - servicemonitor-kured.yaml
   - servicemonitor-node-problem-detector.yaml
+  - servicemonitor-longhorn.yaml
   - probe-plex.yaml
   - probe-overseerr.yaml
   - probe-sonarr.yaml

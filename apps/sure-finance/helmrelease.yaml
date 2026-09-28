@@ -43,6 +43,16 @@ spec:
     redis:
       enabled: true
 
+    # Sidekiq background worker resources
+    sidekiq:
+      resources:
+        requests:
+          cpu: "25m"
+          memory: "384Mi"
+        limits:
+          cpu: "200m"
+          memory: "768Mi"
+
     # PostgreSQL configuration
     postgresql:
       persistence:

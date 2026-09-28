@@ -23,6 +23,18 @@ spec:
         # Prometheus server
         - protocol: TCP
           port: 9090
+        # Grafana metrics
+        - protocol: TCP
+          port: 3000
+        # Alertmanager and kube-state-metrics metrics
+        - protocol: TCP
+          port: 8080
+        # Prometheus Operator metrics
+        - protocol: TCP
+          port: 10250
+        # Node Problem Detector metrics
+        - protocol: TCP
+          port: 20257
         # Pushgateway
         - protocol: TCP
           port: 9091

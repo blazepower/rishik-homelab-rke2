@@ -46,6 +46,7 @@ spec:
 
     podSecurityContext:
       fsGroup: 1000
+      fsGroupChangePolicy: OnRootMismatch
 
     env:
       TZ: America/Los_Angeles

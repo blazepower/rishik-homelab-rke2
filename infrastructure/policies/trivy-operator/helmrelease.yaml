@@ -69,6 +69,7 @@ spec:
 
       # Scan existing workloads on startup
       scanJobsConcurrentLimit: 2
+      scanJobTTL: 1h
 
       # How often to rescan
       vulnerabilityScannerScanOnlyCurrentRevisions: true

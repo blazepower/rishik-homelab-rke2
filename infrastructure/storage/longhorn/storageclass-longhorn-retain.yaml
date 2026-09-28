@@ -19,7 +19,7 @@ parameters:
   # Longhorn recurring job settings for automatic snapshots
   recurringJobSelector: '[{"name":"snapshot-weekly","isGroup":false},{"name":"backup-daily","isGroup":false}]'
 ---
-# Recurring job for weekly snapshots with 30-day retention (keeps ~4 weeks)
+# Keep two weekly local restore points in addition to daily off-cluster backups.
 apiVersion: longhorn.io/v1beta2
 kind: RecurringJob
 metadata:
@@ -30,8 +30,8 @@ spec:
     - default
   task: snapshot
   cron: "0 2 * * 0"  # Weekly on Sunday at 2 AM
-  retain: 4          # Keep last 4 snapshots (~30 days)
-  concurrency: 2
+  retain: 2
+  concurrency: 1
   labels: {}
 ---
 # Daily off-cluster backup to the NAS with two weeks of retention.
@@ -46,5 +46,5 @@ spec:
   task: backup
   cron: "0 3 * * *"
   retain: 14
-  concurrency: 2
+  concurrency: 1
   labels: {}

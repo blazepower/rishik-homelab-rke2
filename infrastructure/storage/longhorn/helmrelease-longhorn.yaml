@@ -12,7 +12,7 @@ spec:
   chart:
     spec:
       chart: longhorn
-      version: "1.12.x"  # Pin to 1.10.x to avoid unexpected upgrades
+      version: "1.12.x"  # Stay within the validated 1.12 release line
       sourceRef:
         kind: HelmRepository
         name: longhorn
@@ -46,11 +46,23 @@ spec:
       defaultDataPath: "/var/lib/longhorn"
       guaranteedInstanceManagerCPU: 5
       concurrentAutomaticEngineUpgradePerNodeLimit: 1
+      concurrentReplicaRebuildPerNodeLimit: 1
+      replicaReplenishmentWaitInterval: 600
       allowRecurringJobWhileVolumeDetached: true
+      allowVolumeCreationWithDegradedAvailability: true
       disableSchedulingOnCordonedNode: true
+      replicaSoftAntiAffinity: false
+      replicaZoneSoftAntiAffinity: true
+      replicaDiskSoftAntiAffinity: true
       replicaAutoBalance: "best-effort"
       storageMinimalAvailablePercentage: 15
       orphanAutoDeletion: true
+      autoCleanupSystemGeneratedSnapshot: true
+      autoCleanupRecurringJobBackupSnapshot: true
+      snapshotHeavyTaskConcurrentLimit: 1
+      backupConcurrentLimit: 1
+      snapshotMaxCount: 50
+      snapshotCountWarningThreshold: 20
       # Remove or set to false - this can interfere with Helm operations
       # deleting-confirmation-flag: true
     defaultBackupStore:
@@ -63,10 +75,10 @@ spec:
       resources:
         requests:
           cpu: "25m"
-          memory: "64Mi"
+          memory: "256Mi"
         limits:
           cpu: "200m"
-          memory: "256Mi"
+          memory: "512Mi"
     longhornDriver:
       priorityClass: core-critical
       resources:

@@ -94,14 +94,14 @@ spec:
             summary: "Read-only filesystem detected on {{ $labels.instance }}"
             description: "Node Problem Detector has detected a read-only filesystem on node {{ $labels.instance }}."
 
-        - alert: NodeFilesystemCorruption
-          expr: problem_gauge{type="CorruptContainerdOverlay"} > 0
+        - alert: NodeFilesystemIOError
+          expr: increase(problem_counter{reason=~"IOError|Ext4Error"}[10m]) > 0
           for: 1m
           labels:
             severity: critical
           annotations:
-            summary: "Filesystem corruption detected on {{ $labels.instance }}"
-            description: "Node Problem Detector has detected filesystem corruption on node {{ $labels.instance }}."
+            summary: "Filesystem I/O error detected on {{ $labels.instance }}"
+            description: "Node Problem Detector reported {{ $labels.reason }} on node {{ $labels.instance }}."
 
         - alert: NodeOOMKillDetected
           expr: increase(problem_counter{reason="OOMKilling"}[5m]) > 0

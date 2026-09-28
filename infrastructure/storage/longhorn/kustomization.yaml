@@ -7,3 +7,4 @@ resources:
   - ingress-longhorn.yaml
   - storageclass-longhorn-retain.yaml
   - ingress-longhorn-tailscale.yaml
+  - networkpolicy-longhorn-metrics.yaml

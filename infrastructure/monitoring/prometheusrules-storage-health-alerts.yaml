@@ -1,0 +1,126 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: storage-health-alerts
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: longhorn-health
+      rules:
+        - alert: LonghornVolumeDegraded
+          expr: max by (volume, pvc, pvc_namespace) (longhorn_volume_robustness{state="degraded"}) == 1
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Longhorn volume {{ $labels.pvc_namespace }}/{{ $labels.pvc }} is degraded"
+            description: "Longhorn volume {{ $labels.volume }} has remained degraded for more than 15 minutes."
+
+        - alert: LonghornVolumeFaulted
+          expr: max by (volume, pvc, pvc_namespace) (longhorn_volume_robustness{state="faulted"}) == 1
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Longhorn volume {{ $labels.pvc_namespace }}/{{ $labels.pvc }} is faulted"
+            description: "Longhorn volume {{ $labels.volume }} has remained faulted for more than 5 minutes."
+
+        - alert: LonghornRecurringBackupFailed
+          expr: max by (volume, backup, recurring_job) (longhorn_backup_state{recurring_job!=""}) == 4
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Longhorn recurring backup {{ $labels.backup }} failed"
+            description: "Recurring job {{ $labels.recurring_job }} reported an error for Longhorn volume {{ $labels.volume }}."
+
+        - alert: LonghornRecurringBackupStuck
+          expr: max by (volume, backup, recurring_job) (longhorn_backup_state{recurring_job!=""}) > 0 and max by (volume, backup, recurring_job) (longhorn_backup_state{recurring_job!=""}) < 3
+          for: 4h
+          labels:
+            severity: warning
+          annotations:
+            summary: "Longhorn recurring backup {{ $labels.backup }} is stuck"
+            description: "Recurring job {{ $labels.recurring_job }} for Longhorn volume {{ $labels.volume }} has remained pending or in progress for more than 4 hours."
+
+        - alert: LonghornVolumeBackupStale
+          expr: max by (volume, pvc, pvc_namespace) (longhorn_volume_last_backup_at) > 0 and (time() - max by (volume, pvc, pvc_namespace) (longhorn_volume_last_backup_at) > 36 * 60 * 60)
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Longhorn backup for {{ $labels.pvc_namespace }}/{{ $labels.pvc }} is stale"
+            description: "Longhorn volume {{ $labels.volume }} has not completed a successful backup in more than 36 hours."
+
+        - alert: LonghornDiskSmartFailed
+          expr: min by (node, disk) (longhorn_disk_health) == 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Longhorn disk SMART health failed on {{ $labels.node }}"
+            description: "Longhorn disk {{ $labels.disk }} on node {{ $labels.node }} reports an unhealthy SMART status."
+
+    - name: storage-component-health
+      rules:
+        - alert: StorageContainerOOMKilled
+          expr: >-
+            max by (namespace, pod, container) (
+              kube_pod_container_status_last_terminated_reason{
+                namespace="storage",
+                pod=~"(longhorn-manager|longhorn-csi-plugin|instance-manager|csi-(attacher|provisioner|resizer|snapshotter)).*",
+                reason="OOMKilled"
+              }
+            ) == 1
+            and on (namespace, pod, container)
+            increase(
+              kube_pod_container_status_restarts_total{
+                namespace="storage",
+                pod=~"(longhorn-manager|longhorn-csi-plugin|instance-manager|csi-(attacher|provisioner|resizer|snapshotter)).*"
+              }[15m]
+            ) > 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Storage container {{ $labels.namespace }}/{{ $labels.pod }}/{{ $labels.container }} was OOM-killed"
+            description: "A critical Longhorn or CSI container restarted after an OOM kill within the last 15 minutes."
+
+        - alert: StorageContainerRestartPressure
+          expr: >-
+            sum by (namespace, pod, container) (
+              increase(
+                kube_pod_container_status_restarts_total{
+                  namespace="storage",
+                  pod=~"(longhorn-manager|longhorn-csi-plugin|instance-manager|csi-(attacher|provisioner|resizer|snapshotter)).*"
+                }[30m]
+              )
+            ) >= 3
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Storage container {{ $labels.namespace }}/{{ $labels.pod }}/{{ $labels.container }} is restarting repeatedly"
+            description: "A critical Longhorn or CSI container restarted at least 3 times in 30 minutes."
+
+    - name: controller-kernel-memory
+      rules:
+        - alert: ControllerUnreclaimableKernelMemoryHigh
+          expr: (node_memory_SUnreclaim_bytes * on (instance) group_left (nodename) node_uname_info{nodename="rishik-controller"}) > 1024 * 1024 * 1024
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Controller unreclaimable kernel memory is high"
+            description: "SUnreclaim on {{ $labels.nodename }} is {{ $value | humanize1024 }}B, above the 1 GiB investigation threshold."
+
+        - alert: ControllerUnreclaimableKernelMemoryCritical
+          expr: (node_memory_SUnreclaim_bytes * on (instance) group_left (nodename) node_uname_info{nodename="rishik-controller"}) > 4 * 1024 * 1024 * 1024
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Controller unreclaimable kernel memory is critical"
+            description: "SUnreclaim on {{ $labels.nodename }} is {{ $value | humanize1024 }}B. Capture slab evidence and plan a controlled host reboot; restarting RKE2 cannot reclaim kernel slab."

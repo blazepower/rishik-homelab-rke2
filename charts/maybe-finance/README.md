@@ -94,6 +94,16 @@ resources:
     cpu: 200m
     memory: 512Mi
 
+# Sidekiq worker resources
+sidekiq:
+  resources:
+    requests:
+      cpu: 25m
+      memory: 384Mi
+    limits:
+      cpu: 200m
+      memory: 768Mi
+
 # PostgreSQL
 postgresql:
   enabled: true
