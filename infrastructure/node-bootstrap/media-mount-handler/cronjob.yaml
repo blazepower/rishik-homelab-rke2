@@ -20,7 +20,7 @@ spec:
           restartPolicy: OnFailure
           containers:
             - name: handler
-              image: docker.io/alpine/k8s:1.36.2
+              image: docker.io/alpine/k8s:1.37.1
               resources:
                 requests:
                   cpu: 10m
