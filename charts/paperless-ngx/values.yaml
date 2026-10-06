@@ -3,7 +3,7 @@
 ## Image configuration
 image:
   repository: ghcr.io/paperless-ngx/paperless-ngx
-  tag: "3.0.5"
+  tag: "3.3.0"
   pullPolicy: IfNotPresent
 
 ## Replica count
