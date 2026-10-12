@@ -109,6 +109,13 @@ spec:
                 server: homepage-kubernetes
                 namespace: media
                 app: sabnzbd
+            - qBittorrent:
+                icon: qbittorrent.png
+                href: https://qbittorrent.tail4217c.ts.net
+                description: Torrent Downloader
+                server: homepage-kubernetes
+                namespace: media
+                app: qbittorrent
 
         - Documents & Books:
             - Paperless-ngx:
