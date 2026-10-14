@@ -19,12 +19,12 @@ import (
 )
 
 type Config struct {
-	HardcoverAPIKey    string
-	BookshelfURL       string
-	BookshelfAPIKey    string
-	MetadataURL        string // URL for the metadata provider (hardcover.bookinfo.pro or rreading-glasses)
-	SyncInterval       int
-	DatabasePath       string
+	HardcoverAPIKey string
+	BookshelfURL    string
+	BookshelfAPIKey string
+	MetadataURL     string // URL for the metadata provider (hardcover.bookinfo.pro or rreading-glasses)
+	SyncInterval    int
+	DatabasePath    string
 }
 
 // Hardcover GraphQL types
@@ -254,7 +254,7 @@ func primeMetadataCache(metadataURL string, workID int, authorID int) map[string
 	// Give the metadata provider time to fetch data from Hardcover
 	// rreading-glasses loads data asynchronously in the background
 	time.Sleep(2 * time.Second)
-	
+
 	return workData
 }
 
@@ -341,7 +341,7 @@ func addToBookshelf(bookshelfURL, apiKey, metadataURL string, book HardcoverBook
 			fallbackTerm = fmt.Sprintf("%s %s", book.Title, book.Author)
 		}
 		fallbackURL := fmt.Sprintf("%s/api/v1/book/lookup?term=%s", bookshelfURL, url.QueryEscape(fallbackTerm))
-		
+
 		req, err = http.NewRequest("GET", fallbackURL, nil)
 		if err == nil {
 			req.Header.Set("X-Api-Key", apiKey)
@@ -362,7 +362,7 @@ func addToBookshelf(bookshelfURL, apiKey, metadataURL string, book HardcoverBook
 	// Use the first search result
 	bookToAdd := searchResults[0]
 	bookToAdd["monitored"] = true
-	
+
 	// Set required Readarr profile IDs on the book
 	qualityProfileId := getEnvInt("QUALITY_PROFILE_ID", 1)
 	metadataProfileId := getEnvInt("METADATA_PROFILE_ID", 1)
@@ -370,10 +370,10 @@ func addToBookshelf(bookshelfURL, apiKey, metadataURL string, book HardcoverBook
 	if rootFolderPath == "" {
 		rootFolderPath = "/media/books/"
 	}
-	
+
 	bookToAdd["qualityProfileId"] = qualityProfileId
 	bookToAdd["metadataProfileId"] = metadataProfileId
-	
+
 	// The book lookup doesn't return editions array - we need to construct it
 	// from the foreignEditionId in the search result
 	if bookToAdd["editions"] == nil {
@@ -388,7 +388,7 @@ func addToBookshelf(bookshelfURL, apiKey, metadataURL string, book HardcoverBook
 		}
 		bookToAdd["editions"] = []interface{}{edition}
 	}
-	
+
 	// The book lookup doesn't return a full author object, so we need to lookup the author
 	// and construct a proper author object with all required fields
 	authorFound := false
@@ -423,7 +423,7 @@ func addToBookshelf(bookshelfURL, apiKey, metadataURL string, book HardcoverBook
 						if matchedAuthor == nil {
 							matchedAuthor = authorResults[0]
 						}
-						
+
 						// Check if author already exists in Bookshelf (has an id)
 						// If not, we can't add them because the metadata provider doesn't support
 						// author lookups for all authors
@@ -445,7 +445,7 @@ func addToBookshelf(bookshelfURL, apiKey, metadataURL string, book HardcoverBook
 			}
 		}
 	}
-	
+
 	// If author lookup failed but we have author data from the work endpoint, use that
 	if !authorFound && workData != nil {
 		if authors, ok := workData["Authors"].([]interface{}); ok && len(authors) > 0 {
@@ -466,7 +466,7 @@ func addToBookshelf(bookshelfURL, apiKey, metadataURL string, book HardcoverBook
 			}
 		}
 	}
-	
+
 	bookToAdd["addOptions"] = map[string]interface{}{
 		"searchForNewBook": true,
 	}
@@ -586,6 +586,11 @@ func main() {
 		log.Printf("Error during initial sync: %v", err)
 	}
 	log.Println("Initial sync completed")
+
+	if config.SyncInterval <= 0 {
+		log.Println("Run-once mode completed")
+		return
+	}
 
 	// Start periodic sync
 	ticker := time.NewTicker(time.Duration(config.SyncInterval) * time.Second)
