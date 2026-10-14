@@ -82,6 +82,25 @@ spec:
               capabilities:
                 add:
                   - NET_ADMIN
+            # Proton NAT-PMP leases can silently go stale while the VPN remains
+            # healthy. Restart only Gluetun after three failed external checks.
+            probes:
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  exec:
+                    command:
+                      - /bin/sh
+                      - -c
+                      - |
+                        PORT=$(cat /tmp/gluetun/forwarded_port 2>/dev/null)
+                        [ -n "$PORT" ] &&
+                          [ "$(wget -qO- --timeout=15 "https://portcheck.transmissionbt.com/$PORT")" = "1" ]
+                  initialDelaySeconds: 180
+                  periodSeconds: 300
+                  timeoutSeconds: 20
+                  failureThreshold: 3
             resources:
               requests:
                 cpu: "50m"
