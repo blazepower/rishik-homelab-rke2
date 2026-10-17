@@ -1,7 +1,7 @@
 apiVersion: batch/v1
 kind: CronJob
 metadata:
-  name: media-codec-policy
+  name: sonarr-codec-policy
   namespace: media
 spec:
   schedule: "23 */6 * * *"
@@ -16,7 +16,7 @@ spec:
       template:
         metadata:
           labels:
-            app.kubernetes.io/name: media-codec-policy
+            app.kubernetes.io/name: sonarr-codec-policy
         spec:
           automountServiceAccountToken: false
           restartPolicy: OnFailure
@@ -27,10 +27,6 @@ spec:
                     matchLabels:
                       app.kubernetes.io/name: sonarr
                   topologyKey: kubernetes.io/hostname
-                - labelSelector:
-                    matchLabels:
-                      app.kubernetes.io/name: radarr
-                  topologyKey: kubernetes.io/hostname
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
@@ -40,7 +36,7 @@ spec:
           containers:
             - name: reconcile
               image: python:3.14-alpine
-              command: ["python", "/scripts/reconcile.py"]
+              command: ["python", "/scripts/reconcile.py", "sonarr"]
               env:
                 - name: PYTHONDONTWRITEBYTECODE
                   value: "1"
@@ -60,21 +56,84 @@ spec:
                 - name: script
                   mountPath: /scripts
                   readOnly: true
-                - name: sonarr-config
-                  mountPath: /sonarr-config
-                  readOnly: true
-                - name: radarr-config
-                  mountPath: /radarr-config
+                - name: app-config
+                  mountPath: /app-config
                   readOnly: true
           volumes:
             - name: script
               configMap:
                 name: media-codec-policy
-            - name: sonarr-config
+            - name: app-config
               persistentVolumeClaim:
                 claimName: sonarr-config
                 readOnly: true
-            - name: radarr-config
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: radarr-codec-policy
+  namespace: media
+spec:
+  schedule: "29 */6 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 300
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: radarr-codec-policy
+        spec:
+          automountServiceAccountToken: false
+          restartPolicy: OnFailure
+          affinity:
+            podAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                - labelSelector:
+                    matchLabels:
+                      app.kubernetes.io/name: radarr
+                  topologyKey: kubernetes.io/hostname
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: reconcile
+              image: python:3.14-alpine
+              command: ["python", "/scripts/reconcile.py", "radarr"]
+              env:
+                - name: PYTHONDONTWRITEBYTECODE
+                  value: "1"
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 24Mi
+                limits:
+                  cpu: 100m
+                  memory: 64Mi
+              volumeMounts:
+                - name: script
+                  mountPath: /scripts
+                  readOnly: true
+                - name: app-config
+                  mountPath: /app-config
+                  readOnly: true
+          volumes:
+            - name: script
+              configMap:
+                name: media-codec-policy
+            - name: app-config
               persistentVolumeClaim:
                 claimName: radarr-config
                 readOnly: true
