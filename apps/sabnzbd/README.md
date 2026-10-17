@@ -137,6 +137,11 @@ after rollout. Missing or broken ffprobe makes TV validation fail closed.
   at most 30 seconds; overall scanning/probing budget is 300 seconds, 100 main
   videos and 10,000 directory entries. ffprobe analysis, stream count and
   allocations are bounded. Large batches exceeding these limits require review.
+  Individual allocations are capped at 64 MiB: the initial 16 MiB limit caused
+  ffprobe to misparse a valid Matroska file with large attachments and report
+  an extra video stream with unknown metadata. Real-file verification confirmed
+  that 64 MiB reads its ordinary H.264 8-bit stream correctly; unknown streams
+  still fail closed rather than being ignored.
   Only local-file protocols are permitted; network-backed stream shortcuts
   cannot make ffprobe request remote media.
   Logs contain escaped basenames and fixed reasons, not probe stderr or URLs.

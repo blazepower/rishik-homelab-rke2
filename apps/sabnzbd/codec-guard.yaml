@@ -42,7 +42,7 @@ data:
         try:
             result = subprocess.run(
                 ["ffprobe", "-v", "error", "-protocol_whitelist", "file",
-                 "-max_alloc", "16777216",
+                 "-max_alloc", "67108864",
                  "-probesize", "10485760", "-analyzeduration", "10000000",
                  "-max_streams", "64", "-select_streams", "v",
                  "-show_entries",

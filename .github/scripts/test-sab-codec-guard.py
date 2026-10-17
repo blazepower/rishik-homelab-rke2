@@ -143,6 +143,7 @@ class CodecTests(Fixture):
         self.assertEqual(args[0][0], "ffprobe")
         self.assertEqual(args[0][-1], str(path))
         self.assertIn("-max_streams", args[0])
+        self.assertEqual(args[0][args[0].index("-max_alloc") + 1], "67108864")
         self.assertEqual(args[0][args[0].index("-protocol_whitelist") + 1], "file")
         self.assertEqual(kwargs["timeout"], 12)
         self.assertEqual(kwargs["stderr"], subprocess.DEVNULL)
