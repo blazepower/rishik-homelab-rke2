@@ -91,6 +91,8 @@ paths = [
 ]
 
 regexes = [
+  # Exact dummy credentials in the SAB config-preservation regression fixtures.
+  '''^password = dummy-(password|provider-secret)-KEEP$''',
   # Allow references to secrets (not the secrets themselves)
   '''existingSecret:''',
   '''secretKeyRef:''',
