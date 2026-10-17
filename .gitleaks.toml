@@ -49,6 +49,11 @@ description = "Generic password in config"
 regex = '''(?i)(password|passwd|pwd)\s*[:=]\s*['"]?[^\s'"]{8,}['"]?'''
 keywords = ["password", "passwd", "pwd"]
 
+[rules.allowlist]
+description = "Exact dummy credentials in SAB config-preservation fixtures"
+regexTarget = "match"
+regexes = ['''^password = dummy-(password|provider-secret)-KEEP$''']
+
 [[rules]]
 id = "bearer-token"
 description = "Bearer Token"

@@ -61,11 +61,14 @@ jobs:
           path: ~/.cache/pip
           key: pip-yamllint-${{ runner.os }}
 
-      - name: Install yamllint
-        run: pip install yamllint
+      - name: Install YAML and policy test dependencies
+        run: pip install yamllint configobj
 
       - name: Test media codec policy
         run: python3 .github/scripts/test-media-codec-policy.py
+
+      - name: Test SAB codec guard
+        run: python3 .github/scripts/test-sab-codec-guard.py
 
       - name: Run yamllint
         run: |

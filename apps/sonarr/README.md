@@ -100,6 +100,105 @@ incompatible files can still require Plex conversion or manual replacement.
 Each job runs alongside its application and reads only that application's
 config mount. API keys stay in memory and are never stored in Git.
 
+### Unattended import safeguards
+
+The Sonarr job also reconciles native **Release Profiles** every six hours.
+These are hard "Must Not Contain" exclusions (`ignored` in the v4 API), not
+custom-format score preferences. They apply to all indexers, including
+Prowlarr-managed ones, but only to the following installed series:
+
+| TVDB ID | Managed tag | Excluded release-title style |
+|---------|-------------|------------------------------|
+| 371310 (Mushoku Tensei) | `gitops-import-371310` | `[sam]` English series title with ambiguous `S2 - 04` numbering (including other episode numbers) |
+| 371310 (Mushoku Tensei) | `gitops-import-371310` | `[EMBER]` series title containing `Season 1 Part 02` and a parenthesized/bracketed `Batch` marker |
+| 377543 (Jujutsu Kaisen) | `gitops-import-377543` | `[Almighty]` series title with ambiguous `S3 Vol.3` volume numbering (including other volume numbers) |
+
+Matching ignores case and accepts spaces, underscores, dots, and hyphens
+between the relevant title/numbering terms. The exclusions target the
+demonstrated season/part/volume parsing failures: they do not globally ban
+these groups, anime batches, HEVC, or 10-bit video. Straightforward
+`S02E04`/`S03E07` releases without those ambiguous pack descriptions and
+releases from other groups remain eligible under this policy. A batch
+description may still be excluded even if an embedded filename contains
+`S01E15`; that did not make the observed outer release title safe to parse.
+
+This deliberately trades some availability for unattended-import safety:
+a correctly numbered file inside one of these ambiguous releases will not
+make that release eligible for automatic grabbing. Partial packs and
+unmatched episodes still need review. There are no forced imports, library
+renames, searches, indexer changes, or seeding changes. The only managed
+download-client change is failed-download retention described below.
+
+Managed profiles are named `GitOps import safety: Mushoku Tensei` and
+`GitOps import safety: Jujutsu Kaisen`. The reconciler locates series by
+their stable TVDB IDs, unions the dedicated tag with existing tags, and
+preserves other series settings and user-created Release Profiles. It
+repairs drift in its own profiles/tags without changing quality preferences
+or upgrade flags. Do not reuse these dedicated tags on other series:
+the job fails explicitly rather than broadening their scope. An absent
+series is explicitly logged and skipped; API lookup/schema errors fail
+the job rather than being interpreted as absence. Radarr retains only
+the existing High 10 custom-format behavior.
+
+The same Sonarr job appends missing native metadata tokens to standard,
+daily, and anime episode naming formats:
+
+```text
+[{Quality Full}] [{MediaInfo VideoCodec}] [{MediaInfo VideoBitDepth}bit] [{MediaInfo AudioCodec}] {MediaInfo AudioLanguages} -{Release Group}
+```
+
+Existing series/season/episode prefixes, folder formats, naming preferences,
+and the rename-enabled setting are retained. Existing equivalent metadata
+tokens are not appended again. Before writing, the job validates the
+candidate formats using Sonarr's read-only `config/naming/examples`
+endpoint, including standard, daily, anime, and multi-episode samples;
+invalid samples stop prevention changes. API shapes and token behavior
+were checked against Sonarr 4.0.16.2944. Read-back checks verify the saved
+managed settings after reconciliation.
+
+This only preserves the provenance available to Sonarr on **future**
+imports when renaming is enabled. It does not run `RenameFiles`, restore
+metadata stripped from older filenames, verify file contents from titles,
+or guarantee that a manual-import custom-format preview of 700 will remain
+700 after import instead of dropping to 0. Codec detection still depends
+on advertised titles and available media information; mislabeled content
+and novel numbering conventions can still require intervention.
+
+After GitOps rollout, inspect the Sonarr policy job logs for import
+prevention/naming verification, then check the two tagged Release Profiles
+and naming samples in Sonarr. The next six-hour run reapplies managed
+settings; make permanent policy adjustments in
+`apps/media-codec-policy/script.yaml`, not solely in the UI. Existing queue
+items are not retroactively repaired by these acquisition restrictions.
+
+### Retaining SABnzbd codec rejections for review
+
+Before applying Sonarr's native import safeguards, the Sonarr policy job
+sets the SABnzbd client's top-level `removeFailedDownloads` to `false`
+through the native `downloadclient/{id}` API. This prevents Sonarr's failed
+download handling from removing SAB history/files retained after the SAB
+codec guard rejects a completed download. This is a prerequisite for
+rolling out that guard, not an instruction to import the rejected content.
+
+The reconciler identifies exactly one client by implementation `Sabnzbd`
+and contract `SabnzbdSettings`, never by its editable display name. It
+preserves `removeCompletedDownloads`, global `autoRedownloadFailed`, all
+client fields/credentials, other client preferences, and non-SAB clients
+(including qBittorrent). Radarr clients are never read or changed.
+Missing/duplicate SAB clients, inconsistent identities, and malformed API
+responses fail explicitly without a retention write. Read-back verifies
+the retention flag and preservation of the client collection and global
+download settings; failures stop the job. Client configurations and
+credentials are not logged. The next scheduled run repairs retention drift.
+
+Retention applies to **all failed SAB downloads managed by Sonarr**, not
+just codec failures. Failed history and payloads may consume space until
+reviewed and deliberately cleaned up. Automatic redownload remains at its
+existing setting (currently enabled), so alternative-release retries can
+continue. Successful-download removal also remains at its existing
+setting. This does not override SAB's own cleanup configuration, provide
+indefinite archival guarantees, or undo manual deletion.
+
 Sonarr integrates with:
 - **Prowlarr**: For indexer management
 - **SABnzbd**: For downloading content
