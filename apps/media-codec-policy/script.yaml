@@ -1,0 +1,151 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: media-codec-policy
+  namespace: media
+data:
+  reconcile.py: |
+    import json
+    import sys
+    import urllib.error
+    import urllib.request
+    import xml.etree.ElementTree as ET
+
+    FORMAT_NAME = "TV compatibility: H.264 High 10"
+    HIGH_10 = (
+        r"(?i)\b(?:hi10p?|high[ ._-]?10)\b|"
+        r"(?=.*\b(?:[xh][ ._-]?264|avc)\b)(?=.*\b10[ ._-]?bits?\b)"
+    )
+    OTHER_CODECS = r"(?i)\b(?:[xh][ ._-]?265|hevc|av1)\b"
+
+
+    class Api:
+        def __init__(self, url, config_path):
+            self.url = url
+            self.key = ET.parse(config_path).findtext("ApiKey")
+            if not self.key:
+                raise RuntimeError(f"ApiKey is missing from {config_path}")
+
+        def request(self, path, method="GET", body=None):
+            req = urllib.request.Request(
+                f"{self.url}/api/v3/{path}",
+                data=None if body is None else json.dumps(body).encode(),
+                headers={"X-Api-Key": self.key, "Content-Type": "application/json"},
+                method=method,
+            )
+            with urllib.request.urlopen(req, timeout=30) as response:
+                data = response.read()
+                return json.loads(data) if data else None
+
+
+    def custom_format():
+        return {
+            "name": FORMAT_NAME,
+            "includeCustomFormatWhenRenaming": False,
+            "specifications": [
+                {
+                    "name": name,
+                    "implementation": "ReleaseTitleSpecification",
+                    "negate": negate,
+                    "required": True,
+                    "fields": [{"name": "value", "value": pattern}],
+                }
+                for name, negate, pattern in (
+                    ("H.264 High 10", False, HIGH_10),
+                    ("Not HEVC or AV1", True, OTHER_CODECS),
+                )
+            ],
+        }
+
+
+    def same_format(actual, desired):
+        def managed_fields(value):
+            return {
+                "name": value["name"],
+                "rename": value["includeCustomFormatWhenRenaming"],
+                "specifications": [
+                    (
+                        spec["name"],
+                        spec["implementation"],
+                        spec["negate"],
+                        spec["required"],
+                        next(field["value"] for field in spec["fields"] if field["name"] == "value"),
+                    )
+                    for spec in value["specifications"]
+                ],
+            }
+
+        return managed_fields(actual) == managed_fields(desired)
+
+
+    def rejection_score(profile, format_id):
+        # Even every positive format combined must not override this rejection.
+        positive_total = sum(
+            max(0, item["score"])
+            for item in profile["formatItems"]
+            if item["format"] != format_id
+        )
+        return min(-10000, profile["minFormatScore"] - positive_total - 1)
+
+
+    def reconcile(api, label):
+        desired = custom_format()
+        matches = [
+            item for item in api.request("customformat") if item["name"] == FORMAT_NAME
+        ]
+        if len(matches) > 1:
+            raise RuntimeError(f"{label}: duplicate managed custom formats")
+        if not matches:
+            current = api.request("customformat", "POST", desired)
+            print(f"{label}: created High 10 rejection format")
+        else:
+            current = matches[0]
+            if not same_format(current, desired):
+                api.request(
+                    f"customformat/{current['id']}", "PUT", {**desired, "id": current["id"]}
+                )
+                print(f"{label}: updated High 10 rejection format")
+
+        format_id = current["id"]
+        profiles = api.request("qualityprofile")
+        if not profiles:
+            raise RuntimeError(f"{label}: no quality profiles found")
+        for profile in profiles:
+            entries = [item for item in profile["formatItems"] if item["format"] == format_id]
+            if len(entries) != 1:
+                raise RuntimeError(f"{label}: managed format missing or duplicated in profile {profile['id']}")
+            score = rejection_score(profile, format_id)
+            if entries[0]["score"] != score:
+                entries[0]["score"] = score
+                api.request(f"qualityprofile/{profile['id']}", "PUT", profile)
+                print(f"{label}: enforced rejection in quality profile {profile['id']}")
+
+        for profile in api.request("qualityprofile"):
+            scores = [item["score"] for item in profile["formatItems"] if item["format"] == format_id]
+            if scores != [rejection_score(profile, format_id)]:
+                raise RuntimeError(f"{label}: rejection verification failed for profile {profile['id']}")
+        print(f"{label}: High 10 rejection verified in {len(profiles)} quality profiles")
+
+
+    def main():
+        for label, url, config in (
+            ("Sonarr", "http://sonarr:8989", "/sonarr-config/config.xml"),
+            ("Radarr", "http://radarr:7878", "/radarr-config/config.xml"),
+        ):
+            reconcile(Api(url, config), label)
+
+
+    if __name__ == "__main__":
+        try:
+            main()
+        except (
+            json.JSONDecodeError,
+            KeyError,
+            OSError,
+            RuntimeError,
+            ValueError,
+            ET.ParseError,
+            urllib.error.URLError,
+        ) as error:
+            print(f"Media codec policy failed: {error}", file=sys.stderr)
+            raise
