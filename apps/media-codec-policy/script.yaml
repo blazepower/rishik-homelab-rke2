@@ -7,8 +7,10 @@ data:
   reconcile.py: |
     import argparse
     import json
+    import re
     import sys
     import urllib.error
+    import urllib.parse
     import urllib.request
     import xml.etree.ElementTree as ET
 
@@ -18,6 +20,35 @@ data:
         r"(?=.*\b(?:[xh][ ._-]?264|avc)\b)(?=.*\b10[ ._-]?bits?\b)"
     )
     OTHER_CODECS = r"(?i)\b(?:[xh][ ._-]?265|hevc|av1)\b"
+    # TVDB IDs verified against the installed series, not Sonarr's local IDs.
+    SONARR_RELEASE_POLICIES = (
+        (
+            371310,
+            "Mushoku Tensei",
+            (
+                r"/^\[sam\][ ._-]*Mushoku[ ._-]+Tensei[ ._-]+"
+                r"(?:Jobless[ ._-]+Reincarnation[ ._-]+)?S0?2[ ._-]+-[ ._-]*[0-9]+(?![a-z0-9])/i",
+                r"/^\[EMBER\][ ._-]*Mushoku[ ._-]+Tensei(?=.*Season[ ._-]+0?1[ ._-]+Part[ ._-]*0?2(?![0-9]))"
+                r"(?=.*[\[(]Batch[\])]).*/i",
+            ),
+        ),
+        (
+            377543,
+            "Jujutsu Kaisen",
+            (
+                r"/^\[Almighty\][ ._-]*Jujutsu[ ._-]+Kaisen[ ._-]+S0?3[ ._-]+Vol[ ._-]*[0-9]+(?![a-z0-9])/i",
+            ),
+        ),
+    )
+    NAMING_METADATA = (
+        ("Quality Full", "[{Quality Full}]"),
+        ("MediaInfo VideoCodec", "[{MediaInfo VideoCodec}]"),
+        ("MediaInfo VideoBitDepth", "[{MediaInfo VideoBitDepth}bit]"),
+        ("MediaInfo AudioCodec", "[{MediaInfo AudioCodec}]"),
+        ("MediaInfo AudioLanguages", "{MediaInfo AudioLanguages}"),
+        ("Release Group", "-{Release Group}"),
+    )
+    EPISODE_FORMATS = ("standardEpisodeFormat", "dailyEpisodeFormat", "animeEpisodeFormat")
 
 
     class Api:
@@ -128,6 +159,185 @@ data:
         print(f"{label}: High 10 rejection verified in {len(profiles)} quality profiles")
 
 
+    def resource_list(api, path, required):
+        items = api.request(path)
+        if not isinstance(items, list) or any(
+            not isinstance(item, dict) or not required <= item.keys() for item in items
+        ):
+            raise RuntimeError(f"Sonarr: invalid {path} response; refusing prevention changes")
+        return items
+
+
+    def provenance_naming(current):
+        if not isinstance(current, dict) or not {"id", *EPISODE_FORMATS} <= current.keys():
+            raise RuntimeError("Sonarr: invalid naming configuration")
+        if not isinstance(current["id"], int) or current["id"] <= 0:
+            raise RuntimeError("Sonarr: invalid naming configuration identity")
+        desired = dict(current)
+        for field in EPISODE_FORMATS:
+            if not isinstance(current[field], str) or not current[field].strip():
+                raise RuntimeError(f"Sonarr: invalid naming field {field}")
+            tokens = {
+                re.sub(r"[ ._-]", "", token.split(":")[0]).lower()
+                for token in re.findall(r"\{([^{}]+)\}", current[field])
+            }
+            for token, suffix in NAMING_METADATA:
+                if re.sub(r"[ ._-]", "", token).lower() not in tokens:
+                    desired[field] += " " + suffix
+        return desired
+
+
+    def validate_naming(api, desired):
+        # v4 examples binds the full config from query parameters when id != 0.
+        query = urllib.parse.urlencode({
+            key: str(value).lower() if isinstance(value, bool) else value
+            for key, value in desired.items()
+        })
+        examples = api.request(f"config/naming/examples?{query}")
+        expected = (
+            "singleEpisodeExample", "multiEpisodeExample", "dailyEpisodeExample",
+            "animeEpisodeExample", "animeMultiEpisodeExample",
+        )
+        if not isinstance(examples, dict) or any(
+            not isinstance(examples.get(key), str) or not examples[key].strip()
+            or "{" in examples[key] or "}" in examples[key]
+            for key in expected
+        ):
+            raise RuntimeError("Sonarr: naming sample validation failed; refusing prevention changes")
+
+
+    def sab_client_snapshot(api):
+        clients = resource_list(api, "downloadclient", {"id", "implementation", "configContract"})
+        if any(
+            type(item["id"]) is not int or item["id"] <= 0
+            or not isinstance(item["implementation"], str) or not item["implementation"]
+            or not isinstance(item["configContract"], str) or not item["configContract"]
+            for item in clients
+        ) or len({item["id"] for item in clients}) != len(clients):
+            raise RuntimeError("Sonarr: invalid download client identities; refusing retention changes")
+        matches = [
+            item for item in clients
+            if item["implementation"] == "Sabnzbd" or item["configContract"] == "SabnzbdSettings"
+        ]
+        if len(matches) != 1:
+            raise RuntimeError("Sonarr: expected exactly one SABnzbd client; refusing retention changes")
+        target = matches[0]
+        if target["implementation"] != "Sabnzbd" or target["configContract"] != "SabnzbdSettings":
+            raise RuntimeError("Sonarr: inconsistent SABnzbd implementation; refusing retention changes")
+        if any(type(target.get(key)) is not bool for key in (
+            "enable", "removeFailedDownloads", "removeCompletedDownloads"
+        )) or not isinstance(target.get("fields"), list) or any(
+            not isinstance(field, dict) or not isinstance(field.get("name"), str) or not field["name"]
+            for field in target.get("fields", [])
+        ):
+            raise RuntimeError("Sonarr: malformed SABnzbd client; refusing retention changes")
+        if not target["fields"] or len({field["name"] for field in target["fields"]}) != len(target["fields"]):
+            raise RuntimeError("Sonarr: malformed SABnzbd fields; refusing retention changes")
+        settings = api.request("config/downloadclient")
+        if not isinstance(settings, dict) or type(settings.get("autoRedownloadFailed")) is not bool:
+            raise RuntimeError("Sonarr: malformed failed-download settings; refusing retention changes")
+        return clients, target, settings
+
+
+    def reconcile_sonarr_retention(api):
+        clients, target, settings = sab_client_snapshot(api)
+        desired = {**target, "removeFailedDownloads": False}
+        if target["removeFailedDownloads"]:
+            api.request(f"downloadclient/{target['id']}", "PUT", desired)
+            print("Sonarr: disabled SABnzbd failed-download removal for rejected-content review")
+        actual_clients, actual_target, actual_settings = sab_client_snapshot(api)
+        expected = {item["id"]: desired if item["id"] == target["id"] else item for item in clients}
+        if actual_target != desired or actual_settings != settings or {
+            item["id"]: item for item in actual_clients
+        } != expected:
+            raise RuntimeError("Sonarr: SABnzbd retention/preservation verification failed")
+        print("Sonarr: SABnzbd failed-download retention verified; other client settings preserved")
+
+
+    def reconcile_sonarr(api):
+        series = resource_list(api, "series", {"id", "tvdbId", "tags"})
+        tags = resource_list(api, "tag", {"id", "label"})
+        profiles = resource_list(
+            api, "releaseprofile", {"id", "name", "enabled", "required", "ignored", "indexerId", "tags"}
+        )
+        current_naming = api.request("config/naming")
+        desired_naming = provenance_naming(current_naming)
+        validate_naming(api, desired_naming)
+        if any(
+            not isinstance(item["id"], int) or not isinstance(item["tvdbId"], int)
+            or not isinstance(item["tags"], list)
+            or any(not isinstance(tag_id, int) for tag_id in item["tags"])
+            for item in series
+        ) or any(
+            not isinstance(item["id"], int) or not isinstance(item["label"], str)
+            for item in tags
+        ):
+            raise RuntimeError("Sonarr: invalid series/tag identity; refusing prevention changes")
+
+        plans = []
+        for tvdb_id, title, ignored in SONARR_RELEASE_POLICIES:
+            matches = [item for item in series if item["tvdbId"] == tvdb_id]
+            if len(matches) > 1:
+                raise RuntimeError(f"Sonarr: duplicate TVDB {tvdb_id}; refusing prevention changes")
+            tag_label = f"gitops-import-{tvdb_id}"
+            name = f"GitOps import safety: {title}"
+            tag_matches = [item for item in tags if item["label"] == tag_label]
+            profile_matches = [item for item in profiles if item["name"] == name]
+            if len(tag_matches) > 1 or len(profile_matches) > 1:
+                raise RuntimeError(f"Sonarr: duplicate managed policy for TVDB {tvdb_id}")
+            tag = tag_matches[0] if tag_matches else None
+            if tag and any(tag["id"] in item["tags"] and item["tvdbId"] != tvdb_id for item in series):
+                raise RuntimeError(f"Sonarr: managed tag {tag_label} attached to unrelated series")
+            if not matches:
+                print(f"Sonarr: {title} (TVDB {tvdb_id}) not present; skipping its release policy")
+                continue
+            plans.append((matches[0], tag, tag_label, name, list(ignored), profile_matches))
+
+        for target, tag, tag_label, name, ignored, matches in plans:
+            if tag is None:
+                tag = api.request("tag", "POST", {"label": tag_label})
+                if not isinstance(tag, dict) or tag.get("label") != tag_label or not isinstance(tag.get("id"), int):
+                    raise RuntimeError(f"Sonarr: invalid created tag {tag_label}")
+            if tag["id"] not in target["tags"]:
+                target = {**target, "tags": sorted(set(target["tags"]) | {tag["id"]})}
+                api.request(f"series/{target['id']}", "PUT", target)
+                print(f"Sonarr: tagged TVDB {target['tvdbId']} for import safety")
+            desired = {
+                "name": name, "enabled": True, "required": [], "ignored": ignored,
+                "indexerId": 0, "tags": [tag["id"]],
+            }
+            if not matches:
+                api.request("releaseprofile", "POST", desired)
+                print(f"Sonarr: created {name}")
+            elif any(matches[0][key] != value for key, value in desired.items()):
+                api.request(f"releaseprofile/{matches[0]['id']}", "PUT", {**matches[0], **desired})
+                print(f"Sonarr: repaired {name}")
+
+        if desired_naming != current_naming:
+            api.request(f"config/naming/{desired_naming['id']}", "PUT", desired_naming)
+            print("Sonarr: appended future-import provenance; existing files were not renamed")
+
+        actual_series = resource_list(api, "series", {"id", "tvdbId", "tags"})
+        actual_tags = resource_list(api, "tag", {"id", "label"})
+        actual_profiles = resource_list(
+            api, "releaseprofile", {"id", "name", "enabled", "required", "ignored", "indexerId", "tags"}
+        )
+        for target, _, tag_label, name, ignored, _ in plans:
+            tag_ids = [item["id"] for item in actual_tags if item["label"] == tag_label]
+            found = [item for item in actual_series if item["tvdbId"] == target["tvdbId"]]
+            expected = {
+                "name": name, "enabled": True, "required": [], "ignored": ignored,
+                "indexerId": 0, "tags": tag_ids,
+            }
+            if len(tag_ids) != 1 or len(found) != 1 or not set(target["tags"] + tag_ids) <= set(found[0]["tags"]) or not any(
+                all(item.get(key) == value for key, value in expected.items()) for item in actual_profiles
+            ):
+                raise RuntimeError(f"Sonarr: release policy verification failed for {name}")
+        if api.request("config/naming") != desired_naming:
+            raise RuntimeError("Sonarr: naming verification failed")
+        print(f"Sonarr: import prevention verified for {len(plans)} installed series; provenance naming verified")
+
+
     def main():
         parser = argparse.ArgumentParser()
         parser.add_argument("application", choices=("sonarr", "radarr"))
@@ -136,7 +346,11 @@ data:
             "sonarr": ("Sonarr", "http://sonarr:8989"),
             "radarr": ("Radarr", "http://radarr:7878"),
         }[args.application]
-        reconcile(Api(url, "/app-config/config.xml"), label)
+        api = Api(url, "/app-config/config.xml")
+        reconcile(api, label)
+        if args.application == "sonarr":
+            reconcile_sonarr_retention(api)
+            reconcile_sonarr(api)
 
 
     if __name__ == "__main__":

@@ -1,0 +1,297 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sabnzbd-codec-guard
+  namespace: media
+data:
+  codec-guard.py: |
+    #!/usr/bin/env python3
+    """Read-only TV codec gate. SAB captures stdout in the job's Script Log."""
+    import json
+    import os
+    from pathlib import Path
+    import re
+    import subprocess
+    import sys
+    import time
+
+    TV_ROOT = Path("/media/torrents/complete/sabnzbd/TV Shows")
+    VIDEO = {".mkv", ".mp4", ".m4v", ".avi", ".mov", ".ts", ".m2ts", ".mts",
+             ".mpg", ".mpeg", ".wmv", ".webm", ".vob", ".ogm", ".ogv", ".flv",
+             ".divx", ".m2v", ".m1v", ".mpe", ".mpv", ".qt", ".asf", ".rm",
+             ".rmvb", ".3gp", ".3g2", ".f4v", ".trp", ".wtv", ".dvr-ms",
+             ".mxf", ".nut", ".h264", ".264", ".avc", ".hevc", ".265", ".h265",
+             ".strm"}
+    SAMPLE = re.compile(r"(^|[ ._-])sample([ ._-]|$)", re.IGNORECASE)
+    MAX_FILES = 100
+    MAX_ENTRIES = 10000
+    JOB_SECONDS = 300
+
+    class GuardError(Exception):
+        pass
+
+    def log(message):
+        print("codec-guard: " + message, flush=True)
+
+    def label(path):
+        # Escape control characters and non-ASCII names without logging full paths.
+        return json.dumps(path.name, ensure_ascii=True)
+
+    def probe(path, timeout):
+        try:
+            result = subprocess.run(
+                ["ffprobe", "-v", "error", "-protocol_whitelist", "file",
+                 "-max_alloc", "16777216",
+                 "-probesize", "10485760", "-analyzeduration", "10000000",
+                 "-max_streams", "64", "-select_streams", "v",
+                 "-show_entries",
+                 "stream=codec_name,pix_fmt,profile,bits_per_raw_sample:stream_disposition=attached_pic",
+                 "-of", "json", str(path)],
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                timeout=timeout, check=False,
+            )
+        except subprocess.TimeoutExpired:
+            raise GuardError("probe timed out") from None
+        except OSError:
+            raise GuardError("ffprobe unavailable or could not execute") from None
+        if result.returncode:
+            raise GuardError("ffprobe returned an error")
+        if len(result.stdout) > 524288:
+            raise GuardError("probe output exceeded limit")
+        try:
+            return json.loads(result.stdout)
+        except (ValueError, UnicodeError):
+            raise GuardError("malformed probe JSON") from None
+
+    def incompatible(metadata):
+        if not isinstance(metadata, dict) or not isinstance(metadata.get("streams"), list):
+            raise GuardError("probe streams missing or malformed")
+        video_count = 0
+        rejected = False
+        for stream in metadata["streams"]:
+            if not isinstance(stream, dict):
+                raise GuardError("malformed video stream")
+            disposition = stream.get("disposition", {})
+            if not isinstance(disposition, dict):
+                raise GuardError("malformed stream disposition")
+            if disposition.get("attached_pic") == 1:
+                continue
+            codec = stream.get("codec_name")
+            pixel = stream.get("pix_fmt")
+            if (not isinstance(codec, str) or codec.lower() in {"", "unknown", "none", "n/a"}
+                    or not isinstance(pixel, str) or pixel.lower() in {"", "unknown", "none", "n/a"}):
+                raise GuardError("video codec or pixel format unknown")
+            video_count += 1
+            if codec.lower() != "h264":
+                continue
+            profile = stream.get("profile", "")
+            bits = stream.get("bits_per_raw_sample", "")
+            if not isinstance(profile, str) or not isinstance(bits, (int, str)):
+                raise GuardError("malformed H.264 metadata")
+            if str(bits) not in ("", "N/A", "0") and not str(bits).isdigit():
+                raise GuardError("malformed H.264 bit depth")
+            high10 = re.sub(r"[^a-z0-9]", "", profile.lower()).startswith("high10")
+            # Includes planar p10, packed p010/p210 and gray10 pixel formats.
+            ten_bit = bool(re.search(r"10(?:le|be)?$", pixel))
+            rejected |= high10 or ten_bit or str(bits) == "10"
+        if not video_count:
+            raise GuardError("no readable video streams")
+        return rejected
+
+    def validate(root, probe_fn=probe, clock=time.monotonic):
+        deadline = clock() + JOB_SECONDS
+        videos = []
+        samples = 0
+        entries = 0
+        def walk_error(error):
+            raise GuardError("cannot enumerate completed directory") from None
+        for directory, dirs, files in os.walk(root, followlinks=False, onerror=walk_error):
+            entries += len(dirs) + len(files)
+            if entries > MAX_ENTRIES or clock() >= deadline:
+                raise GuardError("directory scan exceeded limits")
+            for name in dirs:
+                if (Path(directory) / name).is_symlink():
+                    raise GuardError("symlinked directory is not safe to inspect")
+            for name in sorted(files):
+                path = Path(directory) / name
+                if path.suffix.lower() not in VIDEO:
+                    continue
+                if path.is_symlink():
+                    raise GuardError("symlinked video is not safe to inspect")
+                # Only explicit Sample directories or delimited sample filenames.
+                relative = path.relative_to(root)
+                if any(p.lower() in {"sample", "samples"} for p in relative.parts[:-1]) or SAMPLE.search(path.stem):
+                    samples += 1
+                    log("SKIP sample " + label(path))
+                    continue
+                videos.append(path)
+                if len(videos) > MAX_FILES:
+                    raise GuardError("too many video files")
+        if not videos:
+            raise GuardError("no main video files; TV job requires manual review")
+        rejected = False
+        for path in sorted(videos):
+            remaining = deadline - clock()
+            if remaining <= 0:
+                raise GuardError("job probe deadline exceeded")
+            try:
+                bad = incompatible(probe_fn(path, min(30, remaining)))
+            except GuardError as error:
+                log("FAIL " + label(path) + ": " + str(error))
+                raise GuardError("unverifiable TV media; retained for review") from None
+            if bad:
+                log("REJECT " + label(path) + ": H.264 10-bit / High 10")
+                rejected = True
+            else:
+                log("PASS " + label(path) + ": no H.264 10-bit detected")
+        if rejected:
+            raise GuardError("incompatible H.264 10-bit; completed files retained")
+        log("PASS TV job: %d main video(s), %d sample(s) skipped" % (len(videos), samples))
+
+    def main(env=None):
+        env = os.environ if env is None else env
+        # SAB_STATUS is normally "Running" while the external script executes.
+        # SAB_PP_STATUS is the authoritative repair/unpack result (0 = success).
+        if (env.get("SAB_PP_STATUS") != "0"
+                or env.get("SAB_STATUS", "").lower() not in {"running", "completed"}):
+            log("FAIL existing/incomplete post-processing status; not validated")
+            return 1
+        if env.get("SAB_CAT", "").lower() != "tv":
+            log("SKIP non-TV category; no media inspected")
+            return 0
+        try:
+            if not env.get("SAB_COMPLETE_DIR"):
+                raise GuardError("completed directory missing")
+            root = Path(env["SAB_COMPLETE_DIR"]).resolve(strict=True)
+            base = TV_ROOT.resolve(strict=True)
+            if not root.is_dir() or root == base or not root.is_relative_to(base):
+                raise GuardError("TV job is outside the expected completed-job directory")
+            validate(root)
+        except (OSError, RuntimeError):
+            log("FAIL completed directory is unreadable; files retained")
+            return 1
+        except GuardError as error:
+            log("FAIL " + str(error))
+            return 1
+        return 0
+
+    if __name__ == "__main__":
+        sys.exit(main())
+
+  reconcile.py: |
+    #!/usr/bin/env python3
+    """Apply only allowlisted native SAB settings before the application starts."""
+    import copy
+    import os
+    from pathlib import Path
+    import stat
+    import sys
+    from configobj import ConfigObj, ConfigObjError
+
+    SCRIPT_DIR = "/codec-guard/scripts"
+    SCRIPT = "codec-guard.py"
+    MISC = {
+        "script_dir": SCRIPT_DIR,
+        "script_can_fail": "1",
+        # Disable legacy migration and automatic history removal for the pilot.
+        "history_retention": "",
+        "history_retention_option": "all",
+        "new_nzb_on_failure": "0",
+    }
+
+    class ConfigError(Exception):
+        pass
+
+    def load(path):
+        try:
+            value = ConfigObj(str(path), encoding="utf-8", interpolation=False,
+                              file_error=True, raise_errors=True, list_values=True)
+        except (ConfigObjError, OSError, UnicodeError):
+            raise ConfigError("configuration could not be parsed; no settings disclosed") from None
+        return value
+
+    def desired(config):
+        result = copy.deepcopy(config)
+        if not isinstance(result.get("misc"), dict) or not isinstance(result.get("categories"), dict):
+            raise ConfigError("existing misc/categories sections required")
+        misc = result["misc"]
+        categories = result["categories"]
+        if "tv" not in categories or "*" not in categories:
+            raise ConfigError("existing tv/default categories required")
+        if misc.get("script_dir", "") not in ("", SCRIPT_DIR):
+            raise ConfigError("existing script directory requires manual integration")
+        for name, category in categories.items():
+            if not isinstance(category, dict):
+                raise ConfigError("malformed category configuration")
+            allowed = {"", "None", "Default"}
+            if name == "tv":
+                allowed.add(SCRIPT)
+            if category.get("script", "Default") not in allowed:
+                raise ConfigError("existing category script requires manual integration")
+        if misc.get("complete_dir") != "/media/torrents/complete/sabnzbd":
+            raise ConfigError("completed directory changed; review guard path before rollout")
+        if categories["tv"].get("dir") != "TV Shows":
+            raise ConfigError("TV category directory changed; review guard path before rollout")
+        # Ensure normal SAB cleanup cannot remove the videos before validation.
+        cleanup = misc.get("cleanup_list", [])
+        cleanup = cleanup if isinstance(cleanup, list) else [cleanup]
+        extensions = {"mkv", "mp4", "m4v", "avi", "mov", "ts", "m2ts", "mts",
+                      "mpg", "mpeg", "wmv", "webm", "vob", "ogm", "ogv", "flv",
+                      "divx", "m2v", "m1v", "mpe", "mpv", "qt", "asf", "rm",
+                      "rmvb", "3gp", "3g2", "f4v", "trp", "wtv", "dvr-ms",
+                      "mxf", "nut", "h264", "264", "avc", "hevc", "265", "h265",
+                      "strm"}
+        if any(str(item).lower().lstrip(".") in extensions or "*" in str(item) for item in cleanup):
+            raise ConfigError("video cleanup rule requires manual review")
+        for key, value in MISC.items():
+            misc[key] = value
+        categories["tv"]["script"] = SCRIPT
+        return result
+
+    def reconcile(path, check=False):
+        path = Path(path)
+        if path.is_symlink() or not path.is_file():
+            raise ConfigError("existing regular configuration file required")
+        before = load(path)
+        after = desired(before)
+        if check:
+            if before.dict() != after.dict():
+                raise ConfigError("managed settings drift detected")
+            print("codec-guard config: managed settings verified (no secrets shown)")
+            return
+        if before.dict() == after.dict():
+            print("codec-guard config: already reconciled")
+            return
+        staging = path.with_name(path.name + ".codec-guard-next")
+        metadata = path.stat()
+        created = False
+        try:
+            descriptor = os.open(staging, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            created = True
+            with os.fdopen(descriptor, "wb") as stream:
+                after.write(stream)
+                stream.flush()
+                os.fsync(stream.fileno())
+            if load(staging).dict() != after.dict():
+                raise ConfigError("staged configuration failed read-back")
+            if hasattr(os, "chown"):
+                os.chown(staging, metadata.st_uid, metadata.st_gid)
+            os.chmod(staging, stat.S_IMODE(metadata.st_mode))
+            # Refuse to overwrite an application or operator write during init.
+            if load(path).dict() != before.dict():
+                raise ConfigError("configuration changed concurrently")
+            os.replace(staging, path)
+            if load(path).dict() != after.dict():
+                raise ConfigError("configuration failed final read-back")
+        finally:
+            if created and staging.exists():
+                staging.unlink()
+        print("codec-guard config: reconciled TV script, failure flag and retention only")
+
+    if __name__ == "__main__":
+        try:
+            reconcile("/config/sabnzbd.ini", check="--check" in sys.argv[1:])
+        except (ConfigError, OSError):
+            print("codec-guard config: FAILED; inspect allowlisted settings and script conflicts", file=sys.stderr)
+            sys.exit(1)
