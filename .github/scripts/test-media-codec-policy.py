@@ -111,6 +111,26 @@ class CodecPolicyTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "missing or duplicated"):
             POLICY.reconcile(api, "Test")
 
+    def test_each_job_uses_only_its_own_application_affinity_and_volume(self):
+        jobs = list(yaml.safe_load_all((ROOT / "apps/media-codec-policy/cronjob.yaml").read_text()))
+        self.assertEqual(len(jobs), 2)
+        for job in jobs:
+            spec = job["spec"]["jobTemplate"]["spec"]["template"]["spec"]
+            application = spec["containers"][0]["command"][-1]
+            self.assertIn(application, ("sonarr", "radarr"))
+            terms = spec["affinity"]["podAffinity"]["requiredDuringSchedulingIgnoredDuringExecution"]
+            self.assertEqual(len(terms), 1)
+            self.assertEqual(
+                terms[0]["labelSelector"]["matchLabels"],
+                {"app.kubernetes.io/name": application},
+            )
+            claims = [
+                volume["persistentVolumeClaim"]
+                for volume in spec["volumes"]
+                if "persistentVolumeClaim" in volume
+            ]
+            self.assertEqual(claims, [{"claimName": f"{application}-config", "readOnly": True}])
+
     def test_monitoring_queries_are_bounded_without_losing_core_alerts(self):
         document = yaml.safe_load(
             (ROOT / "infrastructure/monitoring/helmrelease-kube-prometheus-stack.yaml").read_text()

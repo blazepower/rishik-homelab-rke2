@@ -5,6 +5,7 @@ metadata:
   namespace: media
 data:
   reconcile.py: |
+    import argparse
     import json
     import sys
     import urllib.error
@@ -128,11 +129,14 @@ data:
 
 
     def main():
-        for label, url, config in (
-            ("Sonarr", "http://sonarr:8989", "/sonarr-config/config.xml"),
-            ("Radarr", "http://radarr:7878", "/radarr-config/config.xml"),
-        ):
-            reconcile(Api(url, config), label)
+        parser = argparse.ArgumentParser()
+        parser.add_argument("application", choices=("sonarr", "radarr"))
+        args = parser.parse_args()
+        label, url = {
+            "sonarr": ("Sonarr", "http://sonarr:8989"),
+            "radarr": ("Radarr", "http://radarr:7878"),
+        }[args.application]
+        reconcile(Api(url, "/app-config/config.xml"), label)
 
 
     if __name__ == "__main__":
