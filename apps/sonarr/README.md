@@ -84,6 +84,21 @@ Configured directly in HelmRelease (Sonarr v4 config overrides using `SONARR__<X
 
 ## Integration
 
+### TV codec compatibility
+
+The shared `apps/media-codec-policy` CronJob reconciles a High 10 H.264
+rejection custom format into every Sonarr and Radarr quality profile every
+six hours. It preserves existing quality, language, upgrade, and format
+preferences, and sets a negative score that cannot be offset by other
+positive format scores. Normal H.264, HEVC (including 10-bit), and AV1 are
+not rejected by this policy.
+
+Detection depends on release titles advertising Hi10P, High 10, or H.264
+with 10-bit depth; mislabeled releases can still slip through. The job does
+not start searches, delete media, or change upgrade settings. Existing
+incompatible files can still require Plex conversion or manual replacement.
+API keys are read in memory from read-only config mounts, never stored in Git.
+
 Sonarr integrates with:
 - **Prowlarr**: For indexer management
 - **SABnzbd**: For downloading content

@@ -64,6 +64,9 @@ jobs:
       - name: Install yamllint
         run: pip install yamllint
 
+      - name: Test media codec policy
+        run: python3 .github/scripts/test-media-codec-policy.py
+
       - name: Run yamllint
         run: |
           # Run yamllint and check exit code

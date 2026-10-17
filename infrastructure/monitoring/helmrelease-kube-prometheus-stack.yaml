@@ -21,12 +21,22 @@ spec:
     remediation:
       retries: 3
   values:
+    defaultRules:
+      rules:
+        # Long-range SLO evaluations thrash the seven-day TSDB over Longhorn.
+        kubeApiserverAvailability: false
+        kubeApiserverBurnrate: false
+        kubeApiserverSlos: false
     prometheus:
       prometheusSpec:
         priorityClassName: infrastructure-high
         retention: 7d
         scrapeInterval: 60s
         evaluationInterval: 60s
+        query:
+          maxConcurrency: 4
+          maxSamples: 10000000
+          timeout: 30s
         resources:
           requests:
             cpu: "100m"

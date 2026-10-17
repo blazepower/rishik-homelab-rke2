@@ -80,6 +80,10 @@ Configured via ConfigMap:
 
 ## Integration
 
+Future downloads use the shared High 10 H.264 rejection policy described
+in [Sonarr's TV codec compatibility section](../sonarr/README.md#tv-codec-compatibility).
+It leaves normal H.264 and HEVC available and does not launch replacement searches.
+
 Radarr integrates with:
 - **Prowlarr**: For indexer management
 - **SABnzbd**: For downloading content
