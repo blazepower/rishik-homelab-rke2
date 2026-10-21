@@ -67,7 +67,10 @@ The deployment includes an init container that can restore a Plex database from 
 
 - `PLEX_UID` / `PLEX_GID`: Set via ConfigMap to match media file ownership
 - `PLEX_CLAIM`: Optional claim token for linking to Plex account
-- `ALLOWED_NETWORKS`: Network ranges allowed to access Plex (192.168.1.0/24, 10.42.0.0/16, 10.43.0.0/16)
+- `ALLOWED_NETWORKS`: Empty; LAN, cluster, and remote clients must authenticate.
+  The init container removes any persisted `allowedNetworks` preference before
+  Plex starts, including after a database restore. Local and remote access paths
+  remain available; clients that previously bypassed authentication must sign in.
 
 ## Health Checks
 
