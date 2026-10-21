@@ -59,32 +59,38 @@ spec:
         failureThreshold: 3
 
     initContainer:
-      image:
-        repository: plexinc/pms-docker
-        tag: "1.43.5.11029-6bf8af3f0"
       script: |-
         #!/bin/sh
-        set -eu
-
         echo "waiting for pre-existing pms database to be uploaded..."
 
         if [ -d "/config/Library" ]; then
-          echo "PMS library already exists, skipping restore."
-        else
-          # wait for the database archive to be manually copied to the server
-          while [ ! -f /pms.tgz ]; do sleep 2; done;
-
-          tar -xvzf /pms.tgz -C /config
-          rm /pms.tgz
+          echo "PMS library already exists, exiting."
+          exit 0
         fi
 
-        # An empty ALLOWED_NETWORKS does not clear an existing preference.
-        preferences="/config/Library/Application Support/Plex Media Server/Preferences.xml"
-        if [ -f "$preferences" ]; then
-          echo "Removing persisted authentication exemptions."
-          xmlstarlet ed --inplace --delete '/Preferences/@allowedNetworks' "$preferences"
-        fi
+        # wait for the database archive to be manually copied to the server
+        while [ ! -f /pms.tgz ]; do sleep 2; done;
+
+        tar -xvzf /pms.tgz -C /config
+        rm /pms.tgz
+
         echo "Done."
+
+    extraInitContainers:
+      - name: require-plex-auth
+        image: plexinc/pms-docker:1.43.5.11029-6bf8af3f0
+        command: ["/bin/sh", "-ec"]
+        args:
+          - |-
+            # An empty ALLOWED_NETWORKS does not clear an existing preference.
+            preferences="/config/Library/Application Support/Plex Media Server/Preferences.xml"
+            if [ -f "$preferences" ]; then
+              echo "Removing persisted authentication exemptions."
+              xmlstarlet ed --inplace --delete '/Preferences/@allowedNetworks' "$preferences"
+            fi
+        volumeMounts:
+          - name: pms-config
+            mountPath: /config
 
     # Environment variables loaded from ConfigMap for filesystem permissions
     # PLEX_UID/PLEX_GID should match the ownership of the external HDD
