@@ -25,8 +25,13 @@ spec:
     loki:
       storage:
         type: filesystem
+        filesystem:
+          chunks_directory: /var/loki/tsdb-v13/chunks
+          rules_directory: /var/loki/tsdb-v13/rules
       auth_enabled: false
       commonConfig:
+        # Isolate the fresh TSDB store without deleting the archived BoltDB data.
+        path_prefix: /var/loki/tsdb-v13
         replication_factor: 1
       # Log retention policy - 14 days
       limits_config:
@@ -37,20 +42,39 @@ spec:
         max_streams_per_user: 5000
         max_global_streams_per_user: 5000
       compactor:
+        working_directory: /var/loki/tsdb-v13/compactor
         retention_enabled: true
         retention_delete_delay: 2h
         delete_request_store: filesystem
       ingester:
         wal:
+          dir: /var/loki/tsdb-v13/wal
           replay_memory_ceiling: 512MB
+      storage_config:
+        filesystem:
+          directory: /var/loki/tsdb-v13/chunks
+        boltdb_shipper: null
+        tsdb_shipper:
+          active_index_directory: /var/loki/tsdb-v13/tsdb-index
+          cache_location: /var/loki/tsdb-v13/tsdb-cache
+        bloom_shipper:
+          working_directory: /var/loki/tsdb-v13/bloomshipper
+      rulerConfig:
+        storage:
+          local:
+            directory: /var/loki/tsdb-v13/rules
+        rule_path: /var/loki/tsdb-v13/rules-temp
+        wal:
+          dir: /var/loki/tsdb-v13/ruler-wal
       schemaConfig:
         configs:
+          # Intentional fresh-store cutover: old logs remain on disk, not queryable.
           - from: "2024-04-01"
-            store: boltdb-shipper
+            store: tsdb
             object_store: filesystem
             schema: v13
             index:
-              prefix: loki_index_
+              prefix: loki_tsdb_v13_
               period: 24h
     # Single binary mode configuration
     singleBinary:
