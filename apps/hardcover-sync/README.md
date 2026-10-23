@@ -39,12 +39,15 @@ tags. Other application-specific or embedded trust stores still need
 independent verification; a newer tag or successful uncached build alone does
 not establish eMudhra incident remediation.
 
-Hardcover uses Go 1.27.3 and requires Debian Bookworm `ca-certificates` at least
-`20250419~deb12u2`; Cook Sync requires Ubuntu 26.04 `ca-certificates` at least
-`20260816ubuntu0.26.04.1`. The current Cook Sync package list still depends on
-`libwebkit2gtk-4.0-37`; availability on Ubuntu 26.04 must be verified before
-claiming that rebuild works. The workflows deliberately do not change distro
-majors or silently substitute a different WebKit ABI.
+Hardcover uses Go 1.27.3. Both Hardcover and Cooklang require Debian Bookworm
+`ca-certificates` at least `20250419~deb12u2` and replace the distroless
+filesystem's entire certificate and hashed-trust directories, not just its
+bundle. Cook Sync retains Cook Desktop 0.2.5 on supported Ubuntu 22.04,
+matching the deployed application's native `libwebkit2gtk-4.0-37` ABI, and
+requires `ca-certificates` at least `20260816ubuntu0.22.04.1`. Ubuntu 26.04
+does not supply that ABI. The build checks the installed app version and
+rejects unresolved shared libraries instead of mixing distribution packages
+or substituting incompatible library symlinks.
 
 References: [Debian DSA-6572](https://www.debian.org/security/2026/dsa-6572),
 [Ubuntu incident guidance](https://ubuntu.com/blog/emudhra-ca-compromise-fixes-available),

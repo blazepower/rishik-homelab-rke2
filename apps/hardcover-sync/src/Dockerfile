@@ -24,16 +24,26 @@ COPY main.go ./
 # Build the application with static linking
 RUN CGO_ENABLED=1 GOOS=linux go build -a -ldflags '-linkmode external -extldflags "-static"' -o hardcover-sync .
 
+COPY --from=gcr.io/distroless/static-debian12:nonroot / /runtime-root/
+
+# Replace hashed trust paths as well as the bundle.
+RUN rm -rf /runtime-root/etc/ssl/certs /runtime-root/usr/share/ca-certificates && \
+    mkdir -p /runtime-root/etc/ssl /runtime-root/usr/share && \
+    cp -a /etc/ssl/certs /runtime-root/etc/ssl/ && \
+    cp -a /usr/share/ca-certificates /runtime-root/usr/share/ && \
+    cp /etc/ca-certificates.conf /runtime-root/etc/ca-certificates.conf
+
 # Final stage - distroless static image
-FROM gcr.io/distroless/static-debian12:nonroot
+FROM scratch
+
+COPY --from=build /runtime-root/ /
 
 WORKDIR /app
 
 # Copy binary from build stage
 COPY --from=build /build/hardcover-sync /app/hardcover-sync
 
-# Copy CA certificates for HTTPS requests
-COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 
 # Use non-root user (65532 is the nonroot user in distroless)
 USER 65532:65532

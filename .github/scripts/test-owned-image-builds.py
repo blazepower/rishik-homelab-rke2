@@ -47,8 +47,52 @@ class OwnedBuildTests(unittest.TestCase):
         sync = (ROOT / "apps" / "cooklang" / "Dockerfile.sync").read_text()
         self.assertIn("FROM golang:1.27.3-bookworm AS build", hardcover)
         self.assertIn("ge 20250419~deb12u2", hardcover)
-        self.assertIn("FROM ubuntu:26.04", sync)
-        self.assertIn("ge 20260816ubuntu0.26.04.1", sync)
+        self.assertIn("FROM ubuntu:22.04", sync)
+        self.assertIn("ge 20260816ubuntu0.22.04.1", sync)
+
+    def test_cook_sync_preserves_supported_native_abi_and_app_version(self):
+        sync = (ROOT / "apps" / "cooklang" / "Dockerfile.sync").read_text()
+        self.assertLess(sync.index("ge 20260816ubuntu0.22.04.1"), sync.index("RUN curl"))
+        self.assertIn("ARG COOK_DESKTOP_VERSION=0.2.5", sync)
+        self.assertIn("    libwebkit2gtk-4.0-37 \\", sync)
+        self.assertIn("apt-get install -y --no-install-recommends /opt/cook-desktop.deb", sync)
+        self.assertIn('test "$(dpkg-query -W -f=\'${Version}\' cook-desktop)" = "${COOK_DESKTOP_VERSION}"', sync)
+        self.assertIn("ldd /usr/bin/cook-desktop > /opt/cook-desktop.ldd", sync)
+        self.assertIn("! grep -q 'not found' /opt/cook-desktop.ldd", sync)
+        self.assertNotIn("apt-get install -f", sync)
+        self.assertNotIn("; apt-get", sync)
+        self.assertNotIn("ln -s", sync)
+        self.assertNotIn("/tmp/", sync)
+        self.assertNotRegex(sync, r"(?:noble|resolute|add-apt-repository|sources\.list)")
+
+    def test_distroless_replaces_entire_trust_directories_before_final_runtime(self):
+        cases = (
+            ("apps/cooklang/Dockerfile", "certificates", "/usr/local/bin/cook"),
+            ("apps/hardcover-sync/src/Dockerfile", "build", "/app/hardcover-sync"),
+        )
+        for path, stage, executable in cases:
+            with self.subTest(dockerfile=path):
+                text = (ROOT / path).read_text()
+                seed = "COPY --from=gcr.io/distroless/static-debian12:nonroot / /runtime-root/"
+                remove = "rm -rf /runtime-root/etc/ssl/certs /runtime-root/usr/share/ca-certificates"
+                copy_bundle_directory = "cp -a /etc/ssl/certs /runtime-root/etc/ssl/"
+                copy_source_directory = "cp -a /usr/share/ca-certificates /runtime-root/usr/share/"
+                self.assertIn("dpkg --compare-versions", text)
+                self.assertIn("ge 20250419~deb12u2", text)
+                self.assertLess(text.index("ge 20250419~deb12u2"), text.index(seed))
+                self.assertLess(text.index(seed), text.index(remove))
+                self.assertLess(text.index(remove), text.index(copy_bundle_directory))
+                self.assertLess(text.index(remove), text.index(copy_source_directory))
+                self.assertLess(text.index(copy_bundle_directory), text.index("FROM scratch"))
+                self.assertLess(text.index(copy_source_directory), text.index("FROM scratch"))
+                final = text.split("FROM scratch", 1)[1]
+                self.assertIn(f"COPY --from={stage} /runtime-root/ /", final)
+                self.assertIn("USER 65532:65532", final)
+                self.assertIn("ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt", final)
+                self.assertIn(f'ENTRYPOINT ["{executable}"]', final)
+                self.assertNotIn("gcr.io/distroless/", final)
+        cooklang = (ROOT / "apps" / "cooklang" / "Dockerfile").read_text()
+        self.assertLess(cooklang.index("ge 20250419~deb12u2"), cooklang.index("curl -fsSL"))
 
     def test_quarantine_check_then_branch_gated_promotion(self):
         for name in WORKFLOWS:
