@@ -60,16 +60,62 @@ def check_bundle(bundle: bytes) -> int:
     return len(certificates)
 
 
+def resolve_platform_image(image: str, platform: str) -> str:
+    manifest = json.loads(subprocess.run(
+        ["docker", "buildx", "imagetools", "inspect", "--raw", image],
+        capture_output=True, text=True, check=True,
+    ).stdout)
+    image_types = {
+        "application/vnd.oci.image.manifest.v1+json",
+        "application/vnd.docker.distribution.manifest.v2+json",
+    }
+    index_types = {
+        "application/vnd.oci.image.index.v1+json",
+        "application/vnd.docker.distribution.manifest.list.v2+json",
+    }
+    if not isinstance(manifest, dict) or manifest.get("schemaVersion") != 2:
+        raise ValueError("Expected an image manifest or platform index")
+    if manifest.get("mediaType") in image_types:
+        return image
+    if manifest.get("mediaType") not in index_types or not isinstance(manifest.get("manifests"), list):
+        raise ValueError("Unsupported image manifest or platform index")
+    system, architecture = platform.split("/")
+    matches = [
+        item for item in manifest["manifests"]
+        if isinstance(item, dict) and isinstance(item.get("platform"), dict)
+        and item["platform"].get("os") == system
+        and item["platform"].get("architecture") == architecture
+    ]
+    if len(matches) != 1:
+        raise ValueError(f"Expected exactly one image manifest for {platform}")
+    digest = matches[0].get("digest")
+    if (matches[0].get("mediaType") not in image_types
+            or not isinstance(digest, str)
+            or not re.fullmatch(r"sha256:[a-f0-9]{64}", digest)):
+        raise ValueError(f"Invalid image manifest descriptor for {platform}")
+    # The classic Docker store cannot retain two platforms under one index digest.
+    return image.split("@", 1)[0] + "@" + digest
+
+
 def check_image(image: str, platform: str = "linux/amd64") -> int:
     if not re.fullmatch(r"[a-z0-9./_-]+@sha256:[a-f0-9]{64}", image):
         raise ValueError("Supply the immutable published image@sha256:digest")
+    if platform not in ("linux/amd64", "linux/arm64"):
+        raise ValueError("Unsupported image platform")
+    platform_image = resolve_platform_image(image, platform)
     workspace = Path.cwd() / f".owned-image-ca-check-{uuid.uuid4().hex}"
     workspace.mkdir()
     container = None
     try:
-        subprocess.run(["docker", "pull", "--platform", platform, image], check=True)
+        subprocess.run(["docker", "pull", "--platform", platform, platform_image], check=True)
+        actual_platform = subprocess.run(
+            ["docker", "image", "inspect", "--format", "{{.Os}}/{{.Architecture}}", platform_image],
+            capture_output=True, text=True, check=True,
+        ).stdout.strip()
+        if actual_platform != platform:
+            raise ValueError(f"Expected {platform}, pulled image is {actual_platform}")
         container = subprocess.run(
-            ["docker", "create", "--platform", platform, image, "/__ca_check_never_started__"],
+            ["docker", "create", "--platform", platform, platform_image, "/__ca_check_never_started__"],
             capture_output=True, text=True, check=True,
         ).stdout.strip()
         if not re.fullmatch(r"[a-f0-9]{64}", container):

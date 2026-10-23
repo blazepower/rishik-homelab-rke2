@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
+import json
 import re
 import subprocess
 import sys
@@ -169,24 +170,87 @@ class OwnedBuildTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "immutable"):
             CA.check_image("ghcr.io/blazepower/cooklang:latest")
 
+    def test_platform_index_resolves_distinct_immutable_images(self):
+        image = "ghcr.io/blazepower/cooklang@sha256:" + "a" * 64
+        manifest = {
+            "schemaVersion": 2,
+            "mediaType": "application/vnd.oci.image.index.v1+json",
+            "manifests": [
+                {
+                    "mediaType": "application/vnd.oci.image.manifest.v1+json",
+                    "digest": "sha256:" + digest * 64,
+                    "platform": {"os": "linux", "architecture": architecture},
+                }
+                for architecture, digest in (("amd64", "b"), ("arm64", "c"), ("unknown", "d"))
+            ],
+        }
+        output = subprocess.CompletedProcess([], 0, stdout=json.dumps(manifest))
+        with patch.object(CA.subprocess, "run", return_value=output):
+            for architecture, digest in (("amd64", "b"), ("arm64", "c")):
+                self.assertEqual(
+                    CA.resolve_platform_image(image, f"linux/{architecture}"),
+                    "ghcr.io/blazepower/cooklang@sha256:" + digest * 64,
+                )
+            manifest["manifests"] = manifest["manifests"][:1]
+            output.stdout = json.dumps(manifest)
+            with self.assertRaisesRegex(ValueError, "exactly one"):
+                CA.resolve_platform_image(image, "linux/arm64")
+            manifest["manifests"] *= 2
+            output.stdout = json.dumps(manifest)
+            with self.assertRaisesRegex(ValueError, "exactly one"):
+                CA.resolve_platform_image(image, "linux/amd64")
+            manifest["manifests"] = manifest["manifests"][:1]
+            manifest["manifests"][0]["digest"] = "latest"
+            output.stdout = json.dumps(manifest)
+            with self.assertRaisesRegex(ValueError, "Invalid"):
+                CA.resolve_platform_image(image, "linux/amd64")
+
+    def test_single_manifest_and_invalid_manifest(self):
+        image = "ghcr.io/blazepower/cooklang@sha256:" + "a" * 64
+        output = subprocess.CompletedProcess([], 0, stdout=json.dumps({
+            "schemaVersion": 2, "mediaType": "application/vnd.oci.image.manifest.v1+json",
+        }))
+        with patch.object(CA.subprocess, "run", return_value=output):
+            self.assertEqual(CA.resolve_platform_image(image, "linux/amd64"), image)
+            for invalid in ([], {}, {"schemaVersion": 2, "mediaType": "unknown"}):
+                output.stdout = json.dumps(invalid)
+                with self.assertRaises(ValueError):
+                    CA.resolve_platform_image(image, "linux/amd64")
+
+    def test_wrong_actual_platform_rejected_before_container_creation(self):
+        image = "ghcr.io/blazepower/cooklang@sha256:" + "a" * 64
+        with patch.object(CA, "resolve_platform_image", return_value=image), \
+                patch.object(CA.subprocess, "run", side_effect=[
+                    subprocess.CompletedProcess([], 0),
+                    subprocess.CompletedProcess([], 0, stdout="linux/amd64\n"),
+                ]) as docker:
+            with self.assertRaisesRegex(ValueError, "Expected linux/arm64"):
+                CA.check_image(image, "linux/arm64")
+            self.assertEqual(docker.call_count, 2)
+        self.assertFalse(list(Path.cwd().glob(".owned-image-ca-check-*")))
+
     def test_image_is_only_created_and_cleaned_on_copy_failure(self):
         container = "a" * 64
         calls = []
 
         def docker(command, **kwargs):
             calls.append(command)
+            if command[1] == "image":
+                return subprocess.CompletedProcess(command, 0, stdout="linux/amd64\n")
             if command[1] == "create":
                 return subprocess.CompletedProcess(command, 0, stdout=container)
             if command[1] == "cp":
                 raise subprocess.CalledProcessError(1, command)
             return subprocess.CompletedProcess(command, 0)
 
-        with patch.object(CA.subprocess, "run", side_effect=docker):
+        image = "ghcr.io/blazepower/cooklang@sha256:" + "b" * 64
+        with patch.object(CA, "resolve_platform_image", return_value=image), \
+                patch.object(CA.subprocess, "run", side_effect=docker):
             with self.assertRaises(subprocess.CalledProcessError):
                 CA.check_image("ghcr.io/blazepower/cooklang@sha256:" + "b" * 64)
-        self.assertEqual([c[1] for c in calls], ["pull", "create", "cp", "rm"])
-        self.assertEqual(calls[1][-1], "/__ca_check_never_started__")
-        self.assertIn("-L", calls[2])
+        self.assertEqual([c[1] for c in calls], ["pull", "image", "create", "cp", "rm"])
+        self.assertEqual(calls[2][-1], "/__ca_check_never_started__")
+        self.assertIn("-L", calls[3])
         self.assertEqual(calls[-1], ["docker", "rm", container])
         self.assertFalse(list(Path.cwd().glob(".owned-image-ca-check-*")))
 
