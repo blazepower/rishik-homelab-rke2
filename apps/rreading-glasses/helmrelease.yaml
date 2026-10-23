@@ -35,7 +35,7 @@ spec:
           app:
             image:
               repository: docker.io/blampe/rreading-glasses
-              tag: hardcover
+              tag: "hardcover@sha256:3f017a51d9007b715303a20f481c822e4df66485fc9e5f57f6fdf1de840dc02f"
             command:
               - /main
             args:

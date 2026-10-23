@@ -1,5 +1,5 @@
 # Cook Desktop Sync Agent with Xvfb for headless operation
-# Using Ubuntu 22.04 because cook-desktop requires libwebkit2gtk-4.0-37
+# Keep the existing Ubuntu release; runtime packages must include the CA fix.
 FROM ubuntu:26.04
 
 ARG COOK_DESKTOP_VERSION=0.2.5
@@ -31,6 +31,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
     # Cleanup
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' ca-certificates)" ge 20260816ubuntu0.26.04.1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Download and install Cook Desktop

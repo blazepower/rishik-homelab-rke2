@@ -113,7 +113,7 @@ spec:
             dependsOn: gluetun
             image:
               repository: lscr.io/linuxserver/qbittorrent
-              tag: "5.2.3_v2.0.14-ls471"
+              tag: "5.2.4_v2.0.15-ls481@sha256:1ea873647c43d566f251a7122aee330b184509c57ee3257ed19f62dac0f8f24b"
             env:
               - name: PUID
                 valueFrom:
@@ -145,7 +145,7 @@ spec:
             dependsOn: gluetun
             image:
               repository: curlimages/curl
-              tag: "8.22.0"
+              tag: "8.23.0@sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac"
             env:
               - name: MAM_ID
                 valueFrom:
@@ -191,7 +191,7 @@ spec:
             dependsOn: app
             image:
               repository: python
-              tag: "3.14-alpine"
+              tag: "3.14-alpine@sha256:601e99e090cb08c2784a42395487709500bc39930307fe72f3f11a8f3c430762"
             env:
               - name: SEED_CATEGORY
                 value: "books"

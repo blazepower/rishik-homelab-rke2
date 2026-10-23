@@ -1,0 +1,54 @@
+{
+  "description": "Conservative PEM trust-bundle policy for the October 2026 eMudhra intermediate-key compromise. This is not a complete runtime or chain-validation assessment.",
+  "sources": [
+    "https://bugzilla.mozilla.org/show_bug.cgi?id=2083449",
+    "https://bugzilla.mozilla.org/attachment.cgi?id=9664786",
+    "https://ubuntu.com/blog/emudhra-ca-compromise-fixes-available"
+  ],
+  "blocked_spkis": [
+    {
+      "name": "EM DV TLS CA - G3B",
+      "sha256": "EBED6475C2C2D80FCB199F3FE8DD6E6B3CE60B77EB15D4E42C3DEC0C6F5B5105"
+    },
+    {
+      "name": "EM DV TLS CA - G3C",
+      "sha256": "49DD353DC2B919A3770645117D0E60C16115E7D1BC259EEFE734B00EA434FE5F"
+    },
+    {
+      "name": "EM EV TLS CA - G3B",
+      "sha256": "E0254C7FCDC265E2F0F8A428DABB75AB4AE039B4872D62F5EE57F0877D5A8A41"
+    },
+    {
+      "name": "EM EV TLS CA - G3C",
+      "sha256": "5C0660A2B164910D8FF589C18E14552E9E0EC237DCEFE2CB736D41A4811F81A0"
+    },
+    {
+      "name": "EM OV TLS CA - G3B",
+      "sha256": "43BFFA19D6EF651451F6841E019931E96F6F2EAEFF28AB4B6F1CE4576DE2717B"
+    },
+    {
+      "name": "EM OV TLS CA - G3C",
+      "sha256": "63ECEFEE431D49523BC1136C4E72D0206A477086CAF606CD5CF025686C109CF8"
+    },
+    {
+      "name": "EM OV CS CA - G3B",
+      "sha256": "EC4FFA1AD0AC88081314B7AAFFEF6A91F97CD57291BB5BA686C5415F5EB4F6B6"
+    },
+    {
+      "name": "EM OV CS CA - G3C",
+      "sha256": "92C063D67E8F14DB71D288E11266FFDAF69CBF115F7BAB14F3BC2F68D25E0E30"
+    },
+    {
+      "name": "AAA Certificate Services",
+      "sha256": "BD153ED7B0434F6886B17BCE8BBE84ED340C7132D702A8F4FA318F756ECBD6F3"
+    },
+    {
+      "name": "emSign Root TLS CA - G3",
+      "sha256": "C619E4780ED8E0ABEDA24AD732567DE4383A7EA941338F6D1A7D1B49AC792FE9"
+    },
+    {
+      "name": "emSign ECC Root CA - G3",
+      "sha256": "8D417DB2DD8BF5E3084D1E3F196D583849D81BDD4C00C70B9D39369E96B8C782"
+    }
+  ]
+}

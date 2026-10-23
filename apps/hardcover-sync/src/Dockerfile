@@ -1,11 +1,12 @@
 # Multi-stage build for Hardcover Sync
-FROM golang:1.27-bookworm AS build
+FROM golang:1.27.3-bookworm AS build
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libsqlite3-dev \
     ca-certificates \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' ca-certificates)" ge 20250419~deb12u2 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build

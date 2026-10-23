@@ -62,7 +62,10 @@ jobs:
           key: pip-yamllint-${{ runner.os }}
 
       - name: Install YAML and policy test dependencies
-        run: pip install yamllint configobj
+        run: pip install yamllint configobj cryptography
+
+      - name: Test eMudhra trust-bundle verification
+        run: python3 .github/scripts/test-emudhra-trust.py
 
       - name: Test media codec policy
         run: python3 .github/scripts/test-media-codec-policy.py

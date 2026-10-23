@@ -76,7 +76,7 @@ redis:
   enabled: true
   image:
     repository: docker.io/library/redis
-    tag: "8-alpine"
+    tag: "8-alpine@sha256:0bf6577d7774e592b29d093e3ac9390eb91e13d72c21e506afce736de5e0eeb0"
     pullPolicy: IfNotPresent
   resources:
     requests:
@@ -100,7 +100,7 @@ postgresql:
   enabled: true
   image:
     repository: docker.io/library/postgres
-    tag: "18-alpine"
+    tag: "18-alpine@sha256:898c60cb390d1085bc97bdd6a1ae968757421df394b071848b52b1c09c89d6a5"
     pullPolicy: IfNotPresent
   auth:
     database: maybe_production

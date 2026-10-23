@@ -10,6 +10,46 @@ Hardcover Sync is a custom Go microservice that automatically synchronizes books
 - **Type**: CronJob (runs every 2 hours)
 - **Access**: None (background service)
 
+## Owned image maintenance
+
+The Hardcover Sync, Cooklang and Cook Sync workflows always pull their base
+images. After the workflow changes are available on the selected ref, explicitly
+request an uncached rebuild with:
+
+```powershell
+gh workflow run build-hardcover-sync.yaml --ref master -f force_rebuild=true
+gh workflow run cooklang-build.yaml --ref master -f version=0.21.0 -f force_rebuild=true
+gh workflow run cook-sync-build.yaml --ref master -f version=0.2.5 -f force_rebuild=true
+```
+
+Each workflow first publishes only a unique
+`ca-candidate-<run-id>-<run-attempt>` quarantine tag, then checks that image's
+system CA bundle on every built platform without starting the application.
+After every check succeeds, the run summary reports `PASSED CANDIDATE` with
+the verified immutable digest. Feature-branch dispatches stop there without
+overwriting production tags. Promotion is limited to the repository's default
+branch or a release-tag push. Those runs promote the verified digest to the
+release/latest tags and then record the actual production `ghcr.io/...@sha256:...`
+reference from promotion metadata.
+The check uses `.github/security/emudhra-2026.json`, covering
+the affected intermediate keys and the three root SPKIs for AAA Certificate
+Services, emSign Root TLS CA-G3 and emSign ECC Root CA-G3; it does not remove certificates.
+A failed CA check leaves production tags untouched. Never deploy quarantine
+tags. Other application-specific or embedded trust stores still need
+independent verification; a newer tag or successful uncached build alone does
+not establish eMudhra incident remediation.
+
+Hardcover uses Go 1.27.3 and requires Debian Bookworm `ca-certificates` at least
+`20250419~deb12u2`; Cook Sync requires Ubuntu 26.04 `ca-certificates` at least
+`20260816ubuntu0.26.04.1`. The current Cook Sync package list still depends on
+`libwebkit2gtk-4.0-37`; availability on Ubuntu 26.04 must be verified before
+claiming that rebuild works. The workflows deliberately do not change distro
+majors or silently substitute a different WebKit ABI.
+
+References: [Debian DSA-6572](https://www.debian.org/security/2026/dsa-6572),
+[Ubuntu incident guidance](https://ubuntu.com/blog/emudhra-ca-compromise-fixes-available),
+and [Mozilla's affected-key evidence](https://bugzilla.mozilla.org/attachment.cgi?id=9664786).
+
 ## Architecture
 
 Hardcover Sync operates as a scheduled CronJob that:
