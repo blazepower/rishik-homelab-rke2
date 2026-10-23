@@ -16,6 +16,80 @@ ingestion rate fits 14 days. Monitor free space and growth after retention
 recovers; Loki filesystem storage does not delete logs merely because a disk
 is full.
 
+## Fresh TSDB store and retention recovery
+
+The fresh store uses **TSDB, schema v13, 24-hour index periods** with the distinct
+`loki_tsdb_v13_` index prefix. The schema starts at `2024-04-01` UTC, deliberately
+in the past: this is an immediate fresh-store cutover, not a future-dated
+migration that continues reading old tables. There is no BoltDB schema period.
+This avoids the BoltDB-specific cross-day retention failure described in
+[grafana/loki#23358](https://github.com/grafana/loki/issues/23358); increasing disk
+capacity alone does not fix that compactor error. TSDB is Loki's
+[recommended index](https://grafana.com/docs/loki/latest/operations/storage/tsdb/).
+The change does not downgrade Loki or patch its binary.
+
+**Previously collected logs intentionally become unqueryable**, with operator
+authorization to discard their queryability. All new persistent state is beneath
+`/var/loki/tsdb-v13` on the **same existing 30Gi claim**:
+
+| State | Directory |
+| --- | --- |
+| Filesystem object store (chunks, shipped index and delete requests) | `chunks` |
+| Active TSDB index and index cache | `tsdb-index`, `tsdb-cache` |
+| Ingester WAL | `wal` |
+| Compactor working state and retention markers | `compactor` |
+| Ruler store, working rules and WAL | `rules`, `rules-temp`, `ruler-wal` |
+| Bloom shipper working state (currently disabled) | `bloomshipper` |
+
+Both `common.storage.filesystem.chunks_directory` and
+`storage_config.filesystem.directory` resolve to the new object-store directory;
+changing only the schema or `common.path_prefix` would not isolate the old
+filesystem backend. The old index/chunk directories, WAL, compactor markers and
+delete requests are neither read/replayed nor listed by the new store. They are
+left intact: **there is no automatic deletion, directory move or cleanup job**.
+
+At preparation time the claim contained approximately **10Gi of archived data
+and 20Gi free**. The new store shares that free space; it does not gain another
+30Gi. Retention applies only to the new store and will not reclaim archived
+files. Monitor actual free space and ingestion growth, successful compactor
+retention timestamps, and error counters. Any future archive removal is a
+separate, explicitly authorized manual operation, not part of this change.
+
+### Applying and verifying the cutover
+
+Publish through Git/Flux only after coordinating the maintenance window. Keep
+the installed chart/image versions, resources, claim template (`30Gi`,
+Longhorn), `Retain` policies and `/var/loki` mount unchanged. This config-only
+change rolls the one Loki replica, briefly interrupting ingestion and queries;
+it does **not** require recreating the StatefulSet controller or PVC, running the
+expansion procedure below, or changing Plex.
+
+Before rollout, record the existing PVC UID, mounted filesystem free space,
+pod status and compactor counters. Render the exact installed chart and run
+Loki's `-verify-config=true` against the rendered configuration. After Flux
+applies the change, verify:
+
+- HelmRelease and the sole Loki replica are ready with stable restart count;
+  PVC UID, 30Gi capacity, resources and retention policies are unchanged.
+- `/ready`, a fresh-log query without printing its contents, and successful
+  ingestion/chunk flushing; historical logs are intentionally absent.
+- `loki_compactor_apply_retention_last_successful_run_timestamp_seconds`
+  becomes nonzero and advances over subsequent retention cycles, with no
+  retention errors. Readiness alone is insufficient.
+- New persistent state is under `/var/loki/tsdb-v13`, old files remain intact,
+  and free space/memory remain healthy. With `336h` retention and a `2h` delete
+  delay, do not expect newly ingested chunks to be deleted immediately.
+
+### Non-destructive fresh-store rollback
+
+Revert only the fresh-store schema/path changes through Git/Flux, preserving
+30Gi, `Retain` and the current memory settings. Restoring the previous BoltDB
+schema and all previous paths restores access to intact archived data, but also
+restores the upstream retention bug. Logs written to the new TSDB store are
+**not readable under the old configuration**; leave both stores intact. This
+rollback does not merge stores, restore logs already lost before recovery, or
+automatically delete either directory tree.
+
 ## Expanding an existing installation
 
 **Do not simply reconcile the size change on an existing 10Gi StatefulSet.**
