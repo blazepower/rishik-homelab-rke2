@@ -40,6 +40,9 @@ spec:
         retention_enabled: true
         retention_delete_delay: 2h
         delete_request_store: filesystem
+      ingester:
+        wal:
+          replay_memory_ceiling: 512MB
       schemaConfig:
         configs:
           - from: "2024-04-01"
@@ -55,16 +58,19 @@ spec:
       priorityClassName: infrastructure-high
       persistence:
         enabled: true
-        size: 10Gi
+        # Existing installations require the safe expansion procedure in README.md.
+        size: 30Gi
         storageClass: longhorn
+        whenDeleted: Retain
+        whenScaled: Retain
       # Resource limits and requests
       resources:
         requests:
           cpu: 100m
-          memory: 384Mi
+          memory: 768Mi
         limits:
           cpu: 500m
-          memory: 768Mi
+          memory: 2Gi
       # Readiness and liveness probes
       extraArgs:
         - -config.expand-env=true
