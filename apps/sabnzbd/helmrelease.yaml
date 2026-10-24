@@ -41,7 +41,7 @@ spec:
           codec-config:
             image:
               repository: lscr.io/linuxserver/sabnzbd # renovate: packageName=linuxserver/sabnzbd
-              tag: "5.1.3"
+              tag: "5.1.3-ls278@sha256:3ac1c9ea03bafa2588dd8acdcb809857bae305e71d2d90e11d689c78076a9c01"
             command:
               - python3
               - /codec-guard/reconcile.py
@@ -50,7 +50,7 @@ spec:
           app:
             image:
               repository: lscr.io/linuxserver/sabnzbd # renovate: packageName=linuxserver/sabnzbd
-              tag: "5.1.3"
+              tag: "5.1.3-ls278@sha256:3ac1c9ea03bafa2588dd8acdcb809857bae305e71d2d90e11d689c78076a9c01"
             env:
               - name: DOCKER_MODS
                 value: "linuxserver/mods:universal-package-install@sha256:ae68d698c8745c48cd634e807eca41a57a2aacb142bee4ca6a2c3b2b6c64afaf"

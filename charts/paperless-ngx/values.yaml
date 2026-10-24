@@ -3,7 +3,7 @@
 ## Image configuration
 image:
   repository: ghcr.io/paperless-ngx/paperless-ngx
-  tag: "3.0.5"
+  tag: "3.3.4@sha256:9bc6e8248891bcfa6f52fffe8b81e4ea8cae75790c3ec1b9906961a7ba55c969"
   pullPolicy: IfNotPresent
 
 ## Replica count
@@ -80,7 +80,7 @@ postgresql:
   enabled: true
   image:
     repository: docker.io/library/postgres
-    tag: "18-alpine"
+    tag: "18-alpine@sha256:898c60cb390d1085bc97bdd6a1ae968757421df394b071848b52b1c09c89d6a5"
     pullPolicy: IfNotPresent
   auth:
     database: paperless
@@ -116,7 +116,7 @@ redis:
   enabled: true
   image:
     repository: docker.io/library/redis
-    tag: "8-alpine"
+    tag: "8-alpine@sha256:0bf6577d7774e592b29d093e3ac9390eb91e13d72c21e506afce736de5e0eeb0"
     pullPolicy: IfNotPresent
   persistence:
     enabled: true

@@ -36,7 +36,7 @@ spec:
           app:
             image:
               repository: lscr.io/linuxserver/bazarr
-              tag: "1.5.4"
+              tag: "v1.6.2-ls369@sha256:946dc8c5bb5331418eac60050cf40a63cb8f66ac039841dda493870e3559799c"
             env:
               - name: PUID
                 valueFrom:

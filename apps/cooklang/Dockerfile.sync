@@ -1,6 +1,6 @@
 # Cook Desktop Sync Agent with Xvfb for headless operation
-# Using Ubuntu 22.04 because cook-desktop requires libwebkit2gtk-4.0-37
-FROM ubuntu:26.04
+# Cook Desktop 0.2.5 uses WebKitGTK 4.0, shipped natively by supported Jammy.
+FROM ubuntu:22.04
 
 ARG COOK_DESKTOP_VERSION=0.2.5
 
@@ -31,19 +31,24 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
     # Cleanup
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' ca-certificates)" ge 20260816ubuntu0.22.04.1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Download and install Cook Desktop
 RUN curl -fsSL "https://downloads.cook.md/cook-desktop-v${COOK_DESKTOP_VERSION}/cook-desktop_${COOK_DESKTOP_VERSION}_linux_x86_64.deb" \
-    -o /tmp/cook-desktop.deb \
+    -o /opt/cook-desktop.deb \
     && apt-get update \
-    && dpkg -i /tmp/cook-desktop.deb; apt-get install -f -y \
-    && dpkg -i /tmp/cook-desktop.deb \
-    && rm /tmp/cook-desktop.deb \
+    && apt-get install -y --no-install-recommends /opt/cook-desktop.deb \
+    && test "$(dpkg-query -W -f='${Version}' cook-desktop)" = "${COOK_DESKTOP_VERSION}" \
+    && rm /opt/cook-desktop.deb \
     && rm -rf /var/lib/apt/lists/*
 
-# Verify cook-desktop was installed
-RUN ls -la /usr/bin/cook-desktop && echo "cook-desktop binary found"
+# Fail the build if the vendor binary's required ABI cannot be resolved.
+RUN test -x /usr/bin/cook-desktop \
+    && ldd /usr/bin/cook-desktop > /opt/cook-desktop.ldd \
+    && cat /opt/cook-desktop.ldd \
+    && ! grep -q 'not found' /opt/cook-desktop.ldd \
+    && rm /opt/cook-desktop.ldd
 
 # Create directories
 RUN mkdir -p /recipes /config

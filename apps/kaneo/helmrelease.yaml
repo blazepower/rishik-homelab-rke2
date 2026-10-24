@@ -29,7 +29,7 @@ spec:
       enabled: true
       image:
         repository: postgres
-        tag: 16-alpine
+        tag: "16-alpine@sha256:f4610795587492cd4fb887c2dc3de301b813278bb6f616992061141b5f15ac36"
         pullPolicy: IfNotPresent
       auth:
         database: kaneo
