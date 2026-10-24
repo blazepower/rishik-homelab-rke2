@@ -21,7 +21,7 @@ spec:
           containers:
             - name: handler
               # kubectl must remain within one minor of the Kubernetes 1.33 API.
-              image: docker.io/alpine/k8s:1.34.12@sha256:d50424976a0a888d2531f13035dce45c004ec2b6f877f233005ba35c0d61be5d
+              image: docker.io/alpine/k8s:1.37.1@sha256:712dc5385d1c1a3f83b747fa9e40f64d433a97f72ff42f9755ff7dd1f62846e4
               resources:
                 requests:
                   cpu: 10m
