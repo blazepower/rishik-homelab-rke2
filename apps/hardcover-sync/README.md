@@ -39,6 +39,14 @@ tags. Other application-specific or embedded trust stores still need
 independent verification; a newer tag or successful uncached build alone does
 not establish eMudhra incident remediation.
 
+For deployment, first merge the workflow and runtime fixes to the default
+branch and let all required production builds and CA checks finish. Then pin
+the production digests reported in those runs in the Cooklang HelmRelease,
+Cooklang chart defaults and Hardcover CronJob. A passed feature-branch
+candidate is not a production promotion; do not pin its digest as a shortcut.
+Preserve those production manifests in the registry while deployments or
+rollback revisions reference them.
+
 Hardcover uses Go 1.27.3. Both Hardcover and Cooklang require Debian Bookworm
 `ca-certificates` at least `20250419~deb12u2` and replace the distroless
 filesystem's entire certificate and hashed-trust directories, not just its

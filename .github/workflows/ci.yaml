@@ -67,6 +67,9 @@ jobs:
       - name: Test eMudhra trust-bundle verification
         run: python3 .github/scripts/test-emudhra-trust.py
 
+      - name: Test owned image build guardrails
+        run: python3 .github/scripts/test-owned-image-builds.py
+
       - name: Test media codec policy
         run: python3 .github/scripts/test-media-codec-policy.py
 
