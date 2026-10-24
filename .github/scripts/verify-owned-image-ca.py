@@ -18,6 +18,10 @@ from pathlib import Path
 
 
 POLICY = Path(__file__).resolve().parents[1] / "security" / "emudhra-2026.json"
+BUNDLE_PATHS = (
+    "/etc/ssl/certs/ca-certificates.crt",
+    "/usr/lib/python3/dist-packages/certifi/cacert.pem",
+)
 CERTIFICATE = re.compile(
     rb"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----", re.DOTALL
 )
@@ -97,11 +101,15 @@ def resolve_platform_image(image: str, platform: str) -> str:
     return image.split("@", 1)[0] + "@" + digest
 
 
-def check_image(image: str, platform: str = "linux/amd64") -> int:
+def check_image(
+    image: str, platform: str = "linux/amd64", bundle_path: str = BUNDLE_PATHS[0],
+) -> int:
     if not re.fullmatch(r"[a-z0-9./_-]+@sha256:[a-f0-9]{64}", image):
         raise ValueError("Supply the immutable published image@sha256:digest")
     if platform not in ("linux/amd64", "linux/arm64"):
         raise ValueError("Unsupported image platform")
+    if bundle_path not in BUNDLE_PATHS:
+        raise ValueError("Unsupported CA bundle path")
     platform_image = resolve_platform_image(image, platform)
     workspace = Path.cwd() / f".owned-image-ca-check-{uuid.uuid4().hex}"
     workspace.mkdir()
@@ -122,7 +130,7 @@ def check_image(image: str, platform: str = "linux/amd64") -> int:
             raise ValueError("Docker did not return a valid container ID")
         bundle = workspace / "ca-certificates.crt"
         subprocess.run(
-            ["docker", "cp", "-L", f"{container}:/etc/ssl/certs/ca-certificates.crt", str(bundle)],
+            ["docker", "cp", "-L", f"{container}:{bundle_path}", str(bundle)],
             check=True,
         )
         if bundle.is_symlink() or not bundle.is_file():
@@ -142,10 +150,11 @@ def main() -> None:
     parser.add_argument(
         "--platform", choices=("linux/amd64", "linux/arm64"), default="linux/amd64"
     )
+    parser.add_argument("--bundle-path", choices=BUNDLE_PATHS, default=BUNDLE_PATHS[0])
     args = parser.parse_args()
-    count = check_image(args.image, args.platform)
-    print(f"Checked {count} system roots in {args.image} ({args.platform}); denied SPKIs absent.")
-    print("Embedded/runtime-specific trust stores require separate verification.")
+    count = check_image(args.image, args.platform, args.bundle_path)
+    print(f"Checked {count} roots at {args.bundle_path} in {args.image} ({args.platform}); denied SPKIs absent.")
+    print("Other embedded/runtime-specific trust stores require separate verification.")
 
 
 if __name__ == "__main__":
