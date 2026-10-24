@@ -4,7 +4,7 @@ Hardcover Sync is a custom Go microservice that automatically synchronizes books
 
 ## Overview
 
-- **Image**: `ghcr.io/blazepower/hardcover-sync:latest`
+- **Image**: `ghcr.io/blazepower/hardcover-sync` (digest-pinned in `cronjob.yaml`)
 - **Namespace**: media
 - **Node**: rishik-worker1
 - **Type**: CronJob (runs every 2 hours)
