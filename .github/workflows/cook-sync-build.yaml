@@ -78,7 +78,9 @@ jobs:
       - name: Check quarantined runtime CA bundle
         env:
           IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
-        run: python3 .github/scripts/verify-owned-image-ca.py "$IMAGE"
+        run: |
+          python3 .github/scripts/verify-owned-image-ca.py "$IMAGE"
+          python3 .github/scripts/verify-owned-image-ca.py "$IMAGE" --bundle-path /usr/lib/python3/dist-packages/certifi/cacert.pem
 
       - name: Output passed candidate image reference
         env:

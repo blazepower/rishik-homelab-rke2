@@ -62,9 +62,23 @@ class OwnedBuildTests(unittest.TestCase):
         self.assertIn("! grep -q 'not found' /opt/cook-desktop.ldd", sync)
         self.assertNotIn("apt-get install -f", sync)
         self.assertNotIn("; apt-get", sync)
-        self.assertNotIn("ln -s", sync)
+        self.assertNotRegex(sync, r"ln -s[^\n]*(?:libwebkit|libjavascriptcore|\.so)")
         self.assertNotIn("/tmp/", sync)
         self.assertNotRegex(sync, r"(?:noble|resolute|add-apt-repository|sources\.list)")
+
+    def test_cook_sync_certifi_uses_and_checks_patched_system_roots(self):
+        sync = (ROOT / "apps" / "cooklang" / "Dockerfile.sync").read_text()
+        bundle = "/usr/lib/python3/dist-packages/certifi/cacert.pem"
+        self.assertIn("    python3-certifi \\", sync)
+        self.assertIn("test -f " + bundle, sync)
+        self.assertIn("ln -sf /etc/ssl/certs/ca-certificates.crt " + bundle, sync)
+        self.assertIn("pathlib.Path(certifi.where()).resolve()", sync)
+        self.assertIn("ssl.create_default_context(cafile=certifi.where())", sync)
+        self.assertLess(sync.index("apt-get install -y --no-install-recommends /opt/cook-desktop.deb"),
+                        sync.index("ln -sf"))
+        workflow = (ROOT / ".github" / "workflows" / "cook-sync-build.yaml").read_text()
+        self.assertIn('verify-owned-image-ca.py "$IMAGE" --bundle-path ' + bundle, workflow)
+        self.assertLess(workflow.index("--bundle-path"), workflow.index("id: promote"))
 
     def test_distroless_replaces_entire_trust_directories_before_final_runtime(self):
         cases = (
@@ -170,6 +184,15 @@ class OwnedBuildTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "immutable"):
             CA.check_image("ghcr.io/blazepower/cooklang:latest")
 
+    def test_unsupported_bundle_path_rejected_before_registry_access(self):
+        with patch.object(CA.subprocess, "run") as docker:
+            with self.assertRaisesRegex(ValueError, "bundle path"):
+                CA.check_image(
+                    "ghcr.io/blazepower/cooklang@sha256:" + "a" * 64,
+                    bundle_path="/unexpected/path",
+                )
+            docker.assert_not_called()
+
     def test_platform_index_resolves_distinct_immutable_images(self):
         image = "ghcr.io/blazepower/cooklang@sha256:" + "a" * 64
         manifest = {
@@ -250,8 +273,35 @@ class OwnedBuildTests(unittest.TestCase):
                 CA.check_image("ghcr.io/blazepower/cooklang@sha256:" + "b" * 64)
         self.assertEqual([c[1] for c in calls], ["pull", "image", "create", "cp", "rm"])
         self.assertEqual(calls[2][-1], "/__ca_check_never_started__")
+        self.assertIn("/etc/ssl/certs/ca-certificates.crt", calls[3][3])
         self.assertIn("-L", calls[3])
         self.assertEqual(calls[-1], ["docker", "rm", container])
+        self.assertFalse(list(Path.cwd().glob(".owned-image-ca-check-*")))
+
+    def test_certifi_path_is_followed_without_starting_the_image(self):
+        container = "a" * 64
+        bundle = "/usr/lib/python3/dist-packages/certifi/cacert.pem"
+        calls = []
+
+        def docker(command, **kwargs):
+            calls.append(command)
+            output = ""
+            if command[1] == "image":
+                output = "linux/amd64\n"
+            elif command[1] == "create":
+                output = container
+            elif command[1] == "cp":
+                Path(command[-1]).write_bytes(CERTIFICATE * 10)
+            return subprocess.CompletedProcess(command, 0, stdout=output)
+
+        image = "ghcr.io/blazepower/cook-sync@sha256:" + "b" * 64
+        with patch.object(CA, "resolve_platform_image", return_value=image), \
+                patch.object(CA.subprocess, "run", side_effect=docker), \
+                patch.object(CA, "check_bundle", return_value=10):
+            self.assertEqual(CA.check_image(image, bundle_path=bundle), 10)
+        self.assertIn(f"{container}:{bundle}", calls[3])
+        self.assertIn("-L", calls[3])
+        self.assertEqual([c[1] for c in calls], ["pull", "image", "create", "cp", "rm"])
         self.assertFalse(list(Path.cwd().glob(".owned-image-ca-check-*")))
 
 

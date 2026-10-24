@@ -56,6 +56,8 @@ requires `ca-certificates` at least `20260816ubuntu0.22.04.1`. Ubuntu 26.04
 does not supply that ABI. The build checks the installed app version and
 rejects unresolved shared libraries instead of mixing distribution packages
 or substituting incompatible library symlinks.
+Cook Sync's distro-provided Python certifi bundle follows the patched system
+bundle, and its workflow independently checks both paths before promotion.
 
 References: [Debian DSA-6572](https://www.debian.org/security/2026/dsa-6572),
 [Ubuntu incident guidance](https://ubuntu.com/blog/emudhra-ca-compromise-fixes-available),
