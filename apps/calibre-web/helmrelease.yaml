@@ -39,7 +39,7 @@ spec:
           bootstrap-library:
             image:
               repository: lscr.io/linuxserver/calibre-web
-              tag: "0.6.27"
+              tag: "0.6.27@sha256:470b4ed9a7d6ea1475fef17dbcf957cb60880910296d226bd0dca652c05f68ca"
             command: ["python3", "-c"]
             args:
               - |
