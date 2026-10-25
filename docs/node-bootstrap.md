@@ -7,6 +7,7 @@ This section documents the requirements for nodes joining the cluster.
 ### Operating System
 
 - Ubuntu 22.04 LTS or 24.04 LTS (Debian-based required for apt-get package installation)
+- Ubuntu 26.04 LTS with a compatible RKE2 release; the [RKE2 v1.34 support matrix](https://www.suse.com/suse-rke2/support-matrix/all-supported-versions/rke2-v1-34/) explicitly includes this release.
 - Other Debian-based distributions may work but are untested
 
 ### Hardware Requirements
@@ -30,6 +31,27 @@ This section documents the requirements for nodes joining the cluster.
 ### Pre-installed Requirements
 
 - None - the bootstrap DaemonSets handle all required package installation
+
+## RKE2 Helm Jobs on a Cordoned Controller
+
+The controller remains intentionally cordoned. RKE2's bootstrap Helm jobs for
+Canal and CoreDNS require a control-plane node, but their default tolerations do
+not allow scheduling onto an unschedulable node.
+
+The host-only configuration in
+`node-config/rke2/90-helm-job-tolerations.yaml` adds that toleration to RKE2 Helm
+jobs without uncordoning the controller or changing application tolerations.
+This uses `helm-controller-arg`, supported since RKE2 v1.33.13+rke2r2 and
+v1.34.10+rke2r1. The `+` suffix preserves existing Helm-controller arguments.
+Review existing `job-tolerations` arguments and later configuration files before
+installation so custom settings are not overwritten.
+
+Install this file on server hosts under
+`/etc/rancher/rke2/config.yaml.d/90-helm-job-tolerations.yaml` through an
+operator-approved host maintenance step. It is not a Kubernetes manifest and
+Flux does not install it. Applying it requires an RKE2 service restart, which
+must be gated on a fresh verified off-node recovery archive for the sole server.
+Verify subsequent bootstrap jobs finish and the controller stays cordoned.
 
 ## iSCSI Installation
 
