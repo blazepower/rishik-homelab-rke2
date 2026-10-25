@@ -8,7 +8,7 @@ This deployment uses a local Helm chart located at `charts/paperless-ngx` in thi
 
 Paperless-ngx consists of:
 - **Paperless-ngx Application** - Main web interface and document processing (ghcr.io/paperless-ngx/paperless-ngx) running on port 8000
-- **PostgreSQL** - Database (postgres:16-alpine) running on port 5432
+- **PostgreSQL** - Database (PostgreSQL 18 Alpine) running on port 5432
 - **Redis** - Cache and task queue running on port 6379
 
 ## Configuration
@@ -17,7 +17,7 @@ Paperless-ngx consists of:
 |---------|-------|
 | **Namespace** | `paperless` |
 | **Application Port** | 8000 |
-| **Database** | PostgreSQL 16 (Alpine) |
+| **Database** | PostgreSQL 18 (Alpine) |
 | **Database Storage** | 8Gi Longhorn PVC |
 | **Document Storage** | Multiple Longhorn PVCs (data: 5Gi, media: 20Gi, export: 5Gi, consume: 5Gi) |
 | **Ingress** | `paperless.homelab` (Traefik with TLS) |
@@ -27,7 +27,7 @@ Paperless-ngx consists of:
 
 | Component | CPU Request | CPU Limit | Memory Request | Memory Limit |
 |-----------|-------------|-----------|----------------|--------------|
-| Paperless-ngx | 50m | 200m | 128Mi | 256Mi |
+| Paperless-ngx | 100m | 1 | 512Mi | 2Gi |
 | PostgreSQL | 50m | 200m | 128Mi | 256Mi |
 
 ## Storage Volumes
@@ -50,12 +50,14 @@ All volumes use the Longhorn storage class with ReadWriteOnce access mode.
 
 ### 1. Create and Seal Secrets
 
-Before deploying, you need to create a SealedSecret with the required credentials. The sealed secret must contain four keys:
+Before deploying, create a SealedSecret with these keys:
 
-- **PAPERLESS_DBPASS**: Password for the PostgreSQL database (used by Paperless-ngx application)
-- **postgres-password**: Password for the PostgreSQL database (used by PostgreSQL subchart - must match PAPERLESS_DBPASS)
-- **PAPERLESS_ADMIN_PASSWORD**: Admin credentials for the Paperless-ngx web interface
-- **PAPERLESS_SECRET_KEY**: Django secret key (64+ characters recommended)
+- **postgresql-password**: Shared application and PostgreSQL password
+- **paperless-admin-password**: Initial administrator password
+- **paperless-secret-key**: Persistent Django signing key
+
+The chart maps these keys to the corresponding environment variables. Preserve
+the original signing key across upgrades; v3 requires it explicitly.
 
 **Instructions:**
 
@@ -91,7 +93,7 @@ kubectl logs -n paperless -l app.kubernetes.io/name=paperless -f
 
 Once deployed, navigate to `https://paperless.homelab` and log in with:
 - **Username**: `admin` (default; to customize, set `PAPERLESS_ADMIN_USER` in your HelmRelease)
-- **Password**: The password you set in `PAPERLESS_ADMIN_PASSWORD`
+- **Password**: The password stored under `paperless-admin-password`
 
 ## Post-Deployment Configuration
 
@@ -111,10 +113,10 @@ To access Paperless-ngx components directly via port forwarding:
 
 ```bash
 # Web interface
-kubectl port-forward -n paperless svc/paperless 8000:8000
+kubectl port-forward -n paperless svc/paperless-paperless-ngx 8000:8000
 
 # PostgreSQL
-kubectl port-forward -n paperless svc/paperless-postgresql 5432:5432
+kubectl port-forward -n paperless svc/paperless-paperless-ngx-postgresql 5432:5432
 ```
 
 Then access at:
@@ -136,16 +138,16 @@ Then access at:
 - **Database Name**: `paperless`
 - **Username**: `paperless_user`
 - **Password**: Stored in sealed secret `paperless-credentials`
-- **Host**: `paperless-postgresql` (internal service name)
+- **Host**: `paperless-paperless-ngx-postgresql` (internal service name)
 - **Port**: 5432
 - **Persistence**: 8Gi Longhorn PVC with ReadWriteOnce access
 
 ## Security
 
 The deployment uses SealedSecrets for:
-- PostgreSQL password (`PAPERLESS_DBPASS` and `postgres-password` - both use the same value)
-- Paperless admin password (`PAPERLESS_ADMIN_PASSWORD`)
-- Django secret key (`PAPERLESS_SECRET_KEY`)
+- PostgreSQL password (`postgresql-password`)
+- Paperless admin password (`paperless-admin-password`)
+- Django secret key (`paperless-secret-key`)
 
 Network policies restrict traffic to:
 - Traefik ingress controller access on port 8000
@@ -186,16 +188,39 @@ kubectl get certificate -n paperless
 
 ## Upgrading
 
-To upgrade paperless-ngx, update the chart version in `helmrelease.yaml`:
+Update the immutable image in `charts/paperless-ngx/values.yaml`, align
+`appVersion`, and increment the local chart's `version` in `Chart.yaml`.
+Flux uses `ChartVersion` reconciliation, so template/default changes also need
+a chart-version increment.
 
-```yaml
-chart:
-  spec:
-    chart: paperless
-    version: x.y.z  # Update this
-```
+For the v3 migration, require the completed v2.20.15 source schema, a coordinated
+native PostgreSQL plus data/media/consume/export backup, an isolated old-version
+restore, and a target-version migration rehearsal. Preserve the existing signing
+key, database credentials and explicit `PAPERLESS_DBENGINE=postgresql`.
 
-Commit and push the change. Flux will automatically handle the upgrade.
+The chart explicitly preserves the v2 OCR/archive defaults using
+`PAPERLESS_OCR_MODE=auto` and `PAPERLESS_ARCHIVE_FILE_GENERATION=always`.
+`PAPERLESS_CONSUMER_DELETE_DUPLICATES=true` prevents duplicate documents from
+being imported and removes duplicate inputs from the consume directory.
+The existing `Recreate` strategy keeps the application single-writer. A
+ten-minute startup probe protects migrations and the first Tantivy index rebuild
+from premature liveness restarts.
+
+V3 intentionally clears old processing-task history, not documents. This reset
+requires operator approval; retain the complete pre-upgrade history in the
+recovery backup. Saved full-text queries involving notes/custom fields also
+need review under the upstream v3 search syntax.
+
+Suspend the HelmRelease and block KEDA/ingress activation during the coordinated
+maintenance window. Apply chart and release changes through Flux before
+resuming. The HelmRelease deliberately omits `spec.suspend` so a GitOps
+reconciliation does not override an operator's temporary suspension.
+After successful migration, restore the original KEDA annotations, ingress
+backend and scale-to-zero behavior.
+
+Automatic upgrade remediation is disabled: image rollback cannot undo schema or
+file migrations. Recover with the matching database, files and application
+version instead of starting an old image against a migrated database.
 
 ## Additional Resources
 

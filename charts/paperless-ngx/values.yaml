@@ -47,6 +47,9 @@ env:
   PAPERLESS_URL: https://paperless.homelab
   PAPERLESS_ALLOWED_HOSTS: "*"
   PAPERLESS_OCR_LANGUAGE: eng
+  PAPERLESS_OCR_MODE: auto
+  PAPERLESS_ARCHIVE_FILE_GENERATION: always
+  PAPERLESS_CONSUMER_DELETE_DUPLICATES: "true"
   PAPERLESS_ADMIN_USER: admin
 
 ## Secret reference for sensitive values
@@ -142,12 +145,21 @@ redis:
         - ALL
 
 ## Probes
+startupProbe:
+  httpGet:
+    path: /api/
+    port: 8000
+  periodSeconds: 5
+  timeoutSeconds: 5
+  failureThreshold: 120
+
 livenessProbe:
   httpGet:
     path: /api/
     port: 8000
   initialDelaySeconds: 30
   periodSeconds: 10
+  timeoutSeconds: 5
   failureThreshold: 3
 
 readinessProbe:
@@ -156,4 +168,5 @@ readinessProbe:
     port: 8000
   initialDelaySeconds: 10
   periodSeconds: 10
+  timeoutSeconds: 5
   failureThreshold: 3
