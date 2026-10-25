@@ -34,6 +34,30 @@ spec:
   uninstall:
     keepHistory: false
     timeout: 10m
+  # The cordoned control plane has no usable instance manager for recurring jobs.
+  postRenderers:
+    - kustomize:
+        patches:
+          - target:
+              group: apps
+              version: v1
+              kind: DaemonSet
+              name: longhorn-manager
+            patch: |
+              apiVersion: apps/v1
+              kind: DaemonSet
+              metadata:
+                name: longhorn-manager
+              spec:
+                template:
+                  spec:
+                    affinity:
+                      nodeAffinity:
+                        requiredDuringSchedulingIgnoredDuringExecution:
+                          nodeSelectorTerms:
+                            - matchExpressions:
+                                - key: node-role.kubernetes.io/control-plane
+                                  operator: DoesNotExist
   values:
     persistence:
       createStorageClass: true
@@ -72,6 +96,9 @@ spec:
       pollInterval: 300
     longhornManager:
       priorityClass: core-critical
+      updateStrategy:
+        rollingUpdate:
+          maxUnavailable: 1
       resources:
         requests:
           cpu: "25m"
