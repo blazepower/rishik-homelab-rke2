@@ -59,7 +59,7 @@ spec:
       enabled: true
       image:
         repository: ghcr.io/blazepower/cook-sync
-        tag: "0.2.5@sha256:d247d3418abb127020e457562f8c2182b4fa944e269813cb1006315275ecacaa"
+        tag: "0.2.5@sha256:26444d4eb2fbf872391323c9df88180f1b3dd437df23e3537770c1cecf66a370"
         pullPolicy: Always
       vnc:
         enabled: false  # Disabled after OTP login complete
