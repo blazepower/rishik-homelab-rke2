@@ -29,6 +29,7 @@ spec:
   values:
     controllers:
       sonarr:
+        strategy: Recreate
         annotations:
           reloader.stakater.com/auto: "true"
 
@@ -53,6 +54,8 @@ spec:
                   configMapKeyRef:
                     name: sonarr-config
                     key: TZ
+              - name: SONARR__SERVER__TRUSTEDNETWORKS
+                value: "10.42.0.0/16"
               - name: SONARR__AUTHENTICATIONMETHOD
                 value: "Forms"
               - name: SONARR__AUTHENTICATIONREQUIRED
