@@ -1,0 +1,22 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: calibre-web-lan
+  namespace: media
+  annotations:
+    metallb.io/address-pool: homelab-pool
+    metallb.io/loadBalancerIPs: "192.168.1.153"
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  loadBalancerSourceRanges:
+    - 192.168.1.0/24
+  selector:
+    app.kubernetes.io/name: calibre-web
+    app.kubernetes.io/instance: calibre-web
+  ports:
+    - name: http
+      port: 8083
+      targetPort: 8083
+      protocol: TCP

@@ -6,6 +6,7 @@ resources:
   - configmap.yaml
   - pvc.yaml
   - helmrelease.yaml
+  - service-lan.yaml
   - ingress.yaml
   - ingress-calibre-web-tailscale.yaml
   - certificate.yaml

@@ -184,7 +184,8 @@ The following applications are configured with KEDA for automatic scaling:
 | `homebox` | 10 min | HTTP requests in last 10 min |
 | `kindle-sender` | 15 min | Pending files metric |
 
-These apps scale to zero when there's no traffic/activity, and scale back to 1 replica when requests arrive.
+Calibre-Web keeps a minimum of one replica for always-on OPDS and browser uploads.
+The other apps can scale to zero when there's no traffic/activity.
 
 #### Time-Based Scaling (Cron)
 
@@ -197,7 +198,7 @@ These apps are active during typical usage hours and scale to zero overnight.
 
 ### ScaledObject Configuration
 
-Example ScaledObject for an HTTP-traffic-based scaler:
+Example ScaledObject for the always-on Calibre-Web library:
 
 ```yaml
 apiVersion: keda.sh/v1alpha1
@@ -209,8 +210,8 @@ spec:
   scaleTargetRef:
     name: calibre-web
   pollingInterval: 30        # Check every 30 seconds
-  cooldownPeriod: 600        # Wait 10 min before scaling to zero
-  minReplicaCount: 0
+  cooldownPeriod: 600
+  minReplicaCount: 1         # Keep OPDS available even without recent traffic
   maxReplicaCount: 1
   fallback:
     failureThreshold: 5

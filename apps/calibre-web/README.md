@@ -4,11 +4,11 @@ Calibre-Web is a web-based eBook library browser that provides a clean interface
 
 ## Overview
 
-- **Image**: `lscr.io/linuxserver/calibre-web:0.6.24`
+- **Image**: `lscr.io/linuxserver/calibre-web:0.6.27` (digest pinned in the HelmRelease)
 - **Port**: 8083
 - **Access URL**: https://calibre.homelab
 - **Namespace**: media
-- **Node**: rishik-worker1
+- **Scheduling**: One always-on replica, scheduled on an available worker; Recreate updates
 
 ## Architecture
 
@@ -21,9 +21,94 @@ Calibre-Web provides:
 
 ## Storage
 
-- **Config PVC**: 1Gi Longhorn volume for application configuration and database
-- **Media Mount**: hostPath mount of `/media/rishik/Expansion` to `/media` (READ-ONLY)
-  - Calibre library path: `/media/books/calibre-library`
+- **Config PVC**: `calibre-web-config`, 1Gi Longhorn, mounted at `/config`.
+- **Library PVC**: `calibre-web-library`, 2Gi RWO `longhorn-retain`, mounted
+  read-write at `/media/books/calibre-library`. The Calibre SQLite database and
+  book files stay together on this filesystem, not NFS.
+- **Legacy source**: `media-root` NFS `books/calibre-library`, mounted read-only
+  at `/legacy-library` in the bootstrap init container only. Other applications
+  retain their existing NFS mounts.
+- Browser uploads go directly through Calibre-Web; no ingest directory, desktop
+  sync, or second library/progress-sync service is required.
+
+### First Longhorn cutover
+
+Before approving the GitOps rollout:
+
+1. Confirm the configured library is `/media/books/calibre-library`, its current
+   database is valid and empty, and no external process or Syncthing folder is
+   writing/replacing that database. If any writer is active, postpone the cutover;
+   do not change other services as part of this migration.
+2. Capture the existing pod status, logs, events, and mount/PVC status. Verify
+   `longhorn-retain` exists and Flux dependencies are healthy before rollout.
+3. Keep the old NFS content intact. Recreate updates stop the old Calibre-Web
+   before the new pod's init container runs. The init container opens the legacy
+   database read-only and uses SQLite's backup API, not a file copy. It rejects
+   legacy WAL/journal sidecars, a missing/corrupt database, or any books/formats.
+4. The backup is validated and atomically installed as the new `metadata.db`.
+   There is no downloaded/sample database or silent empty-library fallback.
+   A failed bootstrap blocks startup; inspect `bootstrap-library` logs and
+   resolve the cause rather than deleting the old database or bypassing checks.
+   Existing destination databases are checked and never overwritten; SQLite can
+   perform normal journal recovery on the writable destination before checking.
+5. Verify `calibre-web-library` is Bound, the pod is Ready, and the init log says
+   the verified empty library migrated:
+
+   ```bash
+   kubectl get pvc -n media calibre-web-config calibre-web-library
+   kubectl rollout status -n media deployment/calibre-web --timeout=300s
+   kubectl logs -n media deployment/calibre-web -c bootstrap-library
+   ```
+
+   Confirm the app still uses the same
+   library path and that a subsequent restart verifies the existing Longhorn
+   database without migrating again.
+
+The read-only legacy mount remains a NAS startup dependency during this staged
+cutover. After the new library and its backups are verified, a follow-up GitOps
+change can remove that mount and the migration branch, retaining the destination
+database check. Do not roll back to the old empty NFS library after uploading
+books; restore the Longhorn library and configuration together instead.
+
+### Uploads and device OPDS
+
+After cutover, use the authenticated admin UI to change any default password,
+keep anonymous browsing and public registration disabled, enable book uploading,
+and grant upload permission only to the intended browser user. These application
+settings persist in `/config`; this manifest does not change authentication.
+
+Import the Windows library's book files through the browser, not its live
+`metadata.db`. Convert MOBI files to EPUB in desktop Calibre first when needed.
+Never share the managed library with desktop Calibre or a bidirectional sync
+writer. Keep `/config`, the library, and any future `/ingest` mount separate.
+
+Use `https://calibre.homelab/opds` where the device trusts the private CA, or the
+LAN-only HTTP endpoint below. Verify Basic authentication, catalog browsing, and
+EPUB download on both CrossPoint and KOReader before considering setup complete.
+Existing private-CA/Tailscale ingress remains unchanged.
+Keep hosted CrossPoint Sync for reading progress; OPDS only supplies books.
+
+### LAN-only device access
+
+The MetalLB service `calibre-web-lan` requests `192.168.1.153` from the existing
+`homelab-pool` (`192.168.1.150-192.168.1.220`). Devices on `192.168.1.0/24` can
+use **`http://192.168.1.153:8083/opds`** without private-CA support.
+`externalTrafficPolicy: Local` preserves client IPs; the Service's source ranges
+and the pod NetworkPolicy both restrict direct access to that LAN.
+
+**Before deploying this endpoint**, change any default admin password through the
+existing HTTPS UI, keep anonymous browsing/public registration off, and create a
+unique, strong-password local account with download permission only. Do not grant
+that account admin, upload, edit, or delete permissions. Verify unauthenticated
+OPDS returns 401 and the device account cannot administer/upload before testing
+downloads. Do not enable the endpoint until these prerequisites are satisfied.
+
+HTTP Basic authentication is unencrypted on the LAN. Use a dedicated password
+that is not reused anywhere else, and administer/upload through HTTPS rather
+than logging in as admin over HTTP. The direct Service reaches the application,
+not an OPDS-only proxy; application permissions remain essential. Do not add
+router port forwarding, public DNS, Tailscale Funnel, or a public ingress for it.
+Recheck that the requested address is unused before rollout.
 
 ## Configuration
 
@@ -47,7 +132,7 @@ For Kindle email delivery, you'll need the following information:
 
 1. Access https://calibre.homelab
 2. Default credentials: `admin` / `admin123` (change immediately!)
-3. Set Calibre library path: `/media/books/calibre-library`
+3. Keep Calibre library path: `/media/books/calibre-library` (bootstrapped as above)
 4. Configure email settings for Kindle delivery via **Admin > Email Server** in the web UI
 
 ## SMTP Setup
@@ -168,33 +253,42 @@ kubectl exec -n media -it <calibre-web-pod> -- ls -la /media/books/calibre-libra
 
 ### Check PVC
 ```bash
-kubectl get pvc -n media calibre-web-config
+kubectl get pvc -n media calibre-web-config calibre-web-library
 ```
 
 ### Cannot find Calibre library
-Ensure the library exists at `/media/rishik/Expansion/books/calibre-library` on the host and contains:
+Ensure the library PVC mounted at `/media/books/calibre-library` contains:
 - `metadata.db` file
 - Book directories
 
-If library doesn't exist, you can:
-- Create one via Calibre-Web's first-run setup (easiest method)
-- Or manually create directory: `sudo mkdir -p /media/rishik/Expansion/books/calibre-library && sudo chown 1000:1000 /media/rishik/Expansion/books/calibre-library`
+If initialization fails, inspect the bootstrap logs:
+
+```bash
+kubectl logs -n media deployment/calibre-web -c bootstrap-library
+```
+
+Do not create an empty directory or replace a database to bypass the bootstrap
+guard. A nonempty legacy library needs a separately planned, offline migration
+of its database and all associated book files.
 
 ## Integration
 
 ### With Bookshelf
 - Bookshelf manages book acquisition and organization
 - Calibre-Web provides the reading and browsing interface
-- Books organized by Bookshelf appear in Calibre-Web
+- Bookshelf retains its NFS library; import selected book files into Calibre-Web
+  through the authenticated UI. It is not a writer of the Longhorn library.
 
 ### With Kindle Sender
 - Manual email delivery via Calibre-Web UI
-- Automatic delivery via Kindle Sender service
+- Kindle Sender retains its existing NFS watch directory; new Calibre-Web uploads
+  do not automatically appear there.
 
 ## Notes
 
-- Media mount is read-only to prevent accidental modifications to the Calibre library
-- Calibre-Web uses its own database for user data, reading progress, etc.
+- The managed library is writable by Calibre-Web only; its legacy NFS source is read-only.
+- Calibre-Web uses a separate configuration database for users and settings.
+- Hosted CrossPoint Sync remains the device reading-progress service.
 - The application respects the Calibre library structure and metadata.db
 - For email delivery to work, SMTP configuration must be completed
 - Initial setup requires setting the Calibre library location only once

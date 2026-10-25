@@ -23,6 +23,13 @@ spec:
       ports:
         - protocol: TCP
           port: 8083
+    # The direct device endpoint preserves client IPs and accepts only the LAN.
+    - from:
+        - ipBlock:
+            cidr: 192.168.1.0/24
+      ports:
+        - protocol: TCP
+          port: 8083
   egress:
     # Allow DNS
     - to:

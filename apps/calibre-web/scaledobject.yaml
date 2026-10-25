@@ -9,7 +9,7 @@ spec:
     name: calibre-web
   pollingInterval: 30
   cooldownPeriod: 600  # 10 minutes before scaling to zero
-  minReplicaCount: 0
+  minReplicaCount: 1
   maxReplicaCount: 1
   # Fallback: keep running if metrics unavailable
   fallback:

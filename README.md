@@ -95,7 +95,7 @@ This cluster implements power-saving features to optimize resource usage:
 
 | App | Scaling Strategy | Behavior |
 |-----|------------------|----------|
-| `calibre-web` | Prometheus (HTTP traffic) | Scales to 0 after 10 min idle |
+| `calibre-web` | Prometheus (HTTP traffic), minimum 1 | Always-on OPDS and browser uploads |
 | `homebox` | Prometheus (HTTP traffic) | Scales to 0 after 10 min idle |
 | `kindle-sender` | Prometheus (pending files) | Scales to 0 after 15 min idle |
 | `overseerr` | Time-based (cron) | Active 8 AM - 1 AM only |

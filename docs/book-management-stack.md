@@ -100,7 +100,7 @@ All components are deployed in the `media` namespace on `rishik-worker1` node.
 - **Type**: Web application
 - **Access**: https://calibre.homelab
 - **Port**: 8083
-- **Storage**: 1Gi config PVC + hostPath media (READ-ONLY)
+- **Storage**: 1Gi Longhorn config PVC + 2Gi writable `longhorn-retain` library PVC
 - **Resources**: 100m-500m CPU, 256Mi-512Mi memory
 
 **Features**:
@@ -111,6 +111,14 @@ All components are deployed in the `media` namespace on `rishik-worker1` node.
 - Metadata editing
 
 **Library Path**: `/media/books/calibre-library`
+
+Calibre-Web is the always-on OPDS/browser-upload library. Its SQLite database and
+book files are separate from the shared NFS books used by Bookshelf, Syncthing,
+and Kindle Sender; those services do not automatically import into this library.
+The init container safely bootstraps only the existing empty NFS database, then
+validates rather than overwrites an existing destination. See
+[Calibre-Web cutover and upload procedure](../apps/calibre-web/README.md#first-longhorn-cutover)
+before rollout. Keep hosted CrossPoint Sync for Xteink/KOReader reading progress.
 
 ### 4. Kindle Sender
 
@@ -167,9 +175,8 @@ Create the books directory structure:
 sudo mkdir -p /media/rishik/Expansion/books
 sudo chown 1000:1000 /media/rishik/Expansion/books
 
-# Initialize Calibre library (optional, can be done via Calibre-Web UI)
-# Note: Library can also be initialized through Calibre-Web's first-run setup
-sudo mkdir -p /media/rishik/Expansion/books/calibre-library
+# Calibre-Web's managed library uses its own Longhorn PVC.
+# Follow its documented empty-library cutover; a directory alone is not a database.
 ```
 
 ### 2. Hardcover API Key
@@ -314,7 +321,7 @@ kubectl apply -k apps/hardcover-sync/
 1. Access https://calibre.homelab
 2. Login with default credentials: `admin` / `admin123`
 3. **IMPORTANT**: Change admin password immediately
-4. Set Calibre library path: `/media/books/calibre-library`
+4. Verify the guarded Longhorn cutover and keep library path: `/media/books/calibre-library`
 5. Configure email server for Send-to-Kindle:
    - Navigate to **Admin → Email Server Settings**
    - Enter SMTP server details (hostname, port, credentials)
@@ -375,7 +382,7 @@ kubectl logs -n media -l app.kubernetes.io/name=hardcover-sync -f
 2. **Acquisition**: Bookshelf downloads books to `/media/books/`
 3. **Metadata**: Bookshelf enriches metadata via rreading-glasses
 4. **Organization**: Books are organized in Calibre library format
-5. **Browsing**: Access via Calibre-Web at https://calibre.homelab
+5. **Import**: Upload selected book files to Calibre-Web at https://calibre.homelab
 6. **Reading**: Read online via Calibre-Web interface
 7. **Delivery**: Kindle Sender automatically emails new books to Kindle
 
@@ -385,7 +392,7 @@ kubectl logs -n media -l app.kubernetes.io/name=hardcover-sync -f
 3. **Metadata Resolution**: rreading-glasses enhances book information
 4. **Bookshelf Addition**: Books are automatically added to Bookshelf
 5. **Acquisition**: Bookshelf handles downloading and organizing
-6. **Browsing**: Access via Calibre-Web at https://calibre.homelab
+6. **Import**: Upload selected book files to Calibre-Web at https://calibre.homelab
 7. **Reading**: Read online via Calibre-Web interface
 8. **Delivery**: Kindle Sender automatically emails new books to Kindle
 
@@ -521,6 +528,7 @@ Configure Alertmanager alerts for:
 - `bookshelf-config` (1Gi) - Bookshelf configuration
 - `rreading-glasses-postgresql-data` (8Gi) - Metadata cache
 - `calibre-web-config` (1Gi) - Calibre-Web settings
+- `calibre-web-library` (2Gi) - Managed library database and book files; retain-policy volume
 - `kindle-sender-data` (100Mi) - Sent files database
 - `hardcover-sync-data` (100Mi) - Synced books tracking database
 
@@ -544,8 +552,9 @@ kubectl annotate pvc bookshelf-config -n media snapshot.longhorn.io/create=backu
 
 The book management stack integrates seamlessly with existing media apps:
 
-- **Shared Media**: All apps use `/media/rishik/Expansion`
-- **Same Node**: Pinned to `rishik-worker1` like other media apps
+- **Shared Media**: Acquisition/sync apps keep shared NFS media; Calibre-Web writes
+  only its separate Longhorn library.
+- **Scheduling**: Calibre-Web is not pinned to a particular worker.
 - **Consistent Patterns**: Same bjw-s app-template and security practices
 - **Namespace**: All in `media` namespace with existing apps
 
@@ -571,11 +580,13 @@ Total storage allocation:
 - bookshelf-config: 1Gi
 - rreading-glasses-postgresql-data: 8Gi
 - calibre-web-config: 1Gi
+- calibre-web-library: 2Gi
 - kindle-sender-data: 100Mi
 - hardcover-sync-data: 100Mi
-- **Total PVC**: ~10.2Gi
+- **Total PVC**: ~12.2Gi
 
-Books themselves are stored on hostPath (external HDD).
+Calibre-Web book files are on its Longhorn library PVC; the other book services
+retain their existing shared-media storage.
 
 ## Future Enhancements
 

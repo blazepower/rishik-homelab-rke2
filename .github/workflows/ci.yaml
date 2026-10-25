@@ -76,6 +76,9 @@ jobs:
       - name: Test SAB codec guard
         run: python3 .github/scripts/test-sab-codec-guard.py
 
+      - name: Test Calibre library bootstrap
+        run: python3 .github/scripts/test-calibre-library-bootstrap.py
+
       - name: Run yamllint
         run: |
           # Run yamllint and check exit code

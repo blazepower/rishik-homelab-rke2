@@ -30,8 +30,87 @@ spec:
   values:
     controllers:
       calibre-web:
+        replicas: 1
+        strategy: Recreate
         annotations:
           reloader.stakater.com/auto: "true"
+
+        initContainers:
+          bootstrap-library:
+            image:
+              repository: lscr.io/linuxserver/calibre-web
+              tag: "0.6.27@sha256:b206b791d77b731203fb47b5733d055c8d4ebd7c9fa59a4569a5d6a2b3ebda54"
+            command: ["python3", "-c"]
+            args:
+              - |
+                from contextlib import closing
+                import os
+                from pathlib import Path
+                import sqlite3
+                import sys
+                import time
+
+                def validate(connection):
+                    if connection.execute("PRAGMA quick_check").fetchall() != [("ok",)]:
+                        raise RuntimeError("Calibre database integrity check failed")
+                    return (
+                        connection.execute("SELECT COUNT(*) FROM books").fetchone()[0],
+                        connection.execute("SELECT COUNT(*) FROM data").fetchone()[0],
+                    )
+
+                def bootstrap(source, library):
+                    source = Path(source) / "metadata.db"
+                    target = Path(library) / "metadata.db"
+                    if target.exists():
+                        with closing(sqlite3.connect(target.as_uri() + "?mode=rw", uri=True)) as connection:
+                            validate(connection)
+                        print("Existing Longhorn library verified; no migration performed", flush=True)
+                        return
+                    if not source.is_file():
+                        raise RuntimeError("Missing legacy metadata.db; refusing to create an empty library")
+                    if any(Path(str(source) + suffix).exists() for suffix in ("-wal", "-journal")):
+                        raise RuntimeError("Legacy SQLite sidecar exists; verify source is quiescent before migration")
+                    staging = target.with_name(".metadata.db.bootstrap")
+                    staging.unlink(missing_ok=True)
+                    deadline = time.monotonic() + 60
+
+                    def progress(status, remaining, total):
+                        if time.monotonic() > deadline:
+                            raise TimeoutError("Legacy SQLite backup exceeded 60 seconds")
+
+                    try:
+                        with closing(sqlite3.connect(source.as_uri() + "?mode=ro", uri=True, timeout=5)) as old:
+                            with closing(sqlite3.connect(staging)) as new:
+                                old.backup(new, pages=128, progress=progress, sleep=0.1)
+                                if validate(new) != (0, 0):
+                                    raise RuntimeError("Legacy library is not empty; manual book-file migration required")
+                        with staging.open("r+b") as database:
+                            os.fsync(database.fileno())
+                        os.replace(staging, target)
+                        print("Verified empty legacy library migrated to Longhorn", flush=True)
+                    finally:
+                        staging.unlink(missing_ok=True)
+
+                if __name__ == "__main__":
+                    bootstrap(*sys.argv[1:])
+              - /legacy-library
+              - /library
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              runAsNonRoot: true
+              runAsUser: 1000
+              runAsGroup: 1000
+              capabilities:
+                drop:
+                  - ALL
+            resources:
+              requests:
+                cpu: "25m"
+                memory: "64Mi"
+              limits:
+                cpu: "250m"
+                memory: "128Mi"
 
         containers:
           app:
@@ -95,11 +174,22 @@ spec:
         existingClaim: calibre-web-config
         globalMounts:
           - path: /config
-      media-books:
+      library:
+        existingClaim: calibre-web-library
+        advancedMounts:
+          calibre-web:
+            app:
+              - path: /media/books/calibre-library
+            bootstrap-library:
+              - path: /library
+      legacy-library:
         existingClaim: media-root
-        globalMounts:
-          - path: /media/books
-            subPath: books
+        advancedMounts:
+          calibre-web:
+            bootstrap-library:
+              - path: /legacy-library
+                subPath: books/calibre-library
+                readOnly: true
 
     defaultPodOptions:
       securityContext:
