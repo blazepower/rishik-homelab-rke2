@@ -1,0 +1,5 @@
+# Host configuration for RKE2 servers, not a Kubernetes manifest.
+# Install under /etc/rancher/rke2/config.yaml.d/; restart RKE2 to apply.
+helm-controller-arg+:
+  - >-
+    job-tolerations=[{"key":"node.kubernetes.io/unschedulable","operator":"Exists","effect":"NoSchedule"}]
