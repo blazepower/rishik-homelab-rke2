@@ -29,6 +29,7 @@ spec:
   values:
     controllers:
       radarr:
+        strategy: Recreate
         annotations:
           reloader.stakater.com/auto: "true"
 
@@ -53,6 +54,8 @@ spec:
                   configMapKeyRef:
                     name: radarr-config
                     key: TZ
+              - name: RADARR__SERVER__TRUSTEDNETWORKS
+                value: "10.42.0.0/16"
             resources:
               requests:
                 cpu: "100m"
