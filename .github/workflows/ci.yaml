@@ -85,6 +85,9 @@ jobs:
       - name: Test monitoring admission network policy
         run: python3 .github/scripts/test-monitoring-admission-policy.py
 
+      - name: Test Flux bootstrap self-management
+        run: python3 .github/scripts/test-flux-bootstrap.py
+
       - name: Test coordinated Kaneo upgrade wiring
         run: python3 .github/scripts/test-kaneo-upgrade.py
 
