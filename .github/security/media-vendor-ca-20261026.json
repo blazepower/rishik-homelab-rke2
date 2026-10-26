@@ -1,6 +1,7 @@
 {
   "observed_utc": "2026-10-26T04:24:08Z",
-  "policy_sha256": "6f102e0edf56edb42cc41220a018edd28b388309950a0841ac3189f6431abf0d",
+  "policy_sha256": "1c6149e9b7a0e2c962b6a779ed58d773d6e4a2149b55f7539a6a680061ae820e",
+  "policy_hash_encoding": "UTF-8 with LF newlines",
   "scope": "Bazarr, Prowlarr, Radarr, Sonarr and SABnzbd vendor images, linux/amd64 only.",
   "completion": "BLOCKED",
   "method": "Scoped read-only live metadata and public CA-file reads; immutable registry manifests/configs; daemonless public PEM exports. Historical image evidence was reused only on exact repository plus resolved amd64 child-manifest match.",

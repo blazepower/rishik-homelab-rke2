@@ -94,6 +94,12 @@ jobs:
       - name: Test Plex CA hardening
         run: python3 .github/scripts/test-plex-ca-hardening.py
 
+      - name: Test media vendor CA evidence and pins
+        run: python3 .github/scripts/test-media-vendor-ca.py
+
+      - name: Test application runtime CA evidence
+        run: python3 .github/scripts/test-fleet-application-ca.py
+
       - name: Test coordinated Kaneo upgrade wiring
         run: python3 .github/scripts/test-kaneo-upgrade.py
 

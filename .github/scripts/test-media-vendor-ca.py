@@ -90,7 +90,9 @@ def release(app):
 class MediaVendorPinTests(unittest.TestCase):
     def test_manifest_pins_match_the_recorded_immutable_audits(self):
         evidence = json.loads(EVIDENCE.read_text())
-        self.assertEqual(evidence["policy_sha256"], hashlib.sha256(POLICY.read_bytes()).hexdigest())
+        policy_bytes = POLICY.read_text(encoding="utf-8").encode("utf-8")
+        self.assertEqual(evidence["policy_hash_encoding"], "UTF-8 with LF newlines")
+        self.assertEqual(evidence["policy_sha256"], hashlib.sha256(policy_bytes).hexdigest())
         self.assertEqual(len(DENIED), 11)
         self.assertEqual(set(evidence["applications"]), {"bazarr", "prowlarr", "radarr", "sonarr", "sabnzbd"})
         for app, entry in evidence["applications"].items():
