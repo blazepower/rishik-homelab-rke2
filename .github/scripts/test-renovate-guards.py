@@ -149,6 +149,21 @@ def test_upgrade_coordination(config: dict) -> bool:
             and config.get("automerge") is False
             and config.get("platformAutomerge") is False,
         ),
+        (
+            "Longhorn chart updates require a dedicated storage upgrade gate",
+            effective_option(
+                config, "longhorn", "enabled", datasource="helm", manager="flux",
+            ) is False,
+        ),
+        (
+            "The storage hold does not disable unrelated infrastructure",
+            all(
+                effective_option(
+                    config, chart, "enabled", datasource="helm", manager="flux",
+                ) is not False
+                for chart in ("cert-manager", "keda", "traefik")
+            ),
+        ),
     ])
     for name, passed in checks:
         print(f"{'PASS' if passed else 'FAIL'}: {name}")
@@ -242,6 +257,9 @@ def main() -> int:
         GuardTest("maintenance kubectl alias rejects unsupported skew", *image_parts("alpine/k8s:1.37.1"), True),
         GuardTest("maintenance kubectl rejects unreviewed minor", *image_parts("docker.io/alpine/k8s:1.35.1"), True),
         GuardTest("maintenance kubectl rejects older minor", *image_parts("docker.io/alpine/k8s:1.33.9"), True),
+        GuardTest("descheduler allows reviewed minor patches", *image_parts("descheduler:0.36.1"), False),
+        GuardTest("descheduler rejects untested Kubernetes minor", *image_parts("descheduler:0.37.0"), True),
+        GuardTest("descheduler rejects later minor", *image_parts("descheduler:0.38.0"), True),
     ]
 
     failures = 0
