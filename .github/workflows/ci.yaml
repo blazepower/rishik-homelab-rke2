@@ -76,6 +76,9 @@ jobs:
       - name: Test media codec policy
         run: python3 .github/scripts/test-media-codec-policy.py
 
+      - name: Test Python media runtime compatibility
+        run: python3 .github/scripts/test-python-media-runtime.py
+
       - name: Test SAB codec guard
         run: python3 .github/scripts/test-sab-codec-guard.py
 
