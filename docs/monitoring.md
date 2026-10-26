@@ -355,6 +355,10 @@ Cleanup is a strict temporary-resource allowlist using Kubernetes
 databases or recovery files. Keep the local state receipt and on-PVC recovery
 copy until post-upgrade backups are verified. The phase-A PVC and production
 data are never part of cleanup.
+IngressRoute reads are explicitly qualified as `ingressroutes.traefik.io`
+during apply/ownership recording, hold verification and cleanup. This avoids
+ambiguous discovery when legacy `traefik.containo.us` CRDs are also installed;
+cleanup still targets the recorded API version and exact UID.
 
 ### Custom Dashboards
 

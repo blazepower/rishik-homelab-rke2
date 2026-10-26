@@ -179,6 +179,70 @@ def preservation_checks():
     ):
         with mock.patch.object(runner.urllib.request, "urlopen", side_effect=failure):
             assert runner.health_code("https://grafana.homelab/api/health") == expected
+    route_name = "grafana-maintenance-hold"
+    modern_route = {"apiVersion": "traefik.io/v1alpha1", "kind": "IngressRoute",
+                    "metadata": {"name": route_name, "uid": "modern-route-uid"}}
+    legacy_route = {"apiVersion": "traefik.containo.us/v1alpha1", "kind": "IngressRoute",
+                    "metadata": {"name": route_name, "uid": "legacy-route-uid"}}
+    modern_exists = True
+    calls = []
+    main_spec = {"rules": [{"host": "grafana.homelab"}]}
+    route_state = {"run": "fixture-run", "owned": [], "ingresses": {
+        "grafana": {"uid": "main-ingress-uid", "spec": main_spec},
+        "grafana-tailscale": {"uid": "tail-ingress-uid"},
+    }}
+
+    def dual_crd_command(*arguments, payload=None):
+        nonlocal modern_exists
+        calls.append(arguments)
+        if arguments[0] == "apply":
+            applied = json.loads(payload)
+            assert applied["apiVersion"] == modern_route["apiVersion"]
+            assert applied["metadata"]["labels"]["preservation.homelab/run"] == route_state["run"]
+            return ""
+        if arguments[0] == "delete":
+            assert arguments[:2] == ("delete", "--raw")
+            assert arguments[2] == "/apis/traefik.io/v1alpha1/namespaces/monitoring/ingressroutes/" + route_name
+            assert json.loads(payload)["preconditions"] == {"uid": modern_route["metadata"]["uid"]}
+            modern_exists = False
+            return ""
+        if arguments[:2] == ("get", "ingressroutes.traefik.io"):
+            if modern_exists:
+                return json.dumps(modern_route)
+            assert "--ignore-not-found" in arguments
+            return ""
+        if arguments[0] == "get" and arguments[1].lower() == "ingressroute":
+            return json.dumps(legacy_route)
+        if arguments[:3] == ("get", "ingress", "grafana"):
+            return json.dumps({"metadata": {"uid": "main-ingress-uid"}, "spec": main_spec})
+        if arguments[:3] == ("get", "ingress", "grafana-tailscale"):
+            return json.dumps({"metadata": {"uid": "tail-ingress-uid", "annotations": {
+                runner.RECONCILE: "disabled",
+            }}, "spec": {"defaultBackend": {"service": {"name": route_name}}}})
+        raise AssertionError("Unexpected dual-CRD regression command")
+
+    with mock.patch.object(runner, "kubectl", side_effect=dual_crd_command), \
+            mock.patch.object(runner, "write_state") as save, \
+            mock.patch.object(runner, "health_code", side_effect=(503, 0)), \
+            mock.patch.object(runner, "tailscale_backend") as backend:
+        for kind in ("IngressRoute", "ingressroute", "INGRESSROUTE", "ingressroutes.traefik.io"):
+            assert runner.get(kind, route_name)["metadata"]["uid"] == modern_route["metadata"]["uid"]
+        overlay = documents(assets / "ingressroute-grafana-maintenance-hold.yaml")[0]
+        runner.apply_owned(overlay, route_state, Path("unused-state.json"))
+        assert route_state["owned"] == [{
+            "kind": "IngressRoute", "apiVersion": "traefik.io/v1alpha1",
+            "name": route_name, "uid": "modern-route-uid",
+        }]
+        save.assert_called_once()
+        assert runner.get("IngressRoute", route_name, optional=True) == modern_route
+        runner.assert_hold(route_state)
+        backend.assert_called_once_with(route_name, "tail-ingress-uid")
+        runner.delete_owned(route_state["owned"][0])
+        runner.delete_owned(route_state["owned"][0])
+        assert sum(command[0] == "delete" for command in calls) == 1
+        route_queries = [command for command in calls if command[0] == "get"
+                         and "ingressroute" in command[1].lower()]
+        assert route_queries and all(command[1] == "ingressroutes.traefik.io" for command in route_queries)
     record = {"kind": "Job", "name": "grafana-state-seed", "apiVersion": "batch/v1", "uid": "owned-helper-uid"}
     with mock.patch.object(runner, "get", return_value={"metadata": {"uid": record["uid"]}}), \
             mock.patch.object(runner, "kubectl") as transport:

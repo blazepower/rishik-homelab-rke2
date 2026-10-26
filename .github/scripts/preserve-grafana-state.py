@@ -49,6 +49,8 @@ def kubectl(*arguments, payload=None):
 
 
 def get(kind, name=None, optional=False):
+    if kind.lower() == "ingressroute":
+        kind = "ingressroutes.traefik.io"
     arguments = ["get", kind, "-n", "monitoring", "-o", "json"]
     if name:
         arguments.insert(2, name)
