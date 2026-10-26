@@ -31,7 +31,7 @@ fingerprints; an unknown package intentionally blocks startup.
 Preparation evidence and outstanding gates are in
 `.github/security/fleet-application-runtime-ca-hardening-report.json`. This is
 **not deployed or cleared**: isolated Linux/Docker verification must pass before
-integration or rollout. Run
+merge to the deployment branch or rollout. Run
 `python .github/scripts/test-application-runtime-ca-hardening.py` on a Linux
 Docker runner, together with
 `python .github/scripts/test-calibre-library-bootstrap.py`. Docker executions

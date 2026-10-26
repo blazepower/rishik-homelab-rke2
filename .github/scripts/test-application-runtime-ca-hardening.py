@@ -86,6 +86,8 @@ class CalibreWiringTests(unittest.TestCase):
         deployment = next(doc for doc in yaml.safe_load_all(rendered.stdout)
                           if doc and doc["kind"] == "Deployment")
         pod = deployment["spec"]["template"]["spec"]
+        self.assertEqual(pod["securityContext"]["fsGroup"], 1000)
+        self.assertEqual(pod["securityContext"]["fsGroupChangePolicy"], "OnRootMismatch")
         self.assertEqual([container["name"] for container in pod["initContainers"]],
                          ["bootstrap-library", "harden-certifi"])
         initializer = pod["initContainers"][1]
@@ -176,6 +178,7 @@ class CalibreFilterTests(unittest.TestCase):
         result = subprocess.run([sys.executable, "-B", str(script)], capture_output=True, timeout=30)
         self.assertEqual(result.returncode, 78)
         self.assertIn(b"refusing application startup", result.stderr)
+        self.assertIn(b"FileNotFoundError", result.stderr)
         self.assertEqual(list(self.output.iterdir()), [])
 
     def test_native_openssl_rejects_removed_root_and_keeps_unaffected_root(self):

@@ -109,6 +109,10 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except Exception:
-        print("Calibre certifi hardening failed; refusing application startup.", file=sys.stderr)
+    except (OSError, ValueError) as error:
+        print(
+            f"Calibre certifi hardening failed ({type(error).__name__}: {error}); "
+            "refusing application startup.",
+            file=sys.stderr,
+        )
         raise SystemExit(78)
