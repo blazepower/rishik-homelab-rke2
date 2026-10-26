@@ -12,7 +12,7 @@ spec:
   chart:
     spec:
       chart: longhorn
-      version: "1.12.x"  # Stay within the validated 1.12 release line
+      version: "1.12.1"  # Keep manager recovery on the running chart version.
       sourceRef:
         kind: HelmRepository
         name: longhorn
@@ -101,11 +101,11 @@ spec:
           maxUnavailable: 1
       resources:
         requests:
-          cpu: "25m"
-          memory: "256Mi"
-        limits:
-          cpu: "200m"
+          cpu: "100m"
           memory: "512Mi"
+        limits:
+          cpu: "1000m"
+          memory: "2Gi"
     longhornDriver:
       priorityClass: core-critical
       resources:
