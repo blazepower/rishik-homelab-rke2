@@ -60,6 +60,19 @@ held `tag: 5.33.2`. Every reconcile therefore restored the broken image.
   and marker-aware rather than rejecting every hyphenated Docker tag, so stable
   compatibility/build tags such as `-alpine`, `-bookworm`, and `-ls123` remain
   eligible.
+- **Flux bootstrap controllers are upgraded as one official Flux release.**
+  Individual image updates in `gotk-components.yaml` are disabled; regenerate
+  the complete bundle, including matching CRDs and RBAC, when reviewing a new
+  stable Flux release. This does not disable other images or Helm updates.
+- **Maintenance kubectl stays on the cluster's current `1.34.x` minor.**
+  Patch and digest updates remain eligible. Review the `alpine/k8s` ceiling
+  with each Kubernetes minor upgrade; Kubernetes only supports kubectl within
+  one minor of the API server, so `1.37.x` is not safe against this cluster.
+- **Infrastructure charts have independent PRs**, rather than one bundle
+  coupling admission, storage, networking and scheduling controllers.
+- **Calibre-Web image updates retain digests**, including the library-bootstrap
+  init container. The existing bootstrap test still requires its image to match
+  the application image exactly.
 
 > **PR #192 regression:** PR #187 added the Plex suffix denylist as
 > `!/(armhf|arm64v8|aarch64|arm)$/`, but omitted the exact `arm64`

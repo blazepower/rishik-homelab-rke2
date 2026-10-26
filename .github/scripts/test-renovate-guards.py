@@ -75,6 +75,86 @@ def version_is_rejected(allowed_versions: str | None, version: str) -> bool:
     raise ValueError(f"unsupported allowedVersions test constraint: {allowed_versions!r}")
 
 
+def effective_option(
+    config: dict,
+    package: str,
+    option: str,
+    *,
+    datasource: str = "docker",
+    manager: str = "kubernetes",
+    file_path: str | None = None,
+) -> object:
+    """Resolve options for the exact datasource/path matchers used below."""
+    effective = config.get(option)
+    for rule in config.get("packageRules", []):
+        if not package_matches(rule, package):
+            continue
+        if datasource not in rule.get("matchDatasources", [datasource]):
+            continue
+        if manager not in rule.get("matchManagers", [manager]):
+            continue
+        if "matchFileNames" in rule and file_path not in rule["matchFileNames"]:
+            continue
+        if option in rule:
+            effective = rule[option]
+    return effective
+
+
+def test_upgrade_coordination(config: dict) -> bool:
+    bootstrap = "clusters/production/flux-system/gotk-components.yaml"
+    controllers = ("source", "kustomize", "helm", "notification")
+    checks = [
+        (
+            f"Flux {controller} controller is held for coordinated bootstrap updates",
+            effective_option(
+                config, f"ghcr.io/fluxcd/{controller}-controller", "enabled",
+                file_path=bootstrap,
+            ) is False,
+        )
+        for controller in controllers
+    ]
+    checks.extend([
+        (
+            "Flux coordination hold does not disable unrelated images",
+            effective_option(config, "nginx", "enabled", file_path=bootstrap) is not False,
+        ),
+        (
+            "Flux coordination hold is scoped to the generated bootstrap",
+            effective_option(
+                config, "ghcr.io/fluxcd/source-controller", "enabled",
+                file_path="apps/example/helmrelease.yaml",
+            ) is not False,
+        ),
+        (
+            "Calibre-Web bootstrap and application keep immutable image pins",
+            effective_option(config, "lscr.io/linuxserver/calibre-web", "pinDigests") is True,
+        ),
+        (
+            "Infrastructure charts are no longer coupled into one PR",
+            all(
+                effective_option(
+                    config, chart, "groupName", datasource="helm", manager="flux",
+                ) is None
+                for chart in (
+                    "cert-manager", "traefik", "metallb", "longhorn",
+                    "sealed-secrets", "kyverno", "tailscale-operator",
+                    "trivy-operator", "keda", "descheduler",
+                    "node-feature-discovery", "intel-device-plugins-operator",
+                )
+            ),
+        ),
+        (
+            "Review limits and manual merge approval remain enabled",
+            config.get("prConcurrentLimit") == 10
+            and config.get("automerge") is False
+            and config.get("platformAutomerge") is False,
+        ),
+    ])
+    for name, passed in checks:
+        print(f"{'PASS' if passed else 'FAIL'}: {name}")
+    return all(passed for _, passed in checks)
+
+
 def image_parts(image: str) -> tuple[str, str]:
     package, version = image.rsplit(":", 1)
     return package, version
@@ -156,9 +236,17 @@ def main() -> int:
         GuardTest("sure allows stable release", *image_parts("ghcr.io/we-promise/sure:0.8.0"), False),
         GuardTest("sure allows distro suffix", *image_parts("ghcr.io/we-promise/sure:0.8.0-alpine"), False),
         GuardTest("unrelated image allows prerelease-like compatibility suffix", *image_parts("node:24-alpine"), False),
+        GuardTest("maintenance kubectl allows current cluster minor", *image_parts("docker.io/alpine/k8s:1.34.12"), False),
+        GuardTest("maintenance kubectl allows current-minor patches", *image_parts("docker.io/alpine/k8s:1.34.99"), False),
+        GuardTest("maintenance kubectl rejects PR-270 unsupported skew", *image_parts("docker.io/alpine/k8s:1.37.1"), True),
+        GuardTest("maintenance kubectl alias rejects unsupported skew", *image_parts("alpine/k8s:1.37.1"), True),
+        GuardTest("maintenance kubectl rejects unreviewed minor", *image_parts("docker.io/alpine/k8s:1.35.1"), True),
+        GuardTest("maintenance kubectl rejects older minor", *image_parts("docker.io/alpine/k8s:1.33.9"), True),
     ]
 
     failures = 0
+    if not test_upgrade_coordination(config):
+        failures += 1
     if not test_sabnzbd_registry_alias(config):
         failures += 1
 
