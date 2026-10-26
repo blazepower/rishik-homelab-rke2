@@ -70,6 +70,15 @@ held `tag: 5.33.2`. Every reconcile therefore restored the broken image.
   one minor of the API server, so `1.37.x` is not safe against this cluster.
 - **Infrastructure charts have independent PRs**, rather than one bundle
   coupling admission, storage, networking and scheduling controllers.
+- **Longhorn chart automation is held at the existing exact pin.** Resume it
+  only after a dedicated storage upgrade review covers backup/restore,
+  engine versions, replica health and maintenance capacity. This hold does
+  not disable other infrastructure charts or require replacing the accepted
+  worn SSD.
+- **Descheduler remains on `0.36.x` with Kubernetes `1.34`.** The `0.37`
+  release tests the three newest Kubernetes minors (`1.35` through `1.37`),
+  excluding this API server. Reassess this ceiling, eviction policy, PDBs
+  and maintenance capacity during node-minor upgrade planning.
 - **Calibre-Web image updates retain digests**, including the library-bootstrap
   init container. The existing bootstrap test still requires its image to match
   the application image exactly.
