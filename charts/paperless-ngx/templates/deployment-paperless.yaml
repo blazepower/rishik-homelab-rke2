@@ -53,6 +53,12 @@ spec:
               value: {{ .Values.env.PAPERLESS_ALLOWED_HOSTS | quote }}
             - name: PAPERLESS_OCR_LANGUAGE
               value: {{ .Values.env.PAPERLESS_OCR_LANGUAGE | quote }}
+            - name: PAPERLESS_OCR_MODE
+              value: {{ .Values.env.PAPERLESS_OCR_MODE | quote }}
+            - name: PAPERLESS_ARCHIVE_FILE_GENERATION
+              value: {{ .Values.env.PAPERLESS_ARCHIVE_FILE_GENERATION | quote }}
+            - name: PAPERLESS_CONSUMER_DELETE_DUPLICATES
+              value: {{ .Values.env.PAPERLESS_CONSUMER_DELETE_DUPLICATES | quote }}
             - name: PAPERLESS_ADMIN_USER
               value: {{ .Values.env.PAPERLESS_ADMIN_USER | quote }}
             - name: PAPERLESS_SECRET_KEY
@@ -80,6 +86,8 @@ spec:
               mountPath: /usr/src/paperless/consume
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+          startupProbe:
+            {{- toYaml .Values.startupProbe | nindent 12 }}
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
           readinessProbe:

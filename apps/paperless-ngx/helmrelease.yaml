@@ -4,7 +4,6 @@ metadata:
   name: paperless
   namespace: paperless
 spec:
-  suspend: false
   interval: 30m
   chart:
     spec:
@@ -18,11 +17,13 @@ spec:
     createNamespace: false
     remediation:
       retries: 3
-    timeout: 10m
+    timeout: 15m
   upgrade:
     remediation:
-      retries: 3
-    timeout: 10m
+      # A schema migration requires database/files recovery, not image rollback.
+      retries: 0
+      remediateLastFailure: false
+    timeout: 15m
   values:
     # Image tag is pinned in charts/paperless-ngx/values.yaml (Renovate-managed)
 
