@@ -93,13 +93,14 @@ def check_prometheus():
 
 
 def health_code(url):
-    # Diagnostic only: certificates stay referenced by the original ingress TLS config.
     try:
-        with urllib.request.urlopen(url, context=ssl._create_unverified_context(), timeout=15) as response:
+        with urllib.request.urlopen(url, context=ssl.create_default_context(), timeout=15) as response:
             return response.status
     except urllib.error.HTTPError as error:
         return error.code
-    except urllib.error.URLError:
+    except urllib.error.URLError as error:
+        if isinstance(error.reason, ssl.SSLError):
+            raise ssl.SSLError(f"TLS verification failed for {url}") from error
         return 0
 
 

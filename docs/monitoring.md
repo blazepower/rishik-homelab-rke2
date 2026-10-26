@@ -244,6 +244,9 @@ proxy's Secret-mounted serve-config file. This prevents treating an
 unreachable client probe as proof of maintenance. Verify external Tailscale
 HTTPS separately from a tailnet-enabled client after release; the ordinary
 LAN hostname still requires a real200→503→200 probe.
+All HTTPS probes use `ssl.create_default_context()` with hostname/certificate
+verification and the workstation's trusted CA store. TLS failures are explicit
+errors, never an unavailable-probe fallback; no unverified TLS context is used.
 
 The seed Job is rootless UID/GID/fsGroup472, no service-account token, no
 capabilities, read-only root filesystem and read-only source hostPath of type
@@ -283,6 +286,69 @@ counts, database health, preference metadata and every previously enabled
 plugin ID. Plugin versions are inventoried before/after (bundled versions may
 legitimately advance); also check plugin load errors and dashboard rendering.
 Perform the Prometheus/Alertmanager checks above before release.
+
+For credential-free API checks without opening a port-forward, record a
+pre-upgrade historical query timestamp **before merging**:
+
+```powershell
+[DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - 600
+```
+
+After rollout and at least two scrape/evaluation intervals (120 seconds),
+run the following while maintenance remains held. Substitute that recorded
+timestamp and the native seed receipt's silence count. The existing Grafana
+sidecar performs only internal HTTP GETs; output contains metadata/counts,
+not credentials, alert bodies, silence contents or Alertmanager configuration.
+No admin/snapshot/delete API is enabled or called.
+
+```powershell
+$HistoryAt = 0 # Replace with the pre-upgrade timestamp printed above.
+$ExpectedSilences = 0 # Replace with the seed receipt's silenceCount.
+$pod = kubectl get pods -n monitoring -l app.kubernetes.io/name=grafana,app.kubernetes.io/instance=kube-prometheus-stack -o jsonpath='{.items[0].metadata.name}'
+$code = @'
+import collections, json, sys, time, requests
+history, expected_silences = int(sys.argv[1]), int(sys.argv[2])
+assert 0 < history < time.time() - 120, "Supply the recorded pre-upgrade timestamp"
+prom = "http://kube-prometheus-stack-prometheus.monitoring.svc:9090"
+am = "http://kube-prometheus-stack-alertmanager.monitoring.svc:9093"
+def get(base, path, params=None):
+    response = requests.get(base + path, params=params, timeout=30)
+    response.raise_for_status()
+    return response.json()
+for base in (prom, am):
+    requests.get(base + "/-/ready", timeout=30).raise_for_status()
+assert get(prom, "/api/v1/status/buildinfo")["data"]["version"] == "3.15.0"
+assert get(am, "/api/v2/status")["versionInfo"]["version"] == "0.34.1"
+runtime = get(prom, "/api/v1/status/runtimeinfo")["data"]
+assert runtime["reloadConfigSuccess"] and int(runtime["corruptionCount"]) == 0
+targets = get(prom, "/api/v1/targets")["data"]["activeTargets"]
+critical = {}
+for job in ("apiserver", "kubelet"):
+    selected = [target for target in targets if target["labels"].get("job") == job]
+    assert selected and all(target["health"] == "up" for target in selected), job
+    historical = get(prom, "/api/v1/query", {"query": 'up{job="' + job + '"}', "time": history})
+    assert historical["status"] == "success" and historical["data"]["result"], "Missing pre-upgrade " + job
+    critical[job] = {"up": len(selected), "historicalSeries": len(historical["data"]["result"])}
+rules = [rule for group in get(prom, "/api/v1/rules")["data"]["groups"] for rule in group["rules"]]
+assert rules and all(rule["health"] == "ok" and not rule.get("lastError") for rule in rules)
+silences = get(am, "/api/v2/silences")
+assert len(silences) >= expected_silences, "Restore saved silences before releasing maintenance"
+alerts = get(am, "/api/v2/alerts")
+print(json.dumps({"criticalTargets": critical, "allTargets": dict(collections.Counter(t["health"] for t in targets)),
+                  "healthyRules": len(rules), "silences": len(silences), "incomingAlerts": len(alerts),
+                  "historicalTimestamp": history}, sort_keys=True))
+'@
+kubectl exec -n monitoring $pod -c grafana-sc-dashboard -- python -c $code "$HistoryAt" "$ExpectedSilences"
+```
+
+The pre-upgrade baseline had one healthy apiserver target, nine healthy kubelet
+targets, 251 healthy rules, zero silences, and 26 up/14 down targets overall.
+Do not mistake those existing noncritical target failures for a new regression,
+or require zero incoming alerts. Compare the aggregate baseline and investigate
+new failures; rerun after another interval. The unchanged Prometheus PVC UID is
+also enforced by the preservation runner. If saved silences are nonzero,
+restore them first and compare their IDs/states inside the cluster against the
+on-PVC native export, accounting explicitly for natural expiry.
 
 Cleanup is a strict temporary-resource allowlist using Kubernetes
 `DeleteOptions.preconditions.uid`; it cannot delete PVCs, application pods,

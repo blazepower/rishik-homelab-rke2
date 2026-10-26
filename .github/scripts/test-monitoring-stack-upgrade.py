@@ -156,6 +156,29 @@ def preservation_checks():
     runner = importlib.util.module_from_spec(runner_spec)
     sys.dont_write_bytecode = True
     runner_spec.loader.exec_module(runner)
+    assert "_create_unverified_context" not in Path(runner_spec.origin).read_text()
+    with mock.patch.object(runner.urllib.request, "urlopen") as request:
+        request.return_value.__enter__.return_value.status = 200
+        assert runner.health_code("https://grafana.homelab/api/health") == 200
+        context = request.call_args.kwargs["context"]
+        assert context.check_hostname is True and context.verify_mode == runner.ssl.CERT_REQUIRED
+    for tls_failure in (
+        runner.ssl.SSLError("fixture TLS failure"),
+        runner.urllib.error.URLError(runner.ssl.SSLCertVerificationError("fixture verification failure")),
+    ):
+        with mock.patch.object(runner.urllib.request, "urlopen", side_effect=tls_failure):
+            try:
+                runner.health_code("https://grafana.homelab/api/health")
+            except runner.ssl.SSLError as error:
+                assert not isinstance(error, RuntimeError), "Maintenance retries must not mask TLS failures"
+            else:
+                raise AssertionError("TLS failure must not become an unavailable-probe fallback")
+    for failure, expected in (
+        (runner.urllib.error.HTTPError("https://grafana.homelab", 503, "maintenance", {}, None), 503),
+        (runner.urllib.error.URLError("fixture DNS failure"), 0),
+    ):
+        with mock.patch.object(runner.urllib.request, "urlopen", side_effect=failure):
+            assert runner.health_code("https://grafana.homelab/api/health") == expected
     record = {"kind": "Job", "name": "grafana-state-seed", "apiVersion": "batch/v1", "uid": "owned-helper-uid"}
     with mock.patch.object(runner, "get", return_value={"metadata": {"uid": record["uid"]}}), \
             mock.patch.object(runner, "kubectl") as transport:
