@@ -23,10 +23,11 @@ import yaml
 
 
 ROOT = Path(__file__).resolve().parents[2]
+SHARED = ROOT / "apps" / "_shared" / "media-ca-hardening"
 APPS = ("bazarr", "prowlarr", "sabnzbd")
 REGISTRY = DOCKER = False
 CRANE = "crane"
-spec = importlib.util.spec_from_file_location("media_overlay", ROOT / "apps" / "bazarr" / "ca-overlay.py")
+spec = importlib.util.spec_from_file_location("media_overlay", SHARED / "ca-overlay.py")
 guard = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(guard)
 CANONICAL = {
@@ -57,13 +58,24 @@ class MediaOverlayWiringTests(unittest.TestCase):
             ref = values(app)["controllers"][app]["containers"]["app"]["image"]
             self.assertEqual(ref["repository"] + "@" + ref["tag"].split("@", 1)[1],
                              evidence["immutable_platform_evidence"][app]["index"])
+        acceptance = evidence["sab_complete_mod_acceptance"]
+        self.assertEqual(acceptance["status"], "REQUIRED_NOT_RUN")
+        self.assertFalse(acceptance["execution_networking_added"])
+        env = {
+            e["name"]: e.get("value")
+            for e in values("sabnzbd")["controllers"]["sabnzbd"]["containers"]["app"]["env"]
+        }
+        for name, value in acceptance["preserve_environment"].items():
+            self.assertEqual(env[name], value)
 
-    def test_every_app_has_identical_guard_and_exact_eleven_policy_keys(self):
+    def test_apps_use_one_shared_guard_and_exact_eleven_policy_keys(self):
+        self.assertEqual(guard.policy_keys(SHARED / "blocked-spkis.sha256"), CANONICAL)
         for app in APPS:
             directory = ROOT / "apps" / app
-            self.assertEqual(guard.policy_keys(directory / "blocked-spkis.sha256"), CANONICAL)
-            for name in ("ca-overlay.py", "copy-ca-overlay.sh"):
-                self.assertEqual((directory / name).read_text(), (ROOT / "apps" / "bazarr" / name).read_text())
+            for name in ("ca-overlay.py", "copy-ca-overlay.sh", "blocked-spkis.sha256"):
+                self.assertFalse((directory / name).exists())
+                self.assertTrue((SHARED / name).is_file())
+                self.assertFalse((SHARED / name).is_symlink())
 
     def test_kubernetes_init_failure_blocks_unmodified_original_application(self):
         for app in APPS:
@@ -104,12 +116,21 @@ class MediaOverlayWiringTests(unittest.TestCase):
                 self.assertEqual(store["advancedMounts"][app]["codec-config"], mounts)
 
     def test_hashed_configmap_name_is_wired_into_helm_persistence(self):
+        shared = yaml.safe_load((SHARED / "kustomization.yaml").read_text())
+        generator, = shared["configMapGenerator"]
+        self.assertEqual(generator["name"], "ca-guard")
+        self.assertCountEqual(generator["files"], ["ca-overlay.py", "copy-ca-overlay.sh", "blocked-spkis.sha256"])
+        self.assertNotIn("resources", shared)
+        self.assertNotIn("namePrefix", shared)
+        self.assertFalse(shared.get("generatorOptions", {}).get("disableNameSuffixHash", False))
         for app in APPS:
             directory = ROOT / "apps" / app
             config = yaml.safe_load((directory / "kustomization.yaml").read_text())
-            generator = next(g for g in config["configMapGenerator"] if g["name"] == app + "-ca-guard")
-            self.assertCountEqual(generator["files"], ["ca-overlay.py", "copy-ca-overlay.sh", "blocked-spkis.sha256"])
-            self.assertFalse(config.get("generatorOptions", {}).get("disableNameSuffixHash", False))
+            self.assertIn("ca-guard", config["resources"])
+            self.assertNotIn("namePrefix", config)
+            nested = yaml.safe_load((directory / "ca-guard" / "kustomization.yaml").read_text())
+            self.assertEqual(nested["namePrefix"], app + "-")
+            self.assertEqual(nested["resources"], ["../../_shared/media-ca-hardening"])
             reference = json.loads((directory / "kustomize-ca.json").read_text())
             self.assertEqual(reference["nameReference"][0]["fieldSpecs"][0]["path"],
                              "spec/values/persistence/ca-guard/name")
@@ -224,7 +245,7 @@ class MediaOverlayFilterTests(unittest.TestCase):
         policy.write_text("invalid\n")
         original = self.bundle.read_bytes()
         result = subprocess.run([
-            sys.executable, "-B", str(ROOT / "apps" / "bazarr" / "ca-overlay.py"),
+            sys.executable, "-B", str(SHARED / "ca-overlay.py"),
             "--root", str(self.root), "--app", "prowlarr", "--policy", str(policy),
         ], capture_output=True, text=True, timeout=30)
         self.assertNotEqual(result.returncode, 0)
@@ -325,7 +346,7 @@ class MediaRealVendorTests(unittest.TestCase):
             with self.subTest(app=app):
                 token = uuid.uuid4().hex[:12]
                 volume, name = "media-ca-" + token, "media-ca-app-" + token
-                directory = ROOT / "apps" / app
+                directory = SHARED
                 subprocess.run(["docker", "pull", image(app)], check=True, capture_output=True, timeout=300)
                 subprocess.run(["docker", "pull", image(app, "ca-filter")], check=True, capture_output=True, timeout=300)
                 subprocess.run(["docker", "volume", "create", volume], check=True, capture_output=True)

@@ -14,7 +14,7 @@
     "main": "Original vendor /init, application image/version, environment, auth/data initialization, probes, PVC mounts and SAB codec configuration command are retained. Main container receives only read-only trust overlays.",
     "immutability": "Mount whole OS source directories, hash directory/bundle, and entire application/pip certifi packages read-only. Do not use environment-only CA redirection or file-only certifi mounts that leave package replacement unguarded.",
     "hash_directories": "Remove denied aliases and compact surviving vendor subject-hash sequences to avoid OpenSSL lookup gaps. Preserve unaffected certificate DER identities; reject escaping/dangling/cyclic/unsupported aliases.",
-    "updates": "App-specific hashed ConfigMap names are transformed into HelmRelease persistence references, so script/policy changes alter pod volume references.",
+    "updates": "One shared base at apps/_shared/media-ca-hardening generates ca-guard from the sole script/copy/policy files. Each app's ca-guard child Kustomization prefixes only that base. App-specific hashed ConfigMap names are transformed into HelmRelease persistence references, so script/policy changes alter pod volume references without prefixing application resources.",
     "dependencies": "Guard uses only stock Python standard-library ssl/base64/hashlib and a bounded DER SubjectPublicKeyInfo parser. No newly built/maintained images, package installs, downloads, TLS bypass or compiled helpers.",
     "sab_codec_init": "Original codec-config command/image/data mounts are unchanged; it runs after the two CA init containers and receives the same read-only sanitized trust overlays."
   },
@@ -61,12 +61,34 @@
     "Existing SAB codec/bootstrap, shared media codec policy and Servarr HTTPS regressions pass."
   ],
   "remaining_blockers": [
-    "No Docker executable, installed WSL distribution or known authorized isolated Linux runner is available in this Windows session. Real pinned-image execution, Linux absolute-alias tests, mount enforcement and stock /init readiness tests are NOT run.",
+    "Local Windows execution lacks Docker/WSL. Coordinator has an authorized GitHub-hosted Linux/Docker runner through held draft PR326; media execution there is pending, not permanently unavailable. Real pinned-image execution, Linux absolute-alias tests, mount enforcement and stock /init readiness tests are NOT run in this worktree.",
     "Run the explicit --docker suite on isolated linux/amd64 Docker 26+ (volume-subpath support), with network disabled during execution and no user config/media. Images may be pulled before execution.",
     "The Docker suite tests base vendor bootstrap without downloading SAB's optional mod; a complete replay of the already-existing pinned ffmpeg mod/package stage must also establish compatibility before deployment.",
     "No .NET cached/user-added/custom/compiled certificate-store or chain-validation certification is claimed. Actual live public-store and native/application rejection verification is still required after separately authorized deployment.",
     "Another session owns Longhorn repair. No storage diagnosis/changes or deployment is part of this preparation."
   ],
+  "sab_complete_mod_acceptance": {
+    "status": "REQUIRED_NOT_RUN",
+    "execution_networking_added": false,
+    "preserve_environment": {
+      "DOCKER_MODS": "linuxserver/mods:universal-package-install@sha256:ae68d698c8745c48cd634e807eca41a57a2aacb142bee4ca6a2c3b2b6c64afaf",
+      "INSTALL_PACKAGES": "ffmpeg"
+    },
+    "existing_docker_suite_limit": "The current --docker suite starts stock base /init without DOCKER_MODS/INSTALL_PACKAGES. Its success cannot satisfy complete existing SAB bootstrap acceptance.",
+    "stock_offline_mod_path": "Captured /docker-mods lines 383-410 support offline fallback to an existing /modcache/${FILENAME}.tar.xz. For this pin FILENAME is linuxserver.mods.universal-package-install.ae68d698c8745c48cd634e807eca41a57a2aacb142bee4ca6a2c3b2b6c64afaf. The offline branch accepts an existing valid tar without fetching/verifying a remote layer digest, so a prepared blob would need independent binding to the exact pinned mod manifest/layer before use.",
+    "offline_package_limit": "The captured init-mods-package-install/run uses apk add --no-cache with the requested ffmpeg package. A cached mod tar does not provide signed APK repository indexes, ffmpeg or the complete dependency closure. No such prepared package input set is supplied here; simply mounting an ordinary apk cache does not establish offline operation for --no-cache.",
+    "network_requirement": "For a genuine clean-vendor-root replay with unchanged repository configuration and no prepared offline package repository, restricted bootstrap networking is required. A separately approved signed local repository/mirror and complete package closure could support offline installation, but would be test-specific repository configuration, not current stock configuration. No network-enabled execution or alternate bootstrap is implemented.",
+    "conditional_ca_conflict": "The Alpine ca-certificates refresh executable /usr/sbin/update-ca-certificates rewrites /etc/ssl/certs/ca-certificates.crt and subject-hash aliases; apk trigger invocation would conflict with the read-only cert-directory mount. Installing/upgrading CA source packages could also write the read-only /usr/share/ca-certificates tree. The actual ffmpeg dependency transaction and trigger invocation have not been captured, so this report does not assert that ffmpeg always triggers CA regeneration.",
+    "required_observations": [
+      "Exact pinned vendor SAB image and exact pinned universal-package-install mod; original /init and both existing environment values, with ephemeral empty config and no user media/config.",
+      "No pre-applied mod marker, preinstalled-ffmpeg shortcut, skipped mod, stubbed package installer, altered application startup or removed ffmpeg requirement.",
+      "Capture actual package/trigger exit statuses and bounded public initialization evidence, without secrets; demonstrate ffmpeg and ffprobe available and working.",
+      "Verify original HTTP/auth readiness and unchanged codec/bootstrap behavior; verify canonical eleven SPKIs absent from all public OS/application stores, native Python and certifi contexts after the entire mod/package stage.",
+      "Test whether any CA package trigger/update-ca-certificates operation fails against the read-only trust mounts and whether vendor bootstrap wrongly continues after package failure. Any such incompatibility remains a blocker, not permission to make trust writable or ignore errors.",
+      "Require separate approval before any restricted network-enabled isolated bootstrap. No cluster/storage/deployment/publication operations."
+    ],
+    "evidence": "Previously captured public pinned-image /docker-mods SHA256 53123a7f0449fe59b5111a4d96d70407beff77e8120ce06111a0b84cbeaae705 and etc/s6-overlay/s6-rc.d/init-mods-package-install/run; no new vendor downloads."
+  },
   "ci_commands": [
     "python -B .github/scripts/test-media-runtime-ca-hardening.py",
     "python -B .github/scripts/test-media-runtime-ca-hardening.py --registry --crane <verified-crane>",
