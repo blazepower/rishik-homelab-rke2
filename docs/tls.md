@@ -1,5 +1,20 @@
 # TLS Certificate Management
 
+## Application runtime trust incident coverage
+
+The scoped October 26, 2026 application evidence is recorded in
+`.github/security/fleet-application-ca-report.json`. Its status is **blocked**:
+PEM-only clearance, a patched runtime version, and a clean Node default store
+must not be mistaken for complete application trust clearance. The report
+distinguishes image indexes from exact amd64 manifests, Calibre-Web's denied
+packaged certifi from its clean OS bundle, and Seerr's clean default Node roots
+from its denied system roots. It contains no deployment authorization; the
+coordinator's failed storage baseline remains a separate rollout gate.
+
+Run `python .github/scripts/test-fleet-application-ca.py` to validate the evidence
+and non-clearance invariants. Existing separately verified Plex runtime
+hardening and unchanged owned application images are outside this report.
+
 ## cert-manager
 
 [cert-manager](https://cert-manager.io/) is deployed to automate TLS certificate management for services exposed via Ingress.

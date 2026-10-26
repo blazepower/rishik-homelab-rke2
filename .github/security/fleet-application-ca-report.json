@@ -1,0 +1,1354 @@
+{
+  "captured_utc": "2026-10-26T04:20:05.051461+00:00",
+  "scope": "Current running application images excluding separately owned Servarr/Plex/infrastructure and unchanged verified Cooklang/CookSync/Homebox/Homepage. No user data or custom keystores inspected.",
+  "policy_spkis": [
+    "43bffa19d6ef651451f6841e019931e96f6f2eaeff28ab4b6f1ce4576de2717b",
+    "49dd353dc2b919a3770645117d0e60c16115e7d1bc259eefe734b00ea434fe5f",
+    "5c0660a2b164910d8ff589c18e14552e9e0ec237dcefe2cb736d41a4811f81a0",
+    "63ecefee431d49523bc1136c4e72d0206a477086caf606cd5cf025686c109cf8",
+    "8d417db2dd8bf5e3084d1e3f196d583849d81bdd4c00c70b9d39369e96b8c782",
+    "92c063d67e8f14db71d288e11266ffdaf69cbf115f7bab14f3bc2f68d25e0e30",
+    "bd153ed7b0434f6886b17bce8bbe84ed340c7132d702a8f4fa318f756ecbd6f3",
+    "c619e4780ed8e0abeda24ad732567de4383a7ea941338f6d1a7d1b49ac792fe9",
+    "e0254c7fcdc265e2f0f8a428dabb75ab4ae039b4872d62f5ee57f0877d5a8a41",
+    "ebed6475c2c2d80fcb199f3fe8dd6e6b3ce60b77eb15d4e42c3dec0c6f5b5105",
+    "ec4ffa1ad0ac88081314b7aaffef6a91f97cd57291bb5ba686c5415f5eb4f6b6"
+  ],
+  "coverage": "Immutable amd64 PEM export evidence only; separate runtime probes required. DENIED means raw image contains a policy-blocked public CA, not necessarily active runtime trust.",
+  "images": [
+    {
+      "running_imageID": "ghcr.io/usekaneo/kaneo@sha256:880b2df38fe5385032c9772c8989182d45029bc1f1711a3cb9489b94f482848d",
+      "immutable_amd64": "ghcr.io/usekaneo/kaneo@sha256:ad862871d3f015fa9b4387fb4ddac8ad0aee2faeef723b70c721c4e307d75e07",
+      "live_refs": [
+        {
+          "namespace": "kaneo",
+          "pod": "kaneo-5b8c5b4b57-s7wdx",
+          "container": "kaneo",
+          "ready": true
+        }
+      ],
+      "source": "fresh read-only immutable export",
+      "audit": {
+        "immutable_amd64": "ghcr.io/usekaneo/kaneo@sha256:ad862871d3f015fa9b4387fb4ddac8ad0aee2faeef723b70c721c4e307d75e07",
+        "status": "PEM_STORES_CLEAR",
+        "runtime_version_metadata": {
+          "NODE_VERSION": "24.22.1"
+        },
+        "inspected_pem_paths": 1,
+        "inspected_pem_certificates": 118,
+        "system_bundle_paths": [
+          "etc/ssl/cert.pem",
+          "etc/ssl/certs/ca-certificates.crt"
+        ],
+        "denied": [],
+        "embedded_java_stores": [],
+        "uninspected_stores": [],
+        "coverage": "PEM files only; embedded runtime/native trust is not certified"
+      },
+      "assessment": "PEM_CLEAR_ONLY_NOT_FULL_RUNTIME_CERTIFICATION"
+    },
+    {
+      "running_imageID": "docker.io/library/postgres@sha256:f4610795587492cd4fb887c2dc3de301b813278bb6f616992061141b5f15ac36",
+      "immutable_amd64": "docker.io/library/postgres@sha256:cbf42f0edc946c0bc1b8eeed62403734e1f25dc67a3491455d07a92fdb558b28",
+      "live_refs": [
+        {
+          "namespace": "kaneo",
+          "pod": "kaneo-postgresql-789d5b4f97-wrqmh",
+          "container": "postgresql",
+          "ready": true
+        },
+        {
+          "namespace": "media",
+          "pod": "rreading-glasses-postgresql-7d8d465f47-5zj9v",
+          "container": "postgresql",
+          "ready": true
+        }
+      ],
+      "source": "fresh read-only immutable export",
+      "audit": {
+        "immutable_amd64": "docker.io/library/postgres@sha256:cbf42f0edc946c0bc1b8eeed62403734e1f25dc67a3491455d07a92fdb558b28",
+        "status": "PEM_STORES_CLEAR",
+        "runtime_version_metadata": {},
+        "inspected_pem_paths": 1,
+        "inspected_pem_certificates": 118,
+        "system_bundle_paths": [
+          "etc/ssl/cert.pem",
+          "etc/ssl/certs/ca-certificates.crt"
+        ],
+        "denied": [],
+        "embedded_java_stores": [],
+        "uninspected_stores": [],
+        "coverage": "PEM files only; embedded runtime/native trust is not certified"
+      },
+      "assessment": "PEM_CLEAR_ONLY_NOT_FULL_RUNTIME_CERTIFICATION"
+    },
+    {
+      "running_imageID": "ghcr.io/pennydreadful/bookshelf@sha256:fd6183d0eacf1cac6ce3a0c8ff2b0d5af9ddf2101141f6c86c928a136c9b2d95",
+      "immutable_amd64": "ghcr.io/pennydreadful/bookshelf@sha256:eb2cb4a291e5f755e76d68c2be7e1da11f23724d6b9a5934b00388bd2e4212c6",
+      "live_refs": [
+        {
+          "namespace": "media",
+          "pod": "bookshelf-9fc98c85-dsd8h",
+          "container": "app",
+          "ready": true
+        }
+      ],
+      "source": "exact historical amd64 match",
+      "audit": {
+        "immutable_amd64": "ghcr.io/pennydreadful/bookshelf@sha256:eb2cb4a291e5f755e76d68c2be7e1da11f23724d6b9a5934b00388bd2e4212c6",
+        "status": "DENIED",
+        "runtime_version_metadata": {},
+        "inspected_pem_paths": 143,
+        "inspected_pem_certificates": 284,
+        "system_bundle_paths": [
+          "etc/ssl/cert.pem",
+          "etc/ssl/certs/ca-certificates.crt"
+        ],
+        "denied": [
+          {
+            "path": "etc/ssl/certs/ca-certificates.crt",
+            "name": "emSign ECC Root CA - G3",
+            "spki": "8d417db2dd8bf5e3084d1e3f196d583849d81bdd4c00c70b9d39369e96b8c782"
+          },
+          {
+            "path": "usr/share/ca-certificates/mozilla/emSign_ECC_Root_CA_-_G3.crt",
+            "name": "emSign ECC Root CA - G3",
+            "spki": "8d417db2dd8bf5e3084d1e3f196d583849d81bdd4c00c70b9d39369e96b8c782"
+          }
+        ],
+        "embedded_java_stores": [],
+        "uninspected_stores": [],
+        "coverage": "PEM files only; embedded runtime/native trust is not certified"
+      },
+      "assessment": "BLOCKED_PUBLIC_CA_PRESENT"
+    },
+    {
+      "running_imageID": "lscr.io/linuxserver/calibre-web@sha256:470b4ed9a7d6ea1475fef17dbcf957cb60880910296d226bd0dca652c05f68ca",
+      "immutable_amd64": "lscr.io/linuxserver/calibre-web@sha256:57f21ed8ebdfeb5f28ce91ce119d8849a4f4ce4268f4023c8521b3309c15fd52",
+      "live_refs": [
+        {
+          "namespace": "media",
+          "pod": "calibre-web-89d55885d-wgk6f",
+          "container": "app",
+          "ready": true
+        }
+      ],
+      "source": "fresh read-only immutable export",
+      "audit": {
+        "immutable_amd64": "lscr.io/linuxserver/calibre-web@sha256:57f21ed8ebdfeb5f28ce91ce119d8849a4f4ce4268f4023c8521b3309c15fd52",
+        "status": "DENIED",
+        "runtime_version_metadata": {},
+        "inspected_pem_paths": 123,
+        "inspected_pem_certificates": 479,
+        "system_bundle_paths": [
+          "etc/ssl/certs/ca-certificates.crt"
+        ],
+        "denied": [
+          {
+            "path": "lsiopy/lib/python3.12/site-packages/certifi/cacert.pem",
+            "name": "emSign ECC Root CA - G3",
+            "spki": "8d417db2dd8bf5e3084d1e3f196d583849d81bdd4c00c70b9d39369e96b8c782"
+          }
+        ],
+        "embedded_java_stores": [],
+        "uninspected_stores": [],
+        "coverage": "PEM files only; embedded runtime/native trust is not certified"
+      },
+      "assessment": "BLOCKED_PUBLIC_CA_PRESENT"
+    },
+    {
+      "running_imageID": "ghcr.io/blazepower/kindle-sender@sha256:4ecbbe85df4075286e3c5b2bab081abbd9b784e23856258b586d33e860754177",
+      "immutable_amd64": "ghcr.io/blazepower/kindle-sender@sha256:4ecbbe85df4075286e3c5b2bab081abbd9b784e23856258b586d33e860754177",
+      "live_refs": [
+        {
+          "namespace": "media",
+          "pod": "kindle-sender-54f947f89f-cg7vb",
+          "container": "app",
+          "ready": true
+        }
+      ],
+      "source": "exact historical amd64 match",
+      "audit": {
+        "immutable_amd64": "ghcr.io/blazepower/kindle-sender@sha256:4ecbbe85df4075286e3c5b2bab081abbd9b784e23856258b586d33e860754177",
+        "status": "DENIED",
+        "runtime_version_metadata": {},
+        "inspected_pem_paths": 1,
+        "inspected_pem_certificates": 142,
+        "system_bundle_paths": [
+          "etc/ssl/certs/ca-certificates.crt"
+        ],
+        "denied": [
+          {
+            "path": "etc/ssl/certs/ca-certificates.crt",
+            "name": "AAA Certificate Services",
+            "spki": "bd153ed7b0434f6886b17bce8bbe84ed340c7132d702a8f4fa318f756ecbd6f3"
+          },
+          {
+            "path": "etc/ssl/certs/ca-certificates.crt",
+            "name": "emSign ECC Root CA - G3",
+            "spki": "8d417db2dd8bf5e3084d1e3f196d583849d81bdd4c00c70b9d39369e96b8c782"
+          }
+        ],
+        "embedded_java_stores": [],
+        "uninspected_stores": [],
+        "coverage": "PEM files only; embedded runtime/native trust is not certified"
+      },
+      "assessment": "BLOCKED_PUBLIC_CA_PRESENT"
+    },
+    {
+      "running_imageID": "ghcr.io/seerr-team/seerr@sha256:d8fab675b55ad293ded98fd71efcfd46054cbad9746534ae1cc4794a88c0b3be",
+      "immutable_amd64": "ghcr.io/seerr-team/seerr@sha256:2636191726a315dbd75228537f7be74b2fa7498998bb22e37b5b5c8756018fba",
+      "live_refs": [
+        {
+          "namespace": "media",
+          "pod": "overseerr-6878d4f6d6-j94bb",
+          "container": "app",
+          "ready": true
+        }
+      ],
+      "source": "exact historical amd64 match",
+      "audit": {
+        "immutable_amd64": "ghcr.io/seerr-team/seerr@sha256:2636191726a315dbd75228537f7be74b2fa7498998bb22e37b5b5c8756018fba",
+        "status": "DENIED",
+        "runtime_version_metadata": {
+          "NODE_VERSION": "22.23.4"
+        },
+        "inspected_pem_paths": 2,
+        "inspected_pem_certificates": 123,
+        "system_bundle_paths": [
+          "etc/ssl/cert.pem",
+          "etc/ssl/certs/ca-certificates.crt"
+        ],
+        "denied": [
+          {
+            "path": "etc/ssl/certs/ca-certificates.crt",
+            "name": "emSign ECC Root CA - G3",
+            "spki": "8d417db2dd8bf5e3084d1e3f196d583849d81bdd4c00c70b9d39369e96b8c782"
+          }
+        ],
+        "embedded_java_stores": [],
+        "uninspected_stores": [],
+        "coverage": "PEM files only; embedded runtime/native trust is not certified"
+      },
+      "assessment": "BLOCKED_PUBLIC_CA_PRESENT"
+    },
+    {
+      "running_imageID": "lscr.io/linuxserver/qbittorrent@sha256:1ea873647c43d566f251a7122aee330b184509c57ee3257ed19f62dac0f8f24b",
+      "immutable_amd64": "lscr.io/linuxserver/qbittorrent@sha256:a0fdb188c5c9f70e4e123e542ad005f818a6f73b6449364a634fffcfd45b9834",
+      "live_refs": [
+        {
+          "namespace": "media",
+          "pod": "qbittorrent-5c4c4df799-np6jc",
+          "container": "app",
+          "ready": true
+        }
+      ],
+      "source": "exact historical amd64 match",
+      "audit": {
+        "immutable_amd64": "lscr.io/linuxserver/qbittorrent@sha256:a0fdb188c5c9f70e4e123e542ad005f818a6f73b6449364a634fffcfd45b9834",
+        "status": "DENIED",
+        "runtime_version_metadata": {},
+        "inspected_pem_paths": 122,
+        "inspected_pem_certificates": 242,
+        "system_bundle_paths": [
+          "etc/ssl/cert.pem",
+          "etc/ssl/certs/ca-certificates.crt"
+        ],
+        "denied": [
+          {
+            "path": "etc/ssl/certs/ca-certificates.crt",
+            "name": "emSign ECC Root CA - G3",
+            "spki": "8d417db2dd8bf5e3084d1e3f196d583849d81bdd4c00c70b9d39369e96b8c782"
+          },
+          {
+            "path": "usr/share/ca-certificates/mozilla/emSign_ECC_Root_CA_-_G3.crt",
+            "name": "emSign ECC Root CA - G3",
+            "spki": "8d417db2dd8bf5e3084d1e3f196d583849d81bdd4c00c70b9d39369e96b8c782"
+          }
+        ],
+        "embedded_java_stores": [],
+        "uninspected_stores": [],
+        "coverage": "PEM files only; embedded runtime/native trust is not certified"
+      },
+      "assessment": "BLOCKED_PUBLIC_CA_PRESENT"
+    },
+    {
+      "running_imageID": "docker.io/qmcgaw/gluetun@sha256:fa19cc76b2af13d57a8d3dc3066f2ada061b1c761b8aecf989b3877c0486e027",
+      "immutable_amd64": "docker.io/qmcgaw/gluetun@sha256:1baa76576dea1dfbafbd62bb635daf40fd87171f63273c2fdfe630418783011e",
+      "live_refs": [
+        {
+          "namespace": "media",
+          "pod": "qbittorrent-5c4c4df799-np6jc",
+          "container": "gluetun",
+          "ready": true
+        }
+      ],
+      "source": "exact historical amd64 match",
+      "audit": {
+        "immutable_amd64": "qmcgaw/gluetun@sha256:1baa76576dea1dfbafbd62bb635daf40fd87171f63273c2fdfe630418783011e",
+        "status": "DENIED",
+        "runtime_version_metadata": {},
+        "inspected_pem_paths": 120,
+        "inspected_pem_certificates": 238,
+        "system_bundle_paths": [
+          "etc/ssl/cert.pem",
+          "etc/ssl/certs/ca-certificates.crt"
+        ],
+        "denied": [
+          {
+            "path": "etc/ssl/certs/ca-certificates.crt",
+            "name": "emSign ECC Root CA - G3",
+            "spki": "8d417db2dd8bf5e3084d1e3f196d583849d81bdd4c00c70b9d39369e96b8c782"
+          },
+          {
+            "path": "usr/share/ca-certificates/mozilla/emSign_ECC_Root_CA_-_G3.crt",
+            "name": "emSign ECC Root CA - G3",
+            "spki": "8d417db2dd8bf5e3084d1e3f196d583849d81bdd4c00c70b9d39369e96b8c782"
+          }
+        ],
+        "embedded_java_stores": [],
+        "uninspected_stores": [],
+        "coverage": "PEM files only; embedded runtime/native trust is not certified"
+      },
+      "assessment": "BLOCKED_PUBLIC_CA_PRESENT"
+    },
+    {
+      "running_imageID": "docker.io/library/python@sha256:601e99e090cb08c2784a42395487709500bc39930307fe72f3f11a8f3c430762",
+      "immutable_amd64": "docker.io/library/python@sha256:a12da5c3f84888b3dd4355590a03240b1933daeaa48e18cc6d9839eeb35943b5",
+      "live_refs": [
+        {
+          "namespace": "media",
+          "pod": "qbittorrent-5c4c4df799-np6jc",
+          "container": "seed-policy",
+          "ready": true
+        }
+      ],
+      "source": "fresh read-only immutable export",
+      "audit": {
+        "immutable_amd64": "docker.io/library/python@sha256:a12da5c3f84888b3dd4355590a03240b1933daeaa48e18cc6d9839eeb35943b5",
+        "status": "PEM_STORES_CLEAR",
+        "runtime_version_metadata": {
+          "PYTHON_VERSION": "3.14.9"
+        },
+        "inspected_pem_paths": 120,
+        "inspected_pem_certificates": 356,
+        "system_bundle_paths": [
+          "etc/ssl/cert.pem",
+          "etc/ssl/certs/ca-certificates.crt"
+        ],
+        "denied": [],
+        "embedded_java_stores": [],
+        "uninspected_stores": [],
+        "coverage": "PEM files only; embedded runtime/native trust is not certified"
+      },
+      "assessment": "PEM_CLEAR_ONLY_NOT_FULL_RUNTIME_CERTIFICATION"
+    },
+    {
+      "running_imageID": "docker.io/curlimages/curl@sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac",
+      "immutable_amd64": "docker.io/curlimages/curl@sha256:ed154ad601683a2a85f8634398a6fbefd64d624df7b8432bbad512f8b8bfbf93",
+      "live_refs": [
+        {
+          "namespace": "media",
+          "pod": "qbittorrent-5c4c4df799-np6jc",
+          "container": "vpn-sync",
+          "ready": true
+        }
+      ],
+      "source": "exact historical amd64 match",
+      "audit": {
+        "immutable_amd64": "curlimages/curl@sha256:ed154ad601683a2a85f8634398a6fbefd64d624df7b8432bbad512f8b8bfbf93",
+        "status": "PEM_STORES_CLEAR",
+        "runtime_version_metadata": {},
+        "inspected_pem_paths": 1,
+        "inspected_pem_certificates": 118,
+        "system_bundle_paths": [
+          "etc/ssl/cert.pem",
+          "etc/ssl/certs/ca-certificates.crt"
+        ],
+        "denied": [],
+        "embedded_java_stores": [],
+        "uninspected_stores": [],
+        "coverage": "PEM files only; embedded runtime/native trust is not certified"
+      },
+      "assessment": "PEM_CLEAR_ONLY_NOT_FULL_RUNTIME_CERTIFICATION"
+    },
+    {
+      "running_imageID": "docker.io/blampe/rreading-glasses@sha256:3f017a51d9007b715303a20f481c822e4df66485fc9e5f57f6fdf1de840dc02f",
+      "immutable_amd64": "docker.io/blampe/rreading-glasses@sha256:cb2f25fa776f8edd55293909d73d398a0785c6bcf83bc4cd4b096a42b93534a7",
+      "live_refs": [
+        {
+          "namespace": "media",
+          "pod": "rreading-glasses-b79c49798-d7ftj",
+          "container": "app",
+          "ready": true
+        }
+      ],
+      "source": "exact historical amd64 match",
+      "audit": {
+        "immutable_amd64": "docker.io/blampe/rreading-glasses@sha256:cb2f25fa776f8edd55293909d73d398a0785c6bcf83bc4cd4b096a42b93534a7",
+        "status": "DENIED",
+        "runtime_version_metadata": {},
+        "inspected_pem_paths": 1,
+        "inspected_pem_certificates": 148,
+        "system_bundle_paths": [
+          "etc/ssl/certs/ca-certificates.crt"
+        ],
+        "denied": [
+          {
+            "path": "etc/ssl/certs/ca-certificates.crt",
+            "name": "emSign ECC Root CA - G3",
+            "spki": "8d417db2dd8bf5e3084d1e3f196d583849d81bdd4c00c70b9d39369e96b8c782"
+          }
+        ],
+        "embedded_java_stores": [],
+        "uninspected_stores": [],
+        "coverage": "PEM files only; embedded runtime/native trust is not certified"
+      },
+      "assessment": "BLOCKED_PUBLIC_CA_PRESENT"
+    },
+    {
+      "running_imageID": "docker.io/syncthing/syncthing@sha256:289b4ca86d77e4938d3e0af7d11f5c0a0fb786e469d5f697c25ab0f9e1f29f34",
+      "immutable_amd64": "docker.io/syncthing/syncthing@sha256:35401e343a2a20372fac11c576d8f8fe2de02b4f26128e805b4715258d6205a5",
+      "live_refs": [
+        {
+          "namespace": "media",
+          "pod": "syncthing-7f4dcc4c7f-78xdd",
+          "container": "app",
+          "ready": true
+        }
+      ],
+      "source": "exact historical amd64 match",
+      "audit": {
+        "immutable_amd64": "syncthing/syncthing@sha256:35401e343a2a20372fac11c576d8f8fe2de02b4f26128e805b4715258d6205a5",
+        "status": "DENIED",
+        "runtime_version_metadata": {},
+        "inspected_pem_paths": 148,
+        "inspected_pem_certificates": 294,
+        "system_bundle_paths": [
+          "etc/ssl/cert.pem",
+          "etc/ssl/certs/ca-certificates.crt"
+        ],
+        "denied": [
+          {
+            "path": "etc/ssl/certs/ca-certificates.crt",
+            "name": "AAA Certificate Services",
+            "spki": "bd153ed7b0434f6886b17bce8bbe84ed340c7132d702a8f4fa318f756ecbd6f3"
+          },
+          {
+            "path": "etc/ssl/certs/ca-certificates.crt",
+            "name": "emSign ECC Root CA - G3",
+            "spki": "8d417db2dd8bf5e3084d1e3f196d583849d81bdd4c00c70b9d39369e96b8c782"
+          },
+          {
+            "path": "usr/share/ca-certificates/mozilla/Comodo_AAA_Services_root.crt",
+            "name": "AAA Certificate Services",
+            "spki": "bd153ed7b0434f6886b17bce8bbe84ed340c7132d702a8f4fa318f756ecbd6f3"
+          },
+          {
+            "path": "usr/share/ca-certificates/mozilla/emSign_ECC_Root_CA_-_G3.crt",
+            "name": "emSign ECC Root CA - G3",
+            "spki": "8d417db2dd8bf5e3084d1e3f196d583849d81bdd4c00c70b9d39369e96b8c782"
+          }
+        ],
+        "embedded_java_stores": [],
+        "uninspected_stores": [],
+        "coverage": "PEM files only; embedded runtime/native trust is not certified"
+      },
+      "assessment": "BLOCKED_PUBLIC_CA_PRESENT"
+    },
+    {
+      "running_imageID": "docker.io/library/postgres@sha256:898c60cb390d1085bc97bdd6a1ae968757421df394b071848b52b1c09c89d6a5",
+      "immutable_amd64": "docker.io/library/postgres@sha256:3b0ef735388b2cb097fc29b8bb421d86d57d0ddbe7aa1fbd6493e06d65028503",
+      "live_refs": [
+        {
+          "namespace": "paperless",
+          "pod": "paperless-paperless-ngx-postgresql-0",
+          "container": "postgresql",
+          "ready": true
+        },
+        {
+          "namespace": "sure-finance",
+          "pod": "sure-finance-maybe-finance-postgresql-0",
+          "container": "postgresql",
+          "ready": true
+        }
+      ],
+      "source": "exact historical amd64 match",
+      "audit": {
+        "immutable_amd64": "docker.io/library/postgres@sha256:3b0ef735388b2cb097fc29b8bb421d86d57d0ddbe7aa1fbd6493e06d65028503",
+        "status": "PEM_STORES_CLEAR",
+        "runtime_version_metadata": {},
+        "inspected_pem_paths": 1,
+        "inspected_pem_certificates": 118,
+        "system_bundle_paths": [
+          "etc/ssl/cert.pem",
+          "etc/ssl/certs/ca-certificates.crt"
+        ],
+        "denied": [],
+        "embedded_java_stores": [],
+        "uninspected_stores": [],
+        "coverage": "PEM files only; embedded runtime/native trust is not certified"
+      },
+      "assessment": "PEM_CLEAR_ONLY_NOT_FULL_RUNTIME_CERTIFICATION"
+    },
+    {
+      "running_imageID": "docker.io/library/redis@sha256:0bf6577d7774e592b29d093e3ac9390eb91e13d72c21e506afce736de5e0eeb0",
+      "immutable_amd64": "docker.io/library/redis@sha256:16b124a2d3eacd620d917ead6fd26cbf1f1d7117fa94122398971931cfe2d403",
+      "live_refs": [
+        {
+          "namespace": "paperless",
+          "pod": "paperless-paperless-ngx-redis-0",
+          "container": "redis",
+          "ready": true
+        },
+        {
+          "namespace": "sure-finance",
+          "pod": "sure-finance-maybe-finance-redis-5584844f97-8q64r",
+          "container": "redis",
+          "ready": true
+        }
+      ],
+      "source": "exact historical amd64 match",
+      "audit": {
+        "immutable_amd64": "docker.io/library/redis@sha256:16b124a2d3eacd620d917ead6fd26cbf1f1d7117fa94122398971931cfe2d403",
+        "status": "PEM_STORES_CLEAR",
+        "runtime_version_metadata": {},
+        "inspected_pem_paths": 1,
+        "inspected_pem_certificates": 118,
+        "system_bundle_paths": [
+          "etc/ssl/cert.pem",
+          "etc/ssl/certs/ca-certificates.crt"
+        ],
+        "denied": [],
+        "embedded_java_stores": [],
+        "uninspected_stores": [],
+        "coverage": "PEM files only; embedded runtime/native trust is not certified"
+      },
+      "assessment": "PEM_CLEAR_ONLY_NOT_FULL_RUNTIME_CERTIFICATION"
+    },
+    {
+      "running_imageID": "docker.io/stashapp/stash@sha256:df744af5a0c976e2ec671052ecc1f8a9aa757fa12b8f9930b59910b7295f0da6",
+      "immutable_amd64": "docker.io/stashapp/stash@sha256:736e7cd8f61c815c08fd3048792982a61e619735bb1808cd279f0f2fa857c4b0",
+      "live_refs": [
+        {
+          "namespace": "siloarr",
+          "pod": "stash-6f58c7c59-7m7tm",
+          "container": "app",
+          "ready": true
+        }
+      ],
+      "source": "exact historical amd64 match",
+      "audit": {
+        "immutable_amd64": "stashapp/stash@sha256:736e7cd8f61c815c08fd3048792982a61e619735bb1808cd279f0f2fa857c4b0",
+        "status": "DENIED",
+        "runtime_version_metadata": {},
+        "inspected_pem_paths": 150,
+        "inspected_pem_certificates": 446,
+        "system_bundle_paths": [
+          "etc/ssl/cert.pem",
+          "etc/ssl/certs/ca-certificates.crt"
+        ],
+        "denied": [
+          {
+            "path": "etc/ssl/certs/ca-certificates.crt",
+            "name": "emSign ECC Root CA - G3",
+            "spki": "8d417db2dd8bf5e3084d1e3f196d583849d81bdd4c00c70b9d39369e96b8c782"
+          },
+          {
+            "path": "usr/lib/python3.12/site-packages/pip/_vendor/certifi/cacert.pem",
+            "name": "AAA Certificate Services",
+            "spki": "bd153ed7b0434f6886b17bce8bbe84ed340c7132d702a8f4fa318f756ecbd6f3"
+          },
+          {
+            "path": "usr/lib/python3.12/site-packages/pip/_vendor/certifi/cacert.pem",
+            "name": "emSign ECC Root CA - G3",
+            "spki": "8d417db2dd8bf5e3084d1e3f196d583849d81bdd4c00c70b9d39369e96b8c782"
+          },
+          {
+            "path": "usr/share/ca-certificates/mozilla/emSign_ECC_Root_CA_-_G3.crt",
+            "name": "emSign ECC Root CA - G3",
+            "spki": "8d417db2dd8bf5e3084d1e3f196d583849d81bdd4c00c70b9d39369e96b8c782"
+          }
+        ],
+        "embedded_java_stores": [],
+        "uninspected_stores": [],
+        "coverage": "PEM files only; embedded runtime/native trust is not certified"
+      },
+      "assessment": "BLOCKED_PUBLIC_CA_PRESENT"
+    },
+    {
+      "running_imageID": "ghcr.io/hotio/whisparr@sha256:7c874bb68fb8ecc66df58ffb91281d13ce3591a5ba4477d2a7209e169a3ebd89",
+      "immutable_amd64": "ghcr.io/hotio/whisparr@sha256:00ad480c121b8d373d50cd7272b49e0133f2ab4b59d76ca1e1382d83c15def15",
+      "live_refs": [
+        {
+          "namespace": "siloarr",
+          "pod": "whisparr-6f7dcf559d-jn2tc",
+          "container": "app",
+          "ready": true
+        }
+      ],
+      "source": "fresh read-only immutable export",
+      "audit": {
+        "immutable_amd64": "ghcr.io/hotio/whisparr@sha256:00ad480c121b8d373d50cd7272b49e0133f2ab4b59d76ca1e1382d83c15def15",
+        "status": "PEM_STORES_CLEAR",
+        "runtime_version_metadata": {},
+        "inspected_pem_paths": 119,
+        "inspected_pem_certificates": 236,
+        "system_bundle_paths": [
+          "etc/ssl/cert.pem",
+          "etc/ssl/certs/ca-certificates.crt"
+        ],
+        "denied": [],
+        "embedded_java_stores": [],
+        "uninspected_stores": [],
+        "coverage": "PEM files only; embedded runtime/native trust is not certified"
+      },
+      "assessment": "PEM_CLEAR_ONLY_NOT_FULL_RUNTIME_CERTIFICATION"
+    },
+    {
+      "running_imageID": "ghcr.io/we-promise/sure@sha256:b5d6d822fdef24c1af06ad455ce003139a2bd50cb6cf76a84a147dfd06b0e3dc",
+      "immutable_amd64": "ghcr.io/we-promise/sure@sha256:0b58098fc7f5c189f348abcc64be1858d7789f8f724b8465d0a2a2c48a4e4b55",
+      "live_refs": [
+        {
+          "namespace": "sure-finance",
+          "pod": "sure-finance-maybe-finance-669766b94f-cv9qp",
+          "container": "maybe",
+          "ready": true
+        },
+        {
+          "namespace": "sure-finance",
+          "pod": "sure-finance-maybe-finance-sidekiq-d9b8f946c-2lvhj",
+          "container": "sidekiq",
+          "ready": true
+        }
+      ],
+      "source": "exact historical amd64 match",
+      "audit": {
+        "immutable_amd64": "ghcr.io/we-promise/sure@sha256:0b58098fc7f5c189f348abcc64be1858d7789f8f724b8465d0a2a2c48a4e4b55",
+        "status": "DENIED",
+        "runtime_version_metadata": {},
+        "inspected_pem_paths": 153,
+        "inspected_pem_certificates": 563,
+        "system_bundle_paths": [
+          "etc/ssl/certs/ca-certificates.crt"
+        ],
+        "denied": [
+          {
+            "path": "usr/local/bundle/ruby/3.4.0/gems/aws-sdk-core-3.240.0/ca-bundle.crt",
+            "name": "AAA Certificate Services",
+            "spki": "bd153ed7b0434f6886b17bce8bbe84ed340c7132d702a8f4fa318f756ecbd6f3"
+          },
+          {
+            "path": "usr/local/bundle/ruby/3.4.0/gems/skylight-6.0.4/lib/skylight/data/cacert.pem",
+            "name": "AAA Certificate Services",
+            "spki": "bd153ed7b0434f6886b17bce8bbe84ed340c7132d702a8f4fa318f756ecbd6f3"
+          },
+          {
+            "path": "usr/local/bundle/ruby/3.4.0/gems/skylight-6.0.4/lib/skylight/data/cacert.pem",
+            "name": "emSign ECC Root CA - G3",
+            "spki": "8d417db2dd8bf5e3084d1e3f196d583849d81bdd4c00c70b9d39369e96b8c782"
+          },
+          {
+            "path": "etc/ssl/certs/ca-certificates.crt",
+            "name": "AAA Certificate Services",
+            "spki": "bd153ed7b0434f6886b17bce8bbe84ed340c7132d702a8f4fa318f756ecbd6f3"
+          },
+          {
+            "path": "etc/ssl/certs/ca-certificates.crt",
+            "name": "emSign ECC Root CA - G3",
+            "spki": "8d417db2dd8bf5e3084d1e3f196d583849d81bdd4c00c70b9d39369e96b8c782"
+          },
+          {
+            "path": "usr/share/ca-certificates/mozilla/Comodo_AAA_Services_root.crt",
+            "name": "AAA Certificate Services",
+            "spki": "bd153ed7b0434f6886b17bce8bbe84ed340c7132d702a8f4fa318f756ecbd6f3"
+          },
+          {
+            "path": "usr/share/ca-certificates/mozilla/emSign_ECC_Root_CA_-_G3.crt",
+            "name": "emSign ECC Root CA - G3",
+            "spki": "8d417db2dd8bf5e3084d1e3f196d583849d81bdd4c00c70b9d39369e96b8c782"
+          }
+        ],
+        "embedded_java_stores": [],
+        "uninspected_stores": [],
+        "coverage": "PEM files only; embedded runtime/native trust is not certified"
+      },
+      "assessment": "BLOCKED_PUBLIC_CA_PRESENT"
+    }
+  ],
+  "runtime": {
+    "verified_utc": "2026-10-26T04:20:32.683606+00:00",
+    "coverage": "Read-only default trust probes in existing containers, not application network/chain validation. No custom trust overrides/keystores read, no full environment or command lines retained.",
+    "results": [
+      {
+        "namespace": "kaneo",
+        "pod": "kaneo-5b8c5b4b57-s7wdx",
+        "container": "kaneo",
+        "imageID": "ghcr.io/usekaneo/kaneo@sha256:880b2df38fe5385032c9772c8989182d45029bc1f1711a3cb9489b94f482848d",
+        "node": {
+          "node": "v24.22.1",
+          "openssl": "3.5.9",
+          "extra_ca_configured": false,
+          "node_options_present": false,
+          "node_options_trust_flags": [],
+          "existing_node_processes": [
+            {
+              "trust_flags": []
+            }
+          ],
+          "bundled": {
+            "certificates": 118,
+            "denied": []
+          },
+          "default": {
+            "certificates": 118,
+            "denied": []
+          },
+          "system": {
+            "certificates": 236,
+            "denied": []
+          }
+        },
+        "public_system_bundle": {
+          "certificates": 118,
+          "bundle_sha256": "5961c0a3c65459931c023e0075c09733f09aea4ca439cb85bc4a08bb4f3f568b",
+          "denied": []
+        }
+      },
+      {
+        "namespace": "media",
+        "pod": "bookshelf-9fc98c85-dsd8h",
+        "container": "app",
+        "imageID": "ghcr.io/pennydreadful/bookshelf@sha256:fd6183d0eacf1cac6ce3a0c8ff2b0d5af9ddf2101141f6c86c928a136c9b2d95",
+        "public_system_bundle": {
+          "certificates": 142,
+          "bundle_sha256": "8cf3f2d5222508ca469c78a347764ee1b1fab10a903172612c489ebcca05c91c",
+          "denied": [
+            {
+              "spki_sha256": "8d417db2dd8bf5e3084d1e3f196d583849d81bdd4c00c70b9d39369e96b8c782",
+              "policy_name": "emSign ECC Root CA - G3"
+            }
+          ]
+        }
+      },
+      {
+        "namespace": "media",
+        "pod": "calibre-web-89d55885d-wgk6f",
+        "container": "app",
+        "imageID": "lscr.io/linuxserver/calibre-web@sha256:470b4ed9a7d6ea1475fef17dbcf957cb60880910296d226bd0dca652c05f68ca",
+        "python": {
+          "python": "3.12.3",
+          "openssl": "OpenSSL 3.0.13 30 Jan 2024",
+          "custom_ca_override_present": false,
+          "certifi_version": "2026.5.20",
+          "ssl_default_store": {
+            "x509": 120,
+            "crl": 0,
+            "x509_ca": 120
+          },
+          "certifi_bundle": {
+            "certificates": 119,
+            "bundle_sha256": "7cef540c6af3bf0a3c7d0070bd3fd7aae34f8aa805b408d1c27a01c8aeb305df",
+            "denied": [
+              {
+                "spki_sha256": "8d417db2dd8bf5e3084d1e3f196d583849d81bdd4c00c70b9d39369e96b8c782",
+                "policy_name": "emSign ECC Root CA - G3"
+              }
+            ]
+          },
+          "ssl_default_certs": {
+            "certificates": 120,
+            "bundle_sha256": "5cbee51e3cca025bf891c7fa6b0ce067277aa423a4293e3e31ea8337979af8e9",
+            "denied": []
+          }
+        },
+        "public_system_bundle": {
+          "certificates": 120,
+          "bundle_sha256": "64e7c24b0536b525fb19b145768bd5e6e12ced0df3db837c34553ea789acd143",
+          "denied": []
+        }
+      },
+      {
+        "namespace": "media",
+        "pod": "kindle-sender-54f947f89f-cg7vb",
+        "container": "app",
+        "imageID": "ghcr.io/blazepower/kindle-sender@sha256:4ecbbe85df4075286e3c5b2bab081abbd9b784e23856258b586d33e860754177",
+        "python": {
+          "error": "probe unavailable",
+          "exit_code": 1
+        },
+        "public_system_bundle": {
+          "error": "probe unavailable",
+          "exit_code": 1
+        }
+      },
+      {
+        "namespace": "media",
+        "pod": "overseerr-6878d4f6d6-j94bb",
+        "container": "app",
+        "imageID": "ghcr.io/seerr-team/seerr@sha256:d8fab675b55ad293ded98fd71efcfd46054cbad9746534ae1cc4794a88c0b3be",
+        "node": {
+          "node": "v22.23.4",
+          "openssl": "3.5.9",
+          "extra_ca_configured": false,
+          "node_options_present": false,
+          "node_options_trust_flags": [],
+          "existing_node_processes": [
+            {
+              "trust_flags": []
+            }
+          ],
+          "bundled": {
+            "certificates": 116,
+            "denied": []
+          },
+          "default": {
+            "certificates": 116,
+            "denied": []
+          },
+          "system": {
+            "certificates": 242,
+            "denied": [
+              {
+                "spki_sha256": "8d417db2dd8bf5e3084d1e3f196d583849d81bdd4c00c70b9d39369e96b8c782",
+                "policy_name": "emSign ECC Root CA - G3"
+              },
+              {
+                "spki_sha256": "8d417db2dd8bf5e3084d1e3f196d583849d81bdd4c00c70b9d39369e96b8c782",
+                "policy_name": "emSign ECC Root CA - G3"
+              }
+            ]
+          }
+        },
+        "public_system_bundle": {
+          "certificates": 121,
+          "bundle_sha256": "028fca5150ee1915c4474489985d55c54fceaa680c754cc8d1301734f01b2232",
+          "denied": [
+            {
+              "spki_sha256": "8d417db2dd8bf5e3084d1e3f196d583849d81bdd4c00c70b9d39369e96b8c782",
+              "policy_name": "emSign ECC Root CA - G3"
+            }
+          ]
+        }
+      },
+      {
+        "namespace": "media",
+        "pod": "qbittorrent-5c4c4df799-np6jc",
+        "container": "app",
+        "imageID": "lscr.io/linuxserver/qbittorrent@sha256:1ea873647c43d566f251a7122aee330b184509c57ee3257ed19f62dac0f8f24b",
+        "public_system_bundle": {
+          "certificates": 121,
+          "bundle_sha256": "028fca5150ee1915c4474489985d55c54fceaa680c754cc8d1301734f01b2232",
+          "denied": [
+            {
+              "spki_sha256": "8d417db2dd8bf5e3084d1e3f196d583849d81bdd4c00c70b9d39369e96b8c782",
+              "policy_name": "emSign ECC Root CA - G3"
+            }
+          ]
+        }
+      },
+      {
+        "namespace": "media",
+        "pod": "qbittorrent-5c4c4df799-np6jc",
+        "container": "gluetun",
+        "imageID": "docker.io/qmcgaw/gluetun@sha256:fa19cc76b2af13d57a8d3dc3066f2ada061b1c761b8aecf989b3877c0486e027",
+        "public_system_bundle": {
+          "certificates": 119,
+          "bundle_sha256": "b8d837841b88bfaa1a0fa827cbca8e2576418dd47c9fc4bb7f1f9d89c83111b9",
+          "denied": [
+            {
+              "spki_sha256": "8d417db2dd8bf5e3084d1e3f196d583849d81bdd4c00c70b9d39369e96b8c782",
+              "policy_name": "emSign ECC Root CA - G3"
+            }
+          ]
+        }
+      },
+      {
+        "namespace": "media",
+        "pod": "qbittorrent-5c4c4df799-np6jc",
+        "container": "seed-policy",
+        "imageID": "docker.io/library/python@sha256:601e99e090cb08c2784a42395487709500bc39930307fe72f3f11a8f3c430762",
+        "python": {
+          "python": "3.14.9",
+          "openssl": "OpenSSL 3.5.9 29 Sep 2026",
+          "custom_ca_override_present": false,
+          "certifi_unavailable": true,
+          "ssl_default_store": {
+            "x509": 118,
+            "crl": 0,
+            "x509_ca": 118
+          },
+          "ssl_default_certs": {
+            "certificates": 118,
+            "bundle_sha256": "acbad743c331359fb1a5093606bc44088b4127b2b0d827cdd2f61fb5db4d3889",
+            "denied": []
+          }
+        },
+        "public_system_bundle": {
+          "certificates": 118,
+          "bundle_sha256": "5961c0a3c65459931c023e0075c09733f09aea4ca439cb85bc4a08bb4f3f568b",
+          "denied": []
+        }
+      },
+      {
+        "namespace": "media",
+        "pod": "qbittorrent-5c4c4df799-np6jc",
+        "container": "vpn-sync",
+        "imageID": "docker.io/curlimages/curl@sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac",
+        "public_system_bundle": {
+          "certificates": 118,
+          "bundle_sha256": "5961c0a3c65459931c023e0075c09733f09aea4ca439cb85bc4a08bb4f3f568b",
+          "denied": []
+        }
+      },
+      {
+        "namespace": "media",
+        "pod": "rreading-glasses-b79c49798-d7ftj",
+        "container": "app",
+        "imageID": "docker.io/blampe/rreading-glasses@sha256:3f017a51d9007b715303a20f481c822e4df66485fc9e5f57f6fdf1de840dc02f",
+        "public_system_bundle": {
+          "error": "probe unavailable",
+          "exit_code": 1
+        }
+      },
+      {
+        "namespace": "media",
+        "pod": "syncthing-7f4dcc4c7f-78xdd",
+        "container": "app",
+        "imageID": "docker.io/syncthing/syncthing@sha256:289b4ca86d77e4938d3e0af7d11f5c0a0fb786e469d5f697c25ab0f9e1f29f34",
+        "public_system_bundle": {
+          "certificates": 147,
+          "bundle_sha256": "d40f1b9654876b5216800715c205dcf182cf2d5c363e5f16c051e08979b6be10",
+          "denied": [
+            {
+              "spki_sha256": "bd153ed7b0434f6886b17bce8bbe84ed340c7132d702a8f4fa318f756ecbd6f3",
+              "policy_name": "AAA Certificate Services"
+            },
+            {
+              "spki_sha256": "8d417db2dd8bf5e3084d1e3f196d583849d81bdd4c00c70b9d39369e96b8c782",
+              "policy_name": "emSign ECC Root CA - G3"
+            }
+          ]
+        }
+      },
+      {
+        "namespace": "siloarr",
+        "pod": "stash-6f58c7c59-7m7tm",
+        "container": "app",
+        "imageID": "docker.io/stashapp/stash@sha256:df744af5a0c976e2ec671052ecc1f8a9aa757fa12b8f9930b59910b7295f0da6",
+        "public_system_bundle": {
+          "certificates": 148,
+          "bundle_sha256": "766392c21c0baf5fa722cb309dc576b89d9fb3323dd32aa45a939dd575db6d1c",
+          "denied": [
+            {
+              "spki_sha256": "8d417db2dd8bf5e3084d1e3f196d583849d81bdd4c00c70b9d39369e96b8c782",
+              "policy_name": "emSign ECC Root CA - G3"
+            }
+          ]
+        }
+      },
+      {
+        "namespace": "siloarr",
+        "pod": "whisparr-6f7dcf559d-jn2tc",
+        "container": "app",
+        "imageID": "ghcr.io/hotio/whisparr@sha256:7c874bb68fb8ecc66df58ffb91281d13ce3591a5ba4477d2a7209e169a3ebd89",
+        "public_system_bundle": {
+          "certificates": 118,
+          "bundle_sha256": "5961c0a3c65459931c023e0075c09733f09aea4ca439cb85bc4a08bb4f3f568b",
+          "denied": []
+        }
+      },
+      {
+        "namespace": "sure-finance",
+        "pod": "sure-finance-maybe-finance-669766b94f-cv9qp",
+        "container": "maybe",
+        "imageID": "ghcr.io/we-promise/sure@sha256:b5d6d822fdef24c1af06ad455ce003139a2bd50cb6cf76a84a147dfd06b0e3dc",
+        "public_system_bundle": {
+          "certificates": 150,
+          "bundle_sha256": "714d457d580922dbf1d0be8bd35ba236a842b50b0072ae791582a19adef772a5",
+          "denied": [
+            {
+              "spki_sha256": "bd153ed7b0434f6886b17bce8bbe84ed340c7132d702a8f4fa318f756ecbd6f3",
+              "policy_name": "AAA Certificate Services"
+            },
+            {
+              "spki_sha256": "8d417db2dd8bf5e3084d1e3f196d583849d81bdd4c00c70b9d39369e96b8c782",
+              "policy_name": "emSign ECC Root CA - G3"
+            }
+          ]
+        }
+      },
+      {
+        "namespace": "sure-finance",
+        "pod": "sure-finance-maybe-finance-redis-5584844f97-8q64r",
+        "container": "redis",
+        "imageID": "docker.io/library/redis@sha256:0bf6577d7774e592b29d093e3ac9390eb91e13d72c21e506afce736de5e0eeb0",
+        "public_system_bundle": {
+          "certificates": 118,
+          "bundle_sha256": "5961c0a3c65459931c023e0075c09733f09aea4ca439cb85bc4a08bb4f3f568b",
+          "denied": []
+        }
+      },
+      {
+        "namespace": "sure-finance",
+        "pod": "sure-finance-maybe-finance-sidekiq-d9b8f946c-2lvhj",
+        "container": "sidekiq",
+        "imageID": "ghcr.io/we-promise/sure@sha256:b5d6d822fdef24c1af06ad455ce003139a2bd50cb6cf76a84a147dfd06b0e3dc",
+        "public_system_bundle": {
+          "certificates": 150,
+          "bundle_sha256": "714d457d580922dbf1d0be8bd35ba236a842b50b0072ae791582a19adef772a5",
+          "denied": [
+            {
+              "spki_sha256": "bd153ed7b0434f6886b17bce8bbe84ed340c7132d702a8f4fa318f756ecbd6f3",
+              "policy_name": "AAA Certificate Services"
+            },
+            {
+              "spki_sha256": "8d417db2dd8bf5e3084d1e3f196d583849d81bdd4c00c70b9d39369e96b8c782",
+              "policy_name": "emSign ECC Root CA - G3"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "native_build_metadata": [
+    {
+      "immutable_amd64": "ghcr.io/blazepower/kindle-sender@sha256:4ecbbe85df4075286e3c5b2bab081abbd9b784e23856258b586d33e860754177",
+      "binaries": [
+        {
+          "path": "app/kindle-sender",
+          "go_build_version": "go1.21.13"
+        }
+      ],
+      "coverage": "Go build-info version metadata only; not runtime trust certification."
+    },
+    {
+      "immutable_amd64": "docker.io/qmcgaw/gluetun@sha256:1baa76576dea1dfbafbd62bb635daf40fd87171f63273c2fdfe630418783011e",
+      "binaries": [
+        {
+          "path": "gluetun-entrypoint",
+          "go_build_version": "go1.25.11"
+        }
+      ],
+      "coverage": "Go build-info version metadata only; not runtime trust certification."
+    },
+    {
+      "immutable_amd64": "docker.io/syncthing/syncthing@sha256:35401e343a2a20372fac11c576d8f8fe2de02b4f26128e805b4715258d6205a5",
+      "binaries": [
+        {
+          "path": "bin/syncthing",
+          "go_build_version": "go1.23.3"
+        }
+      ],
+      "coverage": "Go build-info version metadata only; not runtime trust certification."
+    },
+    {
+      "immutable_amd64": "docker.io/stashapp/stash@sha256:736e7cd8f61c815c08fd3048792982a61e619735bb1808cd279f0f2fa857c4b0",
+      "binaries": [
+        {
+          "path": "usr/bin/stash",
+          "go_build_version": "go1.24.3"
+        }
+      ],
+      "coverage": "Go build-info version metadata only; not runtime trust certification."
+    },
+    {
+      "immutable_amd64": "docker.io/blampe/rreading-glasses@sha256:cb2f25fa776f8edd55293909d73d398a0785c6bcf83bc4cd4b096a42b93534a7",
+      "binaries": [
+        {
+          "path": "main",
+          "go_build_version": "go1.26.0"
+        }
+      ],
+      "coverage": "Go build-info version metadata only; not runtime trust certification."
+    }
+  ],
+  "compatible_vendor_candidates": [
+    {
+      "immutable_amd64": "lscr.io/linuxserver/calibre-web@sha256:57f21ed8ebdfeb5f28ce91ce119d8849a4f4ce4268f4023c8521b3309c15fd52",
+      "status": "DENIED",
+      "runtime_version_metadata": {},
+      "inspected_pem_paths": 123,
+      "inspected_pem_certificates": 479,
+      "system_bundle_paths": [
+        "etc/ssl/certs/ca-certificates.crt"
+      ],
+      "denied": [
+        {
+          "path": "lsiopy/lib/python3.12/site-packages/certifi/cacert.pem",
+          "name": "emSign ECC Root CA - G3",
+          "spki": "8d417db2dd8bf5e3084d1e3f196d583849d81bdd4c00c70b9d39369e96b8c782"
+        }
+      ],
+      "embedded_java_stores": [],
+      "uninspected_stores": [],
+      "coverage": "PEM files only; embedded runtime/native trust is not certified",
+      "vendor_build_labels": {
+        "build_version": "Linuxserver.io version:- 0.6.27-ls407 Build-date:- 2026-10-25T04:36:59+00:00",
+        "org.opencontainers.image.created": "2026-10-25T04:36:59+00:00",
+        "org.opencontainers.image.version": "0.6.27-ls407"
+      },
+      "candidate_tag": null,
+      "same_running_platform": true,
+      "decision": "REJECTED_DENIED_CA_NO_GITOPS_CHANGE"
+    },
+    {
+      "immutable_amd64": "lscr.io/linuxserver/qbittorrent@sha256:a0fdb188c5c9f70e4e123e542ad005f818a6f73b6449364a634fffcfd45b9834",
+      "status": "DENIED",
+      "runtime_version_metadata": {},
+      "inspected_pem_paths": 122,
+      "inspected_pem_certificates": 242,
+      "system_bundle_paths": [
+        "etc/ssl/cert.pem",
+        "etc/ssl/certs/ca-certificates.crt"
+      ],
+      "denied": [
+        {
+          "path": "etc/ssl/certs/ca-certificates.crt",
+          "name": "emSign ECC Root CA - G3",
+          "spki": "8d417db2dd8bf5e3084d1e3f196d583849d81bdd4c00c70b9d39369e96b8c782"
+        },
+        {
+          "path": "usr/share/ca-certificates/mozilla/emSign_ECC_Root_CA_-_G3.crt",
+          "name": "emSign ECC Root CA - G3",
+          "spki": "8d417db2dd8bf5e3084d1e3f196d583849d81bdd4c00c70b9d39369e96b8c782"
+        }
+      ],
+      "embedded_java_stores": [],
+      "uninspected_stores": [],
+      "coverage": "PEM files only; embedded runtime/native trust is not certified",
+      "vendor_build_labels": {
+        "build_version": "Linuxserver.io version:- 5.2.4_v2.0.15-ls481 Build-date:- 2026-10-18T11:49:47+00:00",
+        "org.opencontainers.image.created": "2026-10-18T11:49:47+00:00",
+        "org.opencontainers.image.version": "5.2.4_v2.0.15-ls481"
+      },
+      "candidate_tag": null,
+      "same_running_platform": true,
+      "decision": "REJECTED_DENIED_CA_NO_GITOPS_CHANGE"
+    },
+    {
+      "immutable_amd64": "ghcr.io/pennydreadful/bookshelf@sha256:6b45cef3b7f2bf2ea6d25c1266710ecc67ba043b4e5e8069438db7af44fe1ca7",
+      "status": "DENIED",
+      "runtime_version_metadata": {},
+      "inspected_pem_paths": 146,
+      "inspected_pem_certificates": 290,
+      "system_bundle_paths": [
+        "etc/ssl/cert.pem",
+        "etc/ssl/certs/ca-certificates.crt"
+      ],
+      "denied": [
+        {
+          "path": "etc/ssl/certs/ca-certificates.crt",
+          "name": "emSign ECC Root CA - G3",
+          "spki": "8d417db2dd8bf5e3084d1e3f196d583849d81bdd4c00c70b9d39369e96b8c782"
+        },
+        {
+          "path": "usr/share/ca-certificates/mozilla/emSign_ECC_Root_CA_-_G3.crt",
+          "name": "emSign ECC Root CA - G3",
+          "spki": "8d417db2dd8bf5e3084d1e3f196d583849d81bdd4c00c70b9d39369e96b8c782"
+        }
+      ],
+      "embedded_java_stores": [],
+      "uninspected_stores": [],
+      "coverage": "PEM files only; embedded runtime/native trust is not certified",
+      "vendor_build_labels": {},
+      "candidate_tag": "ghcr.io/pennydreadful/bookshelf:hardcover-v0.4.20.179",
+      "same_running_platform": false,
+      "decision": "REJECTED_DENIED_CA_NO_GITOPS_CHANGE"
+    }
+  ],
+  "verified_utc": "2026-10-26T04:25:25.501088+00:00",
+  "status": "BLOCKED",
+  "summary": {
+    "unique_running_images": 17,
+    "pem_status_counts": {
+      "PEM_STORES_CLEAR": 7,
+      "DENIED": 10
+    },
+    "fully_certified_applications": 0,
+    "gitops_manifest_changes": 0,
+    "cluster_changes": 0,
+    "reason_no_image_changes": "Current compatible Calibre-Web/qBittorrent vendor tags resolve to the already-running amd64 manifests, not newer rebuilds. They remain denied. Latest inspected Bookshelf same-branch patch also remains denied. Other bounded compatible references offer no verified trust-cleared replacement; no forced major or database migrations attempted."
+  },
+  "runtime_floors": {
+    "go": [
+      "1.26.10",
+      "1.27.3"
+    ],
+    "node": [
+      "22.23.4",
+      "24.22.1",
+      "26.12.1"
+    ],
+    "certifi": "2026.10.19",
+    "java_incident": "CVE-2026-91403",
+    "version_metadata_is_trust_proof": false
+  },
+  "additional_native_probes": {
+    "calibre_requests": {
+      "pod": "calibre-web-89d55885d-wgk6f",
+      "container": "app",
+      "requests_version": "2.34.2",
+      "default_ca_is_packaged_certifi": true,
+      "method": "Read requests.certs.where() and certifi.where() in the existing container; create an HTTPAdapter connection without sending network requests."
+    },
+    "sure_ruby": {
+      "pod": "sure-finance-maybe-finance-669766b94f-cv9qp",
+      "container": "maybe",
+      "ruby": "3.4.7",
+      "openssl": "OpenSSL 3.5.4 30 Sep 2025",
+      "method": "OpenSSL::X509::Store.new.set_default_paths; verify each named public vendor root certificate locally. No network or custom keystores.",
+      "roots": [
+        {
+          "spki_sha256": "bd153ed7b0434f6886b17bce8bbe84ed340c7132d702a8f4fa318f756ecbd6f3",
+          "trusted": true
+        },
+        {
+          "spki_sha256": "8d417db2dd8bf5e3084d1e3f196d583849d81bdd4c00c70b9d39369e96b8c782",
+          "trusted": true
+        }
+      ]
+    },
+    "syncthing": {
+      "application": "1.28.1",
+      "native_version_output_go": "go1.23.3"
+    },
+    "stash": {
+      "application": "v0.31.1",
+      "build": "4de2351e",
+      "official_build_utc": "2026-04-13T01:44:30Z"
+    },
+    "qbittorrent": {
+      "application": "5.2.4",
+      "method": "/app/qbittorrent-nox --version"
+    },
+    "unavailable_tools": [
+      "Kindle-Sender and rreading-glasses are minimal images: cat/Python/Node probes unavailable; immutable exports provide public-CA evidence, not runtime certification.",
+      "qBittorrent lacks an openssl CLI and Whisparr lacks a dotnet CLI. No untrusted helper/image executed to fill native trust gaps."
+    ]
+  },
+  "paperless_and_java": {
+    "paperless_desired_replicas": 0,
+    "paperless_running_application_pods": 0,
+    "desired_image": "ghcr.io/paperless-ngx/paperless-ngx:3.3.4@sha256:9bc6e8248891bcfa6f52fffe8b81e4ea8cae75790c3ec1b9906961a7ba55c969",
+    "resolved_amd64": "ghcr.io/paperless-ngx/paperless-ngx@sha256:b3f480cc5a8beb3ad45cb484b7c606f93240ae58fbfaf4f609be1cfa248267e8",
+    "historical_exact_platform_pem_status": "PEM_STORES_CLEAR",
+    "historical_python_metadata": "3.14.9",
+    "runtime_status": "NOT_PROBED_SCALED_TO_ZERO_NO_CLEARANCE",
+    "tika_or_other_java_application_present_in_scoped_running_inventory": false,
+    "default_java_cacerts_paths_discovered_in_scoped_exports": [],
+    "java_coverage": "No discovered Java vendor cacerts to inspect; this is not a claim that compiled/custom trust or Java CVE exposure is absent. Public vendor cacerts may be inspected if Java appears later; never read user/custom secret keystores."
+  },
+  "bounded_vendor_checks": [
+    {
+      "repository": "ghcr.io/seerr-team/seerr",
+      "compatible_latest_tag_observed": "v3.5.1",
+      "amd64": "sha256:2636191726a315dbd75228537f7be74b2fa7498998bb22e37b5b5c8756018fba",
+      "decision": "Already running; raw system CA remains denied, default Node roots are separately clear."
+    },
+    {
+      "repository": "ghcr.io/usekaneo/kaneo",
+      "compatible_latest_tag_observed": "2.47.1",
+      "amd64": "sha256:ad862871d3f015fa9b4387fb4ddac8ad0aee2faeef723b70c721c4e307d75e07",
+      "decision": "Preserve coordinated migration and pin; already running, no changes."
+    },
+    {
+      "repository": "docker.io/qmcgaw/gluetun",
+      "compatible_latest_tag_observed": "v3.41.3",
+      "amd64": "sha256:1baa76576dea1dfbafbd62bb635daf40fd87171f63273c2fdfe630418783011e",
+      "decision": "Same running platform as v3; denied public CA and old Go."
+    },
+    {
+      "repository": "docker.io/stashapp/stash",
+      "compatible_latest_tag_observed": "v0.31.1",
+      "amd64": "sha256:736e7cd8f61c815c08fd3048792982a61e619735bb1808cd279f0f2fa857c4b0",
+      "decision": "Already running; denied public CA and old Go."
+    },
+    {
+      "repository": "docker.io/syncthing/syncthing",
+      "compatible_latest_tag_observed": "1.28.1",
+      "amd64": "sha256:35401e343a2a20372fac11c576d8f8fe2de02b4f26128e805b4715258d6205a5",
+      "decision": "Same retained 1.28 patch branch; denied public CAs and old Go. Other minor/major branches not certified compatible."
+    },
+    {
+      "repository": "ghcr.io/blazepower/kindle-sender",
+      "compatible_latest_tag_observed": "v1.3.0",
+      "amd64": "sha256:4ecbbe85df4075286e3c5b2bab081abbd9b784e23856258b586d33e860754177",
+      "decision": "Only v1.3 patch tag observed; denied public CA, old Go; requires owned-image rebuild/publication by coordinator."
+    },
+    {
+      "repository": "docker.io/blampe/rreading-glasses",
+      "compatible_latest_tag_observed": "hardcover",
+      "amd64": "sha256:cb2f25fa776f8edd55293909d73d398a0785c6bcf83bc4cd4b096a42b93534a7",
+      "decision": "Same running platform, denied system public CA; native runtime not certified."
+    },
+    {
+      "repository": "ghcr.io/we-promise/sure",
+      "compatible_latest_tag_observed": "0.7.2-alpha.2 retained",
+      "decision": "Running alpha.2 and historical alpha.4 exports both denied; alpha migration not attempted. Ruby native default explicitly trusts both denied roots."
+    }
+  ],
+  "blockers": [
+    "Ten current unique application images retain one or more of the canonical 11 blocked SPKIs. See per-image denied paths and exact amd64 manifest digests.",
+    "Calibre-Web refreshed ls407 still packages certifi 2026.5.20 with denied emSign ECC; requests 2.34.2 selects that certifi bundle by default despite clean OS/Python default trust.",
+    "Seerr Node 22.23.4 bundled/default 116 roots are clear, but public system 242 entries retain denied emSign ECC. No trust flags/options/extra CA configured in probe or visible existing Node arguments; programmatic per-client/custom CA not inspected.",
+    "Sure Ruby 3.4.7/OpenSSL native default store positively verifies denied AAA and emSign ECC roots; AWS and Skylight public vendor bundles also contain denied SPKIs.",
+    "Kindle-Sender go1.21.13, Gluetun go1.25.11, Syncthing go1.23.3, Stash go1.24.3, and rreading-glasses go1.26.0 are below supplied incident Go floors. Build metadata is not runtime proof; their public CA bundles are independently denied.",
+    "Bookshelf and rreading-glasses retain denied system CA. Whisparr and database/helper PEMs are clear only; full native/application/custom trust is not certified.",
+    "Paperless is intentionally at desired zero; no running Paperless/Tika Java target, no live Paperless Python/certifi or Java trust clearance.",
+    "No verified compatible trust-cleared replacement found in bounded existing-version/patch checks. Requires vendor-patched images or separately approved owned builds, followed by runtime proof; no forced application/database major migrations.",
+    "Coordinator's 04:20Z storage baseline failed: both existing worker Longhorn manager pods not Ready. No deployment clearance; parent owns storage investigation and serialized rollout."
+  ],
+  "safety": {
+    "cluster_operations": "READ_ONLY",
+    "controller_cordoned": true,
+    "kured": "left suspended",
+    "storage_investigation": "coordinator-owned, not duplicated",
+    "rollout_clearance": false,
+    "deployments_or_publications": [],
+    "preserved": [
+      "Kaneo coordinated 2.47.1 migration",
+      "Calibre-Web refresh",
+      "Servarr HTTPS fixes",
+      "strict Longhorn drain",
+      "worker-only managers",
+      "legacy quarantine"
+    ],
+    "excluded": [
+      "Bazarr",
+      "Prowlarr",
+      "Radarr",
+      "Sonarr",
+      "SABnzbd",
+      "Plex active runtime guard",
+      "infrastructure/RKE2",
+      "unchanged verified Cooklang/Hardcover-sync/CookSync/Homebox/Homepage"
+    ],
+    "actual_nodes": [
+      "rishik-controller 192.168.1.10",
+      "rishik-worker1 192.168.1.11",
+      "rishik-worker2 192.168.1.12"
+    ],
+    "platform": "Ubuntu 26.04.1 LTS / 7.0.0-38-generic / v1.34.12+rke2r1"
+  },
+  "methodology": [
+    "kubectl get pods -A -o json filtered locally to namespace/pod/container/image/imageID/readiness only; only current Running container statuses selected.",
+    "crane --platform=linux/amd64 digest <actual-running-imageID>; normalize docker.io/index.docker.io before exact historical immutable_amd64 comparison. Index digest and child manifest are not interchangeable.",
+    "Invoke audit-image-trust.py audit(immutable_amd64) directly for missing exact matches; never invoke its mutable-tag-skipping main. Export images read-only; never execute vendor images. Scratch streams created only in isolated worktree and removed.",
+    "Node probes inspect public tls.rootCertificates and tls.getCACertificates(default/system), hash X509 public-key SPKIs, and retain only counts/denied policy IDs. Record booleans and allowlisted trust selectors, never full NODE_OPTIONS/env/arguments.",
+    "Python probes inspect packaged certifi and ssl.create_default_context().get_ca_certs(binary_form=True) only when custom overrides absent. Named system CA bundle probes hash public certificate SPKIs locally without retaining PEM bodies.",
+    "Go binary inline build-info decoded from exact immutable vendor export without running or persisting executables; metadata never treated as trust clearance.",
+    "No custom/user/secret keystores, credentials, full environment, personal logs, or TLS verification bypasses accessed."
+  ],
+  "validation_commands": [
+    "python .github/scripts/test-fleet-application-ca.py",
+    "python .github/scripts/test-emudhra-trust.py",
+    "git diff --check"
+  ],
+  "inventory_recheck": {
+    "verified_utc": "2026-10-26T04:25:59.529075+00:00",
+    "all_scoped_refs_unchanged": true,
+    "container_references": 21,
+    "running_init_containers": []
+  }
+}
