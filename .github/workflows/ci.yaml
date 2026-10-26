@@ -79,6 +79,9 @@ jobs:
       - name: Test Calibre library bootstrap
         run: python3 .github/scripts/test-calibre-library-bootstrap.py
 
+      - name: Test coordinated Kaneo upgrade wiring
+        run: python3 .github/scripts/test-kaneo-upgrade.py
+
       - name: Test Servarr HTTPS proxy configuration
         run: python3 .github/scripts/test-servarr-https.py
 
