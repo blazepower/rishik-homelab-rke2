@@ -6,6 +6,7 @@ resources:
   - helmrepository-kured.yaml
   - helmrepository-node-problem-detector.yaml
   - helmrelease-kube-prometheus-stack.yaml
+  - pvc-grafana-data.yaml
   - helmrelease-kured.yaml
   - helmrelease-node-problem-detector.yaml
   - sealedsecret-grafana-admin-creds.yaml
