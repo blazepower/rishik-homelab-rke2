@@ -21,7 +21,7 @@ All monitoring components have resource limits configured to prevent resource ex
 | Component | CPU Request | CPU Limit | Memory Request | Memory Limit |
 |-----------|-------------|-----------|----------------|--------------|
 | Prometheus | 100m | 500m | 256Mi | 1Gi |
-| Grafana | 50m | 200m | 128Mi | 256Mi |
+| Grafana | 100m | 500m | 512Mi | 1Gi |
 | Alertmanager | 25m | 100m | 64Mi | 128Mi |
 | Prometheus Operator | 50m | 200m | 64Mi | 256Mi |
 | kube-state-metrics | 25m | 100m | 32Mi | 128Mi |
@@ -117,7 +117,248 @@ Grafana admin credentials are stored in a Kubernetes secret:
 
 ### Customization
 
-To pin a specific chart version, uncomment and set the `version` field in `helmrelease-kube-prometheus-stack.yaml`.
+Set the chart's exact `version` in `helmrelease-kube-prometheus-stack.yaml`.
+
+### Chart upgrades and rollback
+
+The 88.6.5 → 92.13.1 upgrade includes Operator 0.94.1, Prometheus 3.15.0,
+Alertmanager 0.34.1, and Grafana chart 14.0.1 / Grafana 13.2.4-distroless.
+The parent chart and Grafana require Kubernetes >= 1.25; validation used
+the cluster's Kubernetes 1.34.12. Review these upstream changes:
+
+- [Chart migration guide at the target tag](https://github.com/prometheus-community/helm-charts/blob/kube-prometheus-stack-92.13.1/charts/kube-prometheus-stack/UPGRADE.md):
+  chart 90 moves control-plane ServiceMonitor credentials to a chart-created,
+  long-lived service-account token Secret and the `kube-root-ca.crt` ConfigMap;
+  chart 92 adds Linux node selectors and rolls monitoring workloads once.
+- [Grafana chart migration guide](https://github.com/grafana-community/helm-charts/tree/grafana-14.0.1/charts/grafana#upgrading):
+  chart 13 enables a read-only root filesystem, a writable temporary volume,
+  and the distroless image; chart 14 validates values types.
+  The existing credential Secret, dashboard sidecars, and provisioned
+  Prometheus/Loki data sources remain in use. No unsupported `GF_*__FILE` or
+  legacy plugin-install environment overrides are configured.
+- [Prometheus 3.15 changelog](https://github.com/prometheus/prometheus/blob/v3.15.0/CHANGELOG.md):
+  this upgrade does not enable new TSDB encoding or experimental storage flags.
+
+Flux owns CRD upgrades through `spec.upgrade.crds: CreateReplace`; the chart's
+separate CRD upgrade Job remains disabled. Flux updates CRD definitions before
+the Helm upgrade without deleting removed CRDs. Plain Helm's default would
+leave schemas stale (the pre-upgrade cluster still had Operator 0.86.2 CRDs).
+All ten CRDs retain their existing storage API versions (`v1` or `v1alpha1`).
+Never delete CRDs to resolve an upgrade failure: that deletes their instances.
+
+Upgrade and rollback explicitly disable Helm server-side apply for this
+migration. An SSA dry run merged the existing `storage.emptyDir` with the new
+PVC volume and was correctly rejected as an invalid volume union. Helm's
+client-side three-way strategic patch removes the old `emptyDir`; the exact
+resulting Deployment and that removal patch are validated with server dry runs.
+This does not use force-replacement or delete/recreate any resource. Flux
+helm-controller1.6.5 supports the explicit `serverSideApply: disabled` policy.
+
+Before merging, render both exact chart versions with the release's values,
+namespace `monitoring`, release name `kube-prometheus-stack`,
+`--kube-version 1.34.12`, and `--include-crds`. Run:
+
+```powershell
+python .github\scripts\test-monitoring-stack-upgrade.py --baseline baseline-render.yaml --target target-render.yaml
+```
+
+This requires PyYAML (also installed by yamllint). Additionally validate the
+target CRDs with a server-side dry run, all existing monitoring custom
+resources against the target CRD schemas, and all generated/custom rules with
+the target Prometheus `promtool check rules`. Do not export Secret payloads.
+
+Deployment remains an operator-controlled Flux change. Expect a temporary
+monitoring gap while single-replica workloads roll. Verify the HelmRelease
+Ready condition, all ten CRD version annotations, Prometheus/Alertmanager and
+Grafana readiness, Grafana login and dashboard/data-source provisioning, and
+the apiserver/kubelet scrape targets. In particular, verify the new token
+Secret is populated using **key names only**, never by displaying its values.
+
+Prometheus retains the same 10Gi Longhorn RWO claim, seven-day retention,
+resource/query limits, and release/resource names. Do not delete or recreate
+its PVC. Grafana switches from ephemeral storage to the **pre-seeded**
+`grafana-data` claim described below. Alertmanager remains ephemeral; its
+native silence export must be retained and imported if nonempty.
+
+For rollback, revert the chart version through Git/Flux while preserving the
+CRDs, monitoring custom resources, Prometheus PVC, and **Grafana's
+`persistence.existingClaim: grafana-data` binding**. Revert the version, not
+the entire preservation change. Do not assume Helm's
+automatic rollback rolls back CRD schemas. A Git version revert with
+`CreateReplace` can reapply the older chart's CRDs; keep the newer, compatible
+CRDs by temporarily setting `upgrade.crds: Skip` for the downgrade, then review
+the intended CRD lifecycle policy before a subsequent forward upgrade. Check
+Prometheus logs and TSDB compatibility before downgrading its image; do not
+enable new storage encodings during this upgrade.
+
+### Preserving Grafana and Alertmanager state before the upgrade
+
+Phase A ([PR333](https://github.com/blazepower/rishik-homelab-rke2/pull/333))
+only provisions `monitoring/grafana-data`: 2Gi RWO on the existing
+`longhorn-retain` class (two replicas, weekly snapshots, daily off-cluster
+backups). The claim is Flux-prune-protected. Merge/reconcile that phase and
+wait for Bound **without upgrading Grafana**.
+
+The helper assets in `infrastructure/monitoring/preservation/` are deliberately
+**not** in the monitoring Flux Kustomization. Never auto-reconcile them.
+The coordinator runs `.github/scripts/preserve-grafana-state.py`; its default
+`plan` is read-only against the cluster and records only route identities/specs
+and aggregate Grafana/plugin metadata locally. No DB, silence payload or
+credential leaves the cluster. Use a relative, private state directory:
+
+```powershell
+python .github\scripts\preserve-grafana-state.py plan --state-directory .grafana-preservation-state
+python .github\scripts\preserve-grafana-state.py hold --state-directory .grafana-preservation-state --approve-live-writes --hold-tailscale-ingress
+python .github\scripts\preserve-grafana-state.py seed --state-directory .grafana-preservation-state --approve-live-writes
+```
+
+The source must still be pod UID
+`62fb40e7-ab02-46d5-b6fc-0a7b4d05633d` on `rishik-worker2`; a different UID
+requires a fresh reviewed source path, not a force flag. The runner checks this
+before creating the hostPath Job and after seeding. It also preserves the
+Prometheus claim UID `d5436bdf-a643-4028-8a7f-513a52ed66a8` and Grafana's
+`grafana-admin-credentials` / `admin-user` / `admin-password` references.
+
+For the final seed-to-rollout window, the runner first requires zero active
+sessions. A temporary, highest-priority Traefik IngressRoute shadows only
+`grafana.homelab` on `websecure` using the existing `grafana-tls` reference and
+a no-endpoint Service. The original main ingress is untouched. This requires
+Traefik's existing `allowEmptyServices=true` and a verified HTTPS **503**.
+No conflicting Grafana IngressRoute was present during preparation.
+**The Tailscale ingress bypasses Traefik**, so the overlay alone cannot prevent
+new edits. The explicit `--hold-tailscale-ingress` exception temporarily points
+that captured ingress at the empty Service with UID/resourceVersion/spec
+preconditions and a resource-level Flux reconcile-disable annotation. Its
+original spec/annotation is restored after internal verification; neither the
+root Kustomization nor HelmRelease is suspended. Both public health paths must
+be blocked before seeding and remain blocked through rollout. Operators must
+also refrain from direct service/port-forward API writes during this window.
+
+The preparation workstation cannot resolve the Tailscale MagicDNS hostname.
+When its external HTTPS probe is unavailable, the runner instead verifies
+the captured ingress UID's ready Tailscale proxy with the **read-only native
+`tailscale serve status --json` API**, requiring its runtime forwarder to
+point at the expected Service IP. During hold it additionally requires zero
+EndpointSlice/legacy endpoints and no Service selector. It never reads the
+proxy's Secret-mounted serve-config file. This prevents treating an
+unreachable client probe as proof of maintenance. Verify external Tailscale
+HTTPS separately from a tailnet-enabled client after release; the ordinary
+LAN hostname still requires a real200→503→200 probe.
+All HTTPS probes use `ssl.create_default_context()` with hostname/certificate
+verification and the workstation's trusted CA store. TLS failures are explicit
+errors, never an unavailable-probe fallback; no unverified TLS context is used.
+
+The seed Job is rootless UID/GID/fsGroup472, no service-account token, no
+capabilities, read-only root filesystem and read-only source hostPath of type
+Directory. It uses the cached sidecar image pinned by digest, bounded resources
+and a ten-minute deadline. Egress is limited to cluster DNS and Alertmanager9093.
+The runner injects the destination PVC UID; applying the bare Job is rejected.
+
+Python SQLite's **online backup API** copies from `mode=ro` with a held read
+transaction. Destination `integrity_check` must be `ok` and counts must match
+that exact snapshot, even if a writer commits concurrently. The helper refuses
+any nonempty destination, copies all other files/plugins without substituting
+live SQLite WAL/shm/journal files, and keeps a separate private0700/0600
+pre-upgrade database plus native silence JSON under `.grafana-preservation`
+on the destination PVC. Logs contain only receipt metadata/counts. Failure
+keeps the original source and partial destination intact: do not bypass the
+overwrite guard, delete either claim, or remove the maintenance hold.
+If aborting before upgrade, `abort-hold --approve-live-writes` restores routes
+only while the exact original Grafana is healthy and no seed Job is active;
+it retains all partial destination/recovery data. Never bypass a failed seed
+with an empty replacement claim.
+
+**Only after a successful seed receipt** may the coordinator merge the chart
+upgrade/persistence binding. After rollout, while the hold remains:
+
+```powershell
+# Needed only when the seed receipt's silenceCount is nonzero:
+python .github\scripts\preserve-grafana-state.py restore-silences --state-directory .grafana-preservation-state --approve-live-writes
+python .github\scripts\preserve-grafana-state.py verify --state-directory .grafana-preservation-state
+python .github\scripts\preserve-grafana-state.py release --state-directory .grafana-preservation-state --approve-live-writes
+python .github\scripts\preserve-grafana-state.py cleanup --state-directory .grafana-preservation-state --approve-live-writes
+```
+
+Native silence import uses the running Alertmanager image's exact digest and
+`amtool silence import`, with the JSON mounted read-only from the PVC and no
+payload logging. Verification requires the same PVC UID/binding, saved-object
+counts, database health, preference metadata and every previously enabled
+plugin ID. Plugin versions are inventoried before/after (bundled versions may
+legitimately advance); also check plugin load errors and dashboard rendering.
+Perform the Prometheus/Alertmanager checks above before release.
+
+For credential-free API checks without opening a port-forward, record a
+pre-upgrade historical query timestamp **before merging**:
+
+```powershell
+[DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - 600
+```
+
+After rollout and at least two scrape/evaluation intervals (120 seconds),
+run the following while maintenance remains held. Substitute that recorded
+timestamp and the native seed receipt's silence count. The existing Grafana
+sidecar performs only internal HTTP GETs; output contains metadata/counts,
+not credentials, alert bodies, silence contents or Alertmanager configuration.
+No admin/snapshot/delete API is enabled or called.
+
+```powershell
+$HistoryAt = 0 # Replace with the pre-upgrade timestamp printed above.
+$ExpectedSilences = 0 # Replace with the seed receipt's silenceCount.
+$pod = kubectl get pods -n monitoring -l app.kubernetes.io/name=grafana,app.kubernetes.io/instance=kube-prometheus-stack -o jsonpath='{.items[0].metadata.name}'
+$code = @'
+import collections, json, sys, time, requests
+history, expected_silences = int(sys.argv[1]), int(sys.argv[2])
+assert 0 < history < time.time() - 120, "Supply the recorded pre-upgrade timestamp"
+prom = "http://kube-prometheus-stack-prometheus.monitoring.svc:9090"
+am = "http://kube-prometheus-stack-alertmanager.monitoring.svc:9093"
+def get(base, path, params=None):
+    response = requests.get(base + path, params=params, timeout=30)
+    response.raise_for_status()
+    return response.json()
+for base in (prom, am):
+    requests.get(base + "/-/ready", timeout=30).raise_for_status()
+assert get(prom, "/api/v1/status/buildinfo")["data"]["version"] == "3.15.0"
+assert get(am, "/api/v2/status")["versionInfo"]["version"] == "0.34.1"
+runtime = get(prom, "/api/v1/status/runtimeinfo")["data"]
+assert runtime["reloadConfigSuccess"] and int(runtime["corruptionCount"]) == 0
+targets = get(prom, "/api/v1/targets")["data"]["activeTargets"]
+critical = {}
+for job in ("apiserver", "kubelet"):
+    selected = [target for target in targets if target["labels"].get("job") == job]
+    assert selected and all(target["health"] == "up" for target in selected), job
+    historical = get(prom, "/api/v1/query", {"query": 'up{job="' + job + '"}', "time": history})
+    assert historical["status"] == "success" and historical["data"]["result"], "Missing pre-upgrade " + job
+    critical[job] = {"up": len(selected), "historicalSeries": len(historical["data"]["result"])}
+rules = [rule for group in get(prom, "/api/v1/rules")["data"]["groups"] for rule in group["rules"]]
+assert rules and all(rule["health"] == "ok" and not rule.get("lastError") for rule in rules)
+silences = get(am, "/api/v2/silences")
+assert len(silences) >= expected_silences, "Restore saved silences before releasing maintenance"
+alerts = get(am, "/api/v2/alerts")
+print(json.dumps({"criticalTargets": critical, "allTargets": dict(collections.Counter(t["health"] for t in targets)),
+                  "healthyRules": len(rules), "silences": len(silences), "incomingAlerts": len(alerts),
+                  "historicalTimestamp": history}, sort_keys=True))
+'@
+kubectl exec -n monitoring $pod -c grafana-sc-dashboard -- python -c $code "$HistoryAt" "$ExpectedSilences"
+```
+
+The pre-upgrade baseline had one healthy apiserver target, nine healthy kubelet
+targets, 251 healthy rules, zero silences, and 26 up/14 down targets overall.
+Do not mistake those existing noncritical target failures for a new regression,
+or require zero incoming alerts. Compare the aggregate baseline and investigate
+new failures; rerun after another interval. The unchanged Prometheus PVC UID is
+also enforced by the preservation runner. If saved silences are nonzero,
+restore them first and compare their IDs/states inside the cluster against the
+on-PVC native export, accounting explicitly for natural expiry.
+
+Cleanup is a strict temporary-resource allowlist using Kubernetes
+`DeleteOptions.preconditions.uid`; it cannot delete PVCs, application pods,
+databases or recovery files. Keep the local state receipt and on-PVC recovery
+copy until post-upgrade backups are verified. The phase-A PVC and production
+data are never part of cleanup.
+IngressRoute reads are explicitly qualified as `ingressroutes.traefik.io`
+during apply/ownership recording, hold verification and cleanup. This avoids
+ambiguous discovery when legacy `traefik.containo.us` CRDs are also installed;
+cleanup still targets the recorded API version and exact UID.
 
 ### Custom Dashboards
 

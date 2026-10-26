@@ -1,0 +1,57 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: grafana-silences-restore
+  namespace: monitoring
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 120
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: grafana-state-seed
+    spec:
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 472
+        runAsGroup: 472
+        fsGroup: 472
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: restore
+          # The runner replaces this with the live Alertmanager's exact imageID.
+          image: quay.io/prometheus/alertmanager:v0.34.1
+          command:
+            - /bin/sh
+            - -ec
+            - >-
+              /bin/amtool
+              --alertmanager.url=http://kube-prometheus-stack-alertmanager.monitoring.svc.cluster.local:9093
+              silence import /destination/.grafana-preservation/alertmanager-silences.json
+              >/dev/null 2>&1;
+              printf '{"silenceImportSucceeded":true}\n'
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          volumeMounts:
+            - name: destination
+              mountPath: /destination
+              readOnly: true
+      volumes:
+        - name: destination
+          persistentVolumeClaim:
+            claimName: grafana-data
