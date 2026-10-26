@@ -1,0 +1,233 @@
+{
+  "captured_utc": "2026-10-26T05:06:41.067074+00:00",
+  "status": "PREPARED_BLOCKED_PENDING_ISOLATED_LINUX_DOCKER_VALIDATION",
+  "baseline_report": ".github/security/fleet-application-ca-report.json",
+  "baseline_commit": "00df8efeb84e41ed6c536acb976d41a4ba1ac966",
+  "baseline_unchanged": true,
+  "deployed": false,
+  "cluster_operations": "read-only public application tooling/store probes only; no storage investigation or changes",
+  "scope": "Calibre-Web packaged certifi overlay preparation only. No source rebuild, vendor upgrade, environment-only trust redirection, custom trust/secret keystore changes, package downloads/installs at runtime, publication, or deployment.",
+  "image": {
+    "requested": "lscr.io/linuxserver/calibre-web:0.6.27@sha256:470b4ed9a7d6ea1475fef17dbcf957cb60880910296d226bd0dca652c05f68ca",
+    "platform_amd64": "lscr.io/linuxserver/calibre-web@sha256:57f21ed8ebdfeb5f28ce91ce119d8849a4f4ce4268f4023c8521b3309c15fd52",
+    "entrypoint": [
+      "/init"
+    ],
+    "cmd": null,
+    "existing_cryptography": "43.0.3",
+    "existing_native_openssl": "OpenSSL 3.0.13 30 Jan 2024"
+  },
+  "policy": {
+    "canonical": ".github/security/emudhra-2026.json",
+    "spki_keys": [
+      "43bffa19d6ef651451f6841e019931e96f6f2eaeff28ab4b6f1ce4576de2717b",
+      "49dd353dc2b919a3770645117d0e60c16115e7d1bc259eefe734b00ea434fe5f",
+      "5c0660a2b164910d8ff589c18e14552e9e0ec237dcefe2cb736d41a4811f81a0",
+      "63ecefee431d49523bc1136c4e72d0206a477086caf606cd5cf025686c109cf8",
+      "8d417db2dd8bf5e3084d1e3f196d583849d81bdd4c00c70b9d39369e96b8c782",
+      "92c063d67e8f14db71d288e11266ffdaf69cbf115f7bab14f3bc2f68d25e0e30",
+      "bd153ed7b0434f6886b17bce8bbe84ed340c7132d702a8f4fa318f756ecbd6f3",
+      "c619e4780ed8e0abeda24ad732567de4383a7ea941338f6d1a7d1b49ac792fe9",
+      "e0254c7fcdc265e2f0f8a428dabb75ab4ae039b4872d62f5ee57f0877d5a8a41",
+      "ebed6475c2c2d80fcb199f3fe8dd6e6b3ce60b77eb15d4e42c3dec0c6f5b5105",
+      "ec4ffa1ad0ac88081314b7aaffef6a91f97cd57291bb5ba686c5415f5eb4f6b6"
+    ],
+    "comparison": "Canonical SPKI sets and splitlines(), not raw policy-file bytes; CRLF and LF accepted."
+  },
+  "calibre_overlay": {
+    "source": "/lsiopy/lib/python3.12/site-packages/certifi",
+    "package_sha256": {
+      "__init__.py": "fbc96373bc3b7f28b92b28b4e9cd7f2f4946fe40ff27416f6d44daf261297734",
+      "__main__.py": "c410688fdd394d45812d118034e71fee88ba7beddd30fe1c1281bd3b232cd758",
+      "cacert.pem": "7cef540c6af3bf0a3c7d0070bd3fd7aae34f8aa805b408d1c27a01c8aeb305df",
+      "core.py": "5c55f2727746e697f7edac9e17c377d8752e0da7ecca191531b3b80403d61dad",
+      "py.typed": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "package_hash_provenance": "Read-only named public package files from existing container calibre-web-89d55885d-wgk6f, immutable imageID 470b4e.., matching baseline cacert hash. Isolated pinned-image Docker test must independently verify all hashes before acceptance.",
+    "counts": {
+      "before": 119,
+      "after": 118,
+      "removed": 1
+    },
+    "clean_bundle_sha256": "c5bb0faeebded82e409e8fa547df0168cd84e4a168b051f54616c4cb2abf1525",
+    "unaffected_root_preservation": "Every non-denied certificate DER identity and multiplicity preserved; all original Python package files preserved byte-for-byte.",
+    "operation": "Non-root, read-only-rootfs init container uses already installed Python/cryptography to copy all five public certifi package files, including py.typed, into dedicated emptyDir; removes only canonical denied SPKIs; validates exact original package hashes and native SSL loading.",
+    "fail_closed": "Missing/invalid/partial/duplicate policy, malformed certificates, unknown image package files or hashes, symlink inputs, output failure, or insufficient preserved roots exits nonzero (78). Kubernetes init barrier prevents main /init startup.",
+    "rollout_caveat": "An image refresh must update and revalidate package fingerprints or startup intentionally fails. Existing library bootstrap still runs first and retains its prior behavior; no deployment or data migration is authorized by this preparation.",
+    "later_initialization": "Whole certifi package directory, not just cacert.pem, mounted read-only in main container; intended to block pip rename/replacement as well as direct writes. Exact-image Docker test must verify this with actual Linux bind-mount semantics and full /init.",
+    "user_data": "Hardening init mounts only ConfigMap plus emptyDir, no config/library/legacy-library PVC. Existing library bootstrap remains first; code, image, resources, security context, source/target arguments and its failure barrier are unchanged.",
+    "native_system_store": "Baseline existing OS bundle and native Python default store both clear; left unchanged. This proposal does not substitute an OS bundle for certifi, so certifi-only unaffected roots are not lost.",
+    "custom_context_limits": "Private/custom CA files, explicit application/user SSL contexts, alternate Python paths/venvs, future custom mods, and runtime custom trust overrides are not read or rewritten and are not certified. Explicitly trusting the denied public fixture in a custom context still succeeds by design."
+  },
+  "vendor_startup": {
+    "source": "Read-only immutable amd64 registry export of 57f21e.. during this follow-up, before registry rate limiting; only public vendor initialization scripts and dependency markers inspected.",
+    "sha256": {
+      "etc/s6-overlay/s6-rc.d/init-calibre-web-config/dependencies.d/init-config": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "etc/s6-overlay/s6-rc.d/init-calibre-web-config/run": "4be76caf4eb3773349f787e16bee3b50ec1d08fc14c522fcac6920342034e597",
+      "etc/s6-overlay/s6-rc.d/init-calibre-web-config/type": "aab38fd7998987a22d44fda7822afcfa69d039d3ba02b1f707f064df64352217",
+      "etc/s6-overlay/s6-rc.d/init-calibre-web-config/up": "91341049b900e6813f60e19c1c808160dae0bf8b3ba3fb943f8f926fc6d4b10d",
+      "etc/s6-overlay/s6-rc.d/init-config-end/dependencies.d/init-calibre-web-config": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "etc/s6-overlay/s6-rc.d/svc-calibre-web/dependencies.d/init-services": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "etc/s6-overlay/s6-rc.d/svc-calibre-web/notification-fd": "1121cfccd5913f0a63fec40a6ffd44ea64f9dc135c66634ba001d10bcf4302a2",
+      "etc/s6-overlay/s6-rc.d/svc-calibre-web/run": "6f23d2b5cd101bac87253af84da87ede07dd3ca395bd79b724a10f582ec4d0cf",
+      "etc/s6-overlay/s6-rc.d/svc-calibre-web/type": "d0001a150b83f68f09004c5059045cb76a3f064eed4d42ce072bc3722c118006",
+      "etc/s6-overlay/s6-rc.d/user/contents.d/init-calibre-web-config": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "etc/s6-overlay/s6-rc.d/user/contents.d/svc-calibre-web": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "etc/s6-overlay/s6-rc.d/ci-service-check/dependencies.d/legacy-services": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "etc/s6-overlay/s6-rc.d/ci-service-check/type": "aab38fd7998987a22d44fda7822afcfa69d039d3ba02b1f707f064df64352217",
+      "etc/s6-overlay/s6-rc.d/ci-service-check/up": "4d0532d79e91499a54f0b574165ca91bc80ade362c23ad842ee5928e5872ca29",
+      "etc/s6-overlay/s6-rc.d/init-adduser/branding": "732a214ea31213919c5cb5fdd058d2e089fbf8c88b15a76753ad898135980dc8",
+      "etc/s6-overlay/s6-rc.d/init-adduser/dependencies.d/init-migrations": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "etc/s6-overlay/s6-rc.d/init-adduser/run": "9ca913bfae40b00f1cc367ed8691080be78c6c603de20c939273bf164c0fe989",
+      "etc/s6-overlay/s6-rc.d/init-adduser/type": "aab38fd7998987a22d44fda7822afcfa69d039d3ba02b1f707f064df64352217",
+      "etc/s6-overlay/s6-rc.d/init-adduser/up": "8c6ddc1c19464ff4a7e8af575d67a3d53b40947fc18a9b2b58c373b85e8f25eb",
+      "etc/s6-overlay/s6-rc.d/init-config/dependencies.d/init-os-end": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "etc/s6-overlay/s6-rc.d/init-config/type": "aab38fd7998987a22d44fda7822afcfa69d039d3ba02b1f707f064df64352217",
+      "etc/s6-overlay/s6-rc.d/init-config/up": "c006e4c2a1f29b1839abc2a64026914ce4cc9a8edce6c3484c74c486df14cc9d",
+      "etc/s6-overlay/s6-rc.d/init-config-end/dependencies.d/init-config": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "etc/s6-overlay/s6-rc.d/init-config-end/dependencies.d/init-crontab-config": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "etc/s6-overlay/s6-rc.d/init-config-end/type": "aab38fd7998987a22d44fda7822afcfa69d039d3ba02b1f707f064df64352217",
+      "etc/s6-overlay/s6-rc.d/init-config-end/up": "5fb714e1e8c77a0ac09036cbc0344fce161df2531100f705167117dc46c85a7b",
+      "etc/s6-overlay/s6-rc.d/init-crontab-config/dependencies.d/init-config": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "etc/s6-overlay/s6-rc.d/init-crontab-config/run": "a7be1af8f53d982cd1a48a4bacdef83405110c9d67ff2e7e596de89a7646adbd",
+      "etc/s6-overlay/s6-rc.d/init-crontab-config/type": "aab38fd7998987a22d44fda7822afcfa69d039d3ba02b1f707f064df64352217",
+      "etc/s6-overlay/s6-rc.d/init-crontab-config/up": "f65a1fc67658396d5a1831dd2b2318aaeb076ab5036ddef4d5c07aec5aa7881f",
+      "etc/s6-overlay/s6-rc.d/init-custom-files/dependencies.d/init-mods-end": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "etc/s6-overlay/s6-rc.d/init-custom-files/run": "4e3ac65db3c4f97205977e1bb47284b6bf46b8e29d1fab3ad9a9f593e619b23a",
+      "etc/s6-overlay/s6-rc.d/init-custom-files/type": "aab38fd7998987a22d44fda7822afcfa69d039d3ba02b1f707f064df64352217",
+      "etc/s6-overlay/s6-rc.d/init-custom-files/up": "8b1cfdcb840afde0ea6beeeffe3dc237d80c07a85588fc21616fc33d3b2b42e1",
+      "etc/s6-overlay/s6-rc.d/init-device-perms/dependencies.d/init-adduser": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "etc/s6-overlay/s6-rc.d/init-device-perms/run": "88bd7d10b2f83bac6ab9014e33b94e70bf68256d1a3f8fc9e824ef9d983874cb",
+      "etc/s6-overlay/s6-rc.d/init-device-perms/type": "3b5d2e68df5da1354faeebefcced6631c0d8b579019fd6e32fcd078c36de12cd",
+      "etc/s6-overlay/s6-rc.d/init-device-perms/up": "28c206a45f646534b3fc0eb1aec7bd5926b57b5a987094711d0bcda0970adc7c",
+      "etc/s6-overlay/s6-rc.d/init-envfile/run": "8b4e7fcbe05a517fa2a7a7e735f271cfa48a28207201bb855f97eb269a417e7a",
+      "etc/s6-overlay/s6-rc.d/init-envfile/type": "aab38fd7998987a22d44fda7822afcfa69d039d3ba02b1f707f064df64352217",
+      "etc/s6-overlay/s6-rc.d/init-envfile/up": "c11d74e9162bd4fbf0bb51fb793ed369f20b91a4d22bc105056b09a822ae6000",
+      "etc/s6-overlay/s6-rc.d/init-migrations/run": "b68baf12b700ea286ebfce0354146ce217432ed7dd1aad5b3e8be33816a85a5b",
+      "etc/s6-overlay/s6-rc.d/init-migrations/type": "aab38fd7998987a22d44fda7822afcfa69d039d3ba02b1f707f064df64352217",
+      "etc/s6-overlay/s6-rc.d/init-migrations/up": "6df72ac4204bd8727980eecae602195f8467c4ddcfdaa199e3b17371e3f84f36",
+      "etc/s6-overlay/s6-rc.d/init-mods/dependencies.d/init-config-end": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "etc/s6-overlay/s6-rc.d/init-mods/type": "aab38fd7998987a22d44fda7822afcfa69d039d3ba02b1f707f064df64352217",
+      "etc/s6-overlay/s6-rc.d/init-mods/up": "52d5d90b03d3a78cd5b3087c635830661b6dde2a8d08cb534db5651c296e07a3",
+      "etc/s6-overlay/s6-rc.d/init-mods-end/dependencies.d/init-mods-package-install": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "etc/s6-overlay/s6-rc.d/init-mods-end/type": "aab38fd7998987a22d44fda7822afcfa69d039d3ba02b1f707f064df64352217",
+      "etc/s6-overlay/s6-rc.d/init-mods-end/up": "93d5d786876b9c0a1c1c7053969705e0d4c1209c1dfa7961a5998df8527d747d",
+      "etc/s6-overlay/s6-rc.d/init-mods-package-install/dependencies.d/init-mods": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "etc/s6-overlay/s6-rc.d/init-mods-package-install/type": "aab38fd7998987a22d44fda7822afcfa69d039d3ba02b1f707f064df64352217",
+      "etc/s6-overlay/s6-rc.d/init-mods-package-install/up": "07ad4d4079be7d09ea16f1fa28819eac8225d75de0db06c96491b3a7e3876bc2",
+      "etc/s6-overlay/s6-rc.d/init-os-end/dependencies.d/init-adduser": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "etc/s6-overlay/s6-rc.d/init-os-end/dependencies.d/init-device-perms": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "etc/s6-overlay/s6-rc.d/init-os-end/dependencies.d/init-envfile": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "etc/s6-overlay/s6-rc.d/init-os-end/type": "aab38fd7998987a22d44fda7822afcfa69d039d3ba02b1f707f064df64352217",
+      "etc/s6-overlay/s6-rc.d/init-os-end/up": "93d5d786876b9c0a1c1c7053969705e0d4c1209c1dfa7961a5998df8527d747d",
+      "etc/s6-overlay/s6-rc.d/init-services/dependencies.d/init-custom-files": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "etc/s6-overlay/s6-rc.d/init-services/type": "aab38fd7998987a22d44fda7822afcfa69d039d3ba02b1f707f064df64352217",
+      "etc/s6-overlay/s6-rc.d/init-services/up": "8430c43c2f09dc9ff0b497c235cbb55566da62c15ddfef49e0c1d8bd94af2a8b",
+      "etc/s6-overlay/s6-rc.d/svc-cron/dependencies.d/init-services": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "etc/s6-overlay/s6-rc.d/svc-cron/run": "f9e8a85c4747e88a8725cdc7994e1eb86e869e0fb5a2e7f23eac0b63da3c8780",
+      "etc/s6-overlay/s6-rc.d/svc-cron/type": "d0001a150b83f68f09004c5059045cb76a3f064eed4d42ce072bc3722c118006",
+      "etc/s6-overlay/s6-rc.d/user/contents.d/init-adduser": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "etc/s6-overlay/s6-rc.d/user/contents.d/init-config": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "etc/s6-overlay/s6-rc.d/user/contents.d/init-config-end": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "etc/s6-overlay/s6-rc.d/user/contents.d/init-crontab-config": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "etc/s6-overlay/s6-rc.d/user/contents.d/init-custom-files": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "etc/s6-overlay/s6-rc.d/user/contents.d/init-device-perms": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "etc/s6-overlay/s6-rc.d/user/contents.d/init-envfile": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "etc/s6-overlay/s6-rc.d/user/contents.d/init-migrations": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "etc/s6-overlay/s6-rc.d/user/contents.d/init-mods": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "etc/s6-overlay/s6-rc.d/user/contents.d/init-mods-end": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "etc/s6-overlay/s6-rc.d/user/contents.d/init-mods-package-install": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "etc/s6-overlay/s6-rc.d/user/contents.d/init-os-end": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "etc/s6-overlay/s6-rc.d/user/contents.d/init-services": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "etc/s6-overlay/s6-rc.d/user/contents.d/svc-cron": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "etc/s6-overlay/s6-rc.d/user2/contents.d/ci-service-check": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "etc/s6-overlay/s6-rc.d/init-mods-package-install/run": "fd01c5894d533c2fed38fc908c98e32662948edc062ddb855d330c63cdce7fef",
+      "etc/s6-overlay/s6-rc.d/user/type": "ef17b7d320f2acc023f2018dab381827ba22f9d01b6c4c97894e1bbfe4928313",
+      "etc/s6-overlay/s6-rc.d/user2/type": "ef17b7d320f2acc023f2018dab381827ba22f9d01b6c4c97894e1bbfe4928313"
+    },
+    "sequence": [
+      "Unchanged Kubernetes bootstrap-library initializer, then harden-certifi initializer; both must succeed before main container.",
+      "Unmodified vendor /init and full s6 graph.",
+      "init-calibre-web-config depends on init-config; first-run SQLite setup invokes s6-setuidgid abc python3 /app/calibre-web/cps.py -d and must already see the read-only clean package.",
+      "init-config-end -> init-mods -> init-mods-package-install -> init-mods-end -> init-custom-files -> init-services -> svc-calibre-web.",
+      "Vendor /custom-cont-init.d runner logs a script failure but does not itself fail closed; no guard is installed there.",
+      "svc-calibre-web retains s6-notifyoncheck -> cd /app/calibre-web -> s6-setuidgid abc python3 /app/calibre-web/cps.py."
+    ],
+    "runtime_installs_introduced": false
+  },
+  "local_actual_bundle_validation": {
+    "execution_platform": "Windows host OpenSSL and Python, NOT vendor Linux execution",
+    "native_matrix": [
+      {
+        "bundle": "raw.pem",
+        "public_root": "denied.pem",
+        "trusted": true,
+        "expected": true
+      },
+      {
+        "bundle": "clean.pem",
+        "public_root": "denied.pem",
+        "trusted": false,
+        "expected": false
+      },
+      {
+        "bundle": "clean.pem",
+        "public_root": "allowed.pem",
+        "trusted": true,
+        "expected": true
+      },
+      {
+        "bundle": "denied.pem",
+        "public_root": "denied.pem",
+        "trusted": true,
+        "expected": true
+      }
+    ],
+    "native_ssl_load_certificate_count": 118,
+    "actual_vendor_package_copy_on_host": {
+      "public_files_verified_and_copied": 5,
+      "production_guard_package_hashes_matched": true,
+      "direct_certifi_contents_roots": 118,
+      "requests_default_selected_overlay": true,
+      "scope": "Exact public package files read from existing immutable container; guard executed and copied modules imported on Windows only. No original Linux /init, mounts, or vendor-native execution verified."
+    },
+    "complete_vendor_startup_verified": false
+  },
+  "validation": {
+    "command": "python .github/scripts/test-application-runtime-ca-hardening.py",
+    "preserved_bootstrap_command": "python .github/scripts/test-calibre-library-bootstrap.py",
+    "linux_docker_required": true,
+    "windows_result": "New suite: 13 tests, 11 passed and 2 Linux/Docker tests explicitly skipped. Existing Calibre bootstrap: 10 passed; historical audit guard: 11 passed; canonical trust verifier: 7 passed. Changed YAML lint and git diff --check passed. Not runtime or rollout clearance.",
+    "chart_render": "app-template 5.2.1, OCI chart digest sha256:f32d40ce76b5378acc96783424e3c5b7ec0274240484968a868b2256983514c3; render verifies init order and isolation, whole-package read-only mount, original main command unchanged, and hashed ConfigMap reference.",
+    "docker_test_contract": "Pull exact immutable amd64 image for preparation; all executions --network=none, no user config/media, no privileged flags. Validate all vendor s6 file hashes, original entrypoint, full /init readiness, direct certifi/requests and pip native store SPKIs, read-only package write/rename failures, native public-root rejection and unaffected-root acceptance, invalid-policy initializer failure. Remove all owned containers/volumes/fixtures."
+  },
+  "sure": {
+    "status": "DEFERRED_NO_RUNTIME_MANIFEST_CHANGES",
+    "image_platform_amd64": "ghcr.io/we-promise/sure@sha256:0b58098fc7f5c189f348abcc64be1858d7789f8f724b8465d0a2a2c48a4e4b55",
+    "entrypoint": [
+      "/rails/bin/docker-entrypoint"
+    ],
+    "cmd": [
+      "./bin/rails",
+      "server"
+    ],
+    "user": "1000:1000",
+    "startup_evidence": "Public immutable entrypoint only configures jemalloc, runs ./bin/rails db:prepare for server invocation, then execs original arguments. Existing chart Sidekiq explicitly uses bundle exec sidekiq; both paths require separate safe wiring.",
+    "blocker": "Ruby default native store positively trusts blocked AAA/emSign ECC in baseline; AWS and Skylight vendor bundles and default CA-directory aliases must also be covered while preserving custom stores. No isolated Linux/Docker runner available to demonstrate a safe same-image Ruby overlay and both original startup paths; no success-shaped environment-only mitigation shipped."
+  },
+  "blockers": [
+    "Docker executable absent and WSL has no installed distribution. No authorized isolated Linux/Docker runner known; no host/cluster runtime provisioned or modified.",
+    "Full pinned-image Linux startup, direct production certifi package copy, read-only package replacement barrier, and vendor-native negative verification tests remain mandatory and unexecuted.",
+    "lscr.io and identical-manifest GHCR export retries encountered registry rate limits after successful initial startup-script export; no mutable-tag fallback or freshness assumption used.",
+    "No deployment/publication/push/merge. Another session owns storage repair; existing failed storage baseline is not clearance.",
+    "Sure remains unmitigated. Other application baseline blockers and compiled Go runtime/blacklist gaps remain blocked; removing PEM roots does not certify Go or arbitrary custom contexts."
+  ],
+  "paths": [
+    "apps/calibre-web/harden-certifi.py",
+    "apps/calibre-web/blocked-spkis.sha256",
+    "apps/calibre-web/kustomizeconfig.json",
+    "apps/calibre-web/kustomization.yaml",
+    "apps/calibre-web/helmrelease.yaml",
+    ".github/scripts/test-application-runtime-ca-hardening.py"
+  ]
+}

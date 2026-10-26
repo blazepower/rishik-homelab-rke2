@@ -36,6 +36,27 @@ spec:
           reloader.stakater.com/auto: "true"
 
         initContainers:
+          harden-certifi:
+            image:
+              repository: lscr.io/linuxserver/calibre-web
+              tag: "0.6.27@sha256:470b4ed9a7d6ea1475fef17dbcf957cb60880910296d226bd0dca652c05f68ca"
+            command: ["python3", "-B", "/ca-hardening/harden-certifi.py"]
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              runAsNonRoot: true
+              runAsUser: 1000
+              runAsGroup: 1000
+              capabilities:
+                drop:
+                  - ALL
+            resources:
+              requests:
+                cpu: "25m"
+                memory: "64Mi"
+              limits:
+                cpu: "250m"
+                memory: "128Mi"
           bootstrap-library:
             image:
               repository: lscr.io/linuxserver/calibre-web
@@ -170,10 +191,32 @@ spec:
             port: 8083
 
     persistence:
+      ca-hardening:
+        type: configMap
+        name: calibre-web-ca-hardening
+        advancedMounts:
+          calibre-web:
+            harden-certifi:
+              - path: /ca-hardening
+                readOnly: true
+      certifi-overlay:
+        type: emptyDir
+        advancedMounts:
+          calibre-web:
+            harden-certifi:
+              - path: /ca-output
+            app:
+              - path: /lsiopy/lib/python3.12/site-packages/certifi
+                subPath: certifi
+                readOnly: true
       config:
         existingClaim: calibre-web-config
-        globalMounts:
-          - path: /config
+        advancedMounts:
+          calibre-web:
+            app:
+              - path: /config
+            bootstrap-library:
+              - path: /config
       library:
         existingClaim: calibre-web-library
         advancedMounts:

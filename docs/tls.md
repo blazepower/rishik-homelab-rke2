@@ -15,6 +15,33 @@ Run `python .github/scripts/test-fleet-application-ca.py` to validate the eviden
 and non-clearance invariants. Existing separately verified Plex runtime
 hardening and unchanged owned application images are outside this report.
 
+### Calibre-Web certifi overlay preparation
+
+`apps/calibre-web/harden-certifi.py` prepares a dedicated ephemeral copy of the
+exact pinned image's public certifi package, removing only the eleven-policy
+SPKIs and preserving every other certificate and the original Python modules.
+The entire package is mounted read-only, rather than redirecting only Requests
+or replacing just one writable file. The existing library bootstrap remains
+first; a failed hardening initializer prevents the unmodified vendor `/init`
+from starting. The guard has no mounts of user configuration or library PVCs.
+No custom init hook, runtime package installation, or user trust-store rewrite
+is introduced. A vendor image refresh must revalidate and update the package
+fingerprints; an unknown package intentionally blocks startup.
+
+Preparation evidence and outstanding gates are in
+`.github/security/fleet-application-runtime-ca-hardening-report.json`. This is
+**not deployed or cleared**: isolated Linux/Docker verification must pass before
+integration or rollout. Run
+`python .github/scripts/test-application-runtime-ca-hardening.py` on a Linux
+Docker runner, together with
+`python .github/scripts/test-calibre-library-bootstrap.py`. Docker executions
+use the exact pinned image with networking disabled and no user configuration
+or media. Windows-only passes with Docker tests skipped are not clearance.
+
+Sure's Ruby/default/vendor bundles remain unmitigated; explicit custom TLS
+contexts and compiled Go blacklist gaps are outside this Calibre-specific
+overlay. The historical audit remains a timestamped pre-deployment baseline.
+
 ## cert-manager
 
 [cert-manager](https://cert-manager.io/) is deployed to automate TLS certificate management for services exposed via Ingress.
