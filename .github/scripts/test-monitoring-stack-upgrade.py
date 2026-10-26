@@ -63,6 +63,7 @@ def compare_renders(baseline, target):
     main = containers["grafana"]
     storage = next(volume for volume in after["volumes"] if volume["name"] == "storage")
     assert storage["persistentVolumeClaim"]["claimName"] == "grafana-data"
+    assert "emptyDir" not in storage, "Volume must not contain both emptyDir and a PVC"
     assert not after.get("initContainers"), "Seed ownership must not require a privileged chown init"
     assert main["securityContext"]["readOnlyRootFilesystem"] is True
     assert any(mount["mountPath"] == "/tmp" for mount in main["volumeMounts"])
@@ -246,6 +247,8 @@ def main():
         parser.error("--baseline and --target must be supplied together")
     release = documents(RELEASE)[0]["spec"]
     assert release["upgrade"]["crds"] == "CreateReplace", "Flux must upgrade the Operator CRDs"
+    assert release["upgrade"]["serverSideApply"] == "disabled", "PVC migration requires Helm three-way patching"
+    assert release["rollback"]["serverSideApply"] == "disabled"
     assert not release["values"].get("crds", {}).get("upgradeJob", {}).get("enabled", False), \
         "Use Flux CRD lifecycle management, not a second CRD writer"
     spec = release["values"]["prometheus"]["prometheusSpec"]

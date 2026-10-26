@@ -146,6 +146,14 @@ leave schemas stale (the pre-upgrade cluster still had Operator 0.86.2 CRDs).
 All ten CRDs retain their existing storage API versions (`v1` or `v1alpha1`).
 Never delete CRDs to resolve an upgrade failure: that deletes their instances.
 
+Upgrade and rollback explicitly disable Helm server-side apply for this
+migration. An SSA dry run merged the existing `storage.emptyDir` with the new
+PVC volume and was correctly rejected as an invalid volume union. Helm's
+client-side three-way strategic patch removes the old `emptyDir`; the exact
+resulting Deployment and that removal patch are validated with server dry runs.
+This does not use force-replacement or delete/recreate any resource. Flux
+helm-controller1.6.5 supports the explicit `serverSideApply: disabled` policy.
+
 Before merging, render both exact chart versions with the release's values,
 namespace `monitoring`, release name `kube-prometheus-stack`,
 `--kube-version 1.34.12`, and `--include-crds`. Run:

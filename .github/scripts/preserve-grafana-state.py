@@ -338,6 +338,12 @@ def main():
             raise RuntimeError("Successful seed receipt is required")
         if not state.get("silencesRestored"):
             raise RuntimeError("Native silence import is required before verification")
+        release = get("helmrelease", "kube-prometheus-stack")
+        if release["spec"]["chart"]["spec"]["version"] != "92.13.1" or not any(
+                condition["type"] == "Ready" and condition["status"] == "True"
+                and condition.get("observedGeneration") == release["metadata"]["generation"]
+                for condition in release.get("status", {}).get("conditions", [])):
+            raise RuntimeError("Exact target HelmRelease must be Ready at its current generation")
         assert_hold(state)
         pod = source_pod(required=False)
         storage = next(volume for volume in pod["spec"]["volumes"] if volume["name"] == "storage")
