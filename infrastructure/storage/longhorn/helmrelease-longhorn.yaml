@@ -12,7 +12,7 @@ spec:
   chart:
     spec:
       chart: longhorn
-      version: "1.12.1"  # Keep manager recovery on the running chart version.
+      version: "1.13.0"  # Keep manager recovery on the running chart version.
       sourceRef:
         kind: HelmRepository
         name: longhorn
