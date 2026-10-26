@@ -18,6 +18,8 @@ spec:
     remediation:
       retries: 3
   upgrade:
+    # Helm otherwise leaves the Operator's installed CRD schemas behind.
+    crds: CreateReplace
     remediation:
       retries: 3
   values:

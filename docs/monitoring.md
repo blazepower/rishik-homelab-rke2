@@ -21,7 +21,7 @@ All monitoring components have resource limits configured to prevent resource ex
 | Component | CPU Request | CPU Limit | Memory Request | Memory Limit |
 |-----------|-------------|-----------|----------------|--------------|
 | Prometheus | 100m | 500m | 256Mi | 1Gi |
-| Grafana | 50m | 200m | 128Mi | 256Mi |
+| Grafana | 100m | 500m | 512Mi | 1Gi |
 | Alertmanager | 25m | 100m | 64Mi | 128Mi |
 | Prometheus Operator | 50m | 200m | 64Mi | 256Mi |
 | kube-state-metrics | 25m | 100m | 32Mi | 128Mi |
@@ -117,7 +117,69 @@ Grafana admin credentials are stored in a Kubernetes secret:
 
 ### Customization
 
-To pin a specific chart version, uncomment and set the `version` field in `helmrelease-kube-prometheus-stack.yaml`.
+Set the chart's exact `version` in `helmrelease-kube-prometheus-stack.yaml`.
+
+### Chart upgrades and rollback
+
+The 88.6.5 → 92.13.1 upgrade includes Operator 0.94.1, Prometheus 3.15.0,
+Alertmanager 0.34.1, and Grafana chart 14.0.1 / Grafana 13.2.4-distroless.
+The parent chart and Grafana require Kubernetes >= 1.25; validation used
+the cluster's Kubernetes 1.34.12. Review these upstream changes:
+
+- [Chart migration guide at the target tag](https://github.com/prometheus-community/helm-charts/blob/kube-prometheus-stack-92.13.1/charts/kube-prometheus-stack/UPGRADE.md):
+  chart 90 moves control-plane ServiceMonitor credentials to a chart-created,
+  long-lived service-account token Secret and the `kube-root-ca.crt` ConfigMap;
+  chart 92 adds Linux node selectors and rolls monitoring workloads once.
+- [Grafana chart migration guide](https://github.com/grafana-community/helm-charts/tree/grafana-14.0.1/charts/grafana#upgrading):
+  chart 13 enables a read-only root filesystem, a writable temporary volume,
+  and the distroless image; chart 14 validates values types.
+  The existing credential Secret, dashboard sidecars, and provisioned
+  Prometheus/Loki data sources remain in use. No unsupported `GF_*__FILE` or
+  legacy plugin-install environment overrides are configured.
+- [Prometheus 3.15 changelog](https://github.com/prometheus/prometheus/blob/v3.15.0/CHANGELOG.md):
+  this upgrade does not enable new TSDB encoding or experimental storage flags.
+
+Flux owns CRD upgrades through `spec.upgrade.crds: CreateReplace`; the chart's
+separate CRD upgrade Job remains disabled. Flux updates CRD definitions before
+the Helm upgrade without deleting removed CRDs. Plain Helm's default would
+leave schemas stale (the pre-upgrade cluster still had Operator 0.86.2 CRDs).
+All ten CRDs retain their existing storage API versions (`v1` or `v1alpha1`).
+Never delete CRDs to resolve an upgrade failure: that deletes their instances.
+
+Before merging, render both exact chart versions with the release's values,
+namespace `monitoring`, release name `kube-prometheus-stack`,
+`--kube-version 1.34.12`, and `--include-crds`. Run:
+
+```powershell
+python .github\scripts\test-monitoring-stack-upgrade.py --baseline baseline-render.yaml --target target-render.yaml
+```
+
+This requires PyYAML (also installed by yamllint). Additionally validate the
+target CRDs with a server-side dry run, all existing monitoring custom
+resources against the target CRD schemas, and all generated/custom rules with
+the target Prometheus `promtool check rules`. Do not export Secret payloads.
+
+Deployment remains an operator-controlled Flux change. Expect a temporary
+monitoring gap while single-replica workloads roll. Verify the HelmRelease
+Ready condition, all ten CRD version annotations, Prometheus/Alertmanager and
+Grafana readiness, Grafana login and dashboard/data-source provisioning, and
+the apiserver/kubelet scrape targets. In particular, verify the new token
+Secret is populated using **key names only**, never by displaying its values.
+
+Prometheus retains the same 10Gi Longhorn RWO claim, seven-day retention,
+resource/query limits, and release/resource names. Do not delete or recreate
+its PVC. Grafana and Alertmanager currently use ephemeral storage, so
+unprovisioned Grafana changes and Alertmanager silences can be lost during
+their normal rollout; Git-provisioned dashboards and credentials are retained.
+
+For rollback, revert the chart version through Git/Flux while preserving the
+CRDs, monitoring custom resources, and Prometheus PVC. Do not assume Helm's
+automatic rollback rolls back CRD schemas. A Git version revert with
+`CreateReplace` can reapply the older chart's CRDs; keep the newer, compatible
+CRDs by temporarily setting `upgrade.crds: Skip` for the downgrade, then review
+the intended CRD lifecycle policy before a subsequent forward upgrade. Check
+Prometheus logs and TSDB compatibility before downgrading its image; do not
+enable new storage encodings during this upgrade.
 
 ### Custom Dashboards
 
