@@ -273,15 +273,22 @@ def main():
             raise RuntimeError("Tailscale bypasses Traefik; explicitly approve its scoped reversible hold")
         if inventory(source_pod())["stats"].get("activeSessions") != 0:
             raise RuntimeError("An active Grafana session prevents the final maintenance seed")
-        for kind, name in (("service", "grafana-maintenance-hold"), ("ingressroute", "grafana-maintenance-hold")):
-            if get(kind, name, optional=True):
-                raise RuntimeError("Maintenance resource already exists; refusing to adopt it")
         for filename in ("service-grafana-maintenance-hold.yaml", "ingressroute-grafana-maintenance-hold.yaml"):
-            apply_owned(yaml.safe_load((ASSETS / filename).read_text()), state, path)
+            document = yaml.safe_load((ASSETS / filename).read_text())
+            kind, name = document["kind"], document["metadata"]["name"]
+            live = get(kind, name, optional=True)
+            owned = next((record for record in state["owned"] if record["kind"] == kind and record["name"] == name), None)
+            if live:
+                if owned is None or live["metadata"]["uid"] != owned["uid"]:
+                    raise RuntimeError("Maintenance resource exists with an unowned UID; refusing to adopt it")
+            elif owned:
+                raise RuntimeError("An owned maintenance resource disappeared; review before recreating it")
+            else:
+                apply_owned(document, state, path)
         patch_tailscale(state, True)
         state["tailscaleHeld"] = True
         write_state(path, state)
-        for _ in range(18):
+        for _ in range(36):
             try:
                 assert_hold(state)
                 break
