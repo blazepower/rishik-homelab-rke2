@@ -38,6 +38,27 @@ spec:
           terminationGracePeriodSeconds: 60
 
         initContainers:
+          ca-copy:
+            image:
+              repository: lscr.io/linuxserver/sabnzbd
+              tag: "5.1.3-ls278@sha256:3ac1c9ea03bafa2588dd8acdcb809857bae305e71d2d90e11d689c78076a9c01"
+            command: ["/bin/sh", "/ca-guard/copy-ca-overlay.sh", "sabnzbd"]
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop: ["ALL"]
+          ca-filter:
+            image:
+              repository: lscr.io/linuxserver/sabnzbd
+              tag: "5.1.3-ls278@sha256:3ac1c9ea03bafa2588dd8acdcb809857bae305e71d2d90e11d689c78076a9c01"
+            command: ["python3", "-B", "/ca-guard/ca-overlay.py"]
+            args: ["--root", "/ca-store", "--app", "sabnzbd", "--policy", "/ca-guard/blocked-spkis.sha256"]
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop: ["ALL"]
           codec-config:
             image:
               repository: lscr.io/linuxserver/sabnzbd # renovate: packageName=linuxserver/sabnzbd
@@ -121,6 +142,59 @@ spec:
             port: 8080
 
     persistence:
+      ca-guard:
+        type: configMap
+        name: sabnzbd-ca-guard
+        defaultMode: 0444
+        advancedMounts:
+          sabnzbd:
+            ca-copy:
+              - path: /ca-guard
+                readOnly: true
+            ca-filter:
+              - path: /ca-guard
+                readOnly: true
+      ca-store:
+        type: emptyDir
+        sizeLimit: 32Mi
+        advancedMounts:
+          sabnzbd:
+            ca-copy:
+              - path: /ca-store
+            ca-filter:
+              - path: /ca-store
+            app:
+              - path: /etc/ssl/certs
+                subPath: etc/ssl/certs
+                readOnly: true
+              - path: /usr/share/ca-certificates
+                subPath: usr/share/ca-certificates
+                readOnly: true
+              - path: /usr/local/share/ca-certificates
+                subPath: usr/local/share/ca-certificates
+                readOnly: true
+              - path: /lsiopy/lib/python3.14/site-packages/certifi
+                subPath: lsiopy/lib/python3.14/site-packages/certifi
+                readOnly: true
+              - path: /lsiopy/lib/python3.14/site-packages/pip/_vendor/certifi
+                subPath: lsiopy/lib/python3.14/site-packages/pip/_vendor/certifi
+                readOnly: true
+            codec-config:
+              - path: /etc/ssl/certs
+                subPath: etc/ssl/certs
+                readOnly: true
+              - path: /usr/share/ca-certificates
+                subPath: usr/share/ca-certificates
+                readOnly: true
+              - path: /usr/local/share/ca-certificates
+                subPath: usr/local/share/ca-certificates
+                readOnly: true
+              - path: /lsiopy/lib/python3.14/site-packages/certifi
+                subPath: lsiopy/lib/python3.14/site-packages/certifi
+                readOnly: true
+              - path: /lsiopy/lib/python3.14/site-packages/pip/_vendor/certifi
+                subPath: lsiopy/lib/python3.14/site-packages/pip/_vendor/certifi
+                readOnly: true
       codec-guard:
         type: configMap
         name: sabnzbd-codec-guard
@@ -135,17 +209,30 @@ spec:
             readOnly: true
       config:
         existingClaim: sabnzbd-config
-        globalMounts:
-          - path: /config
+        advancedMounts:
+          sabnzbd:
+            app:
+              - path: /config
+            codec-config:
+              - path: /config
       # Single persistence entry with multiple mounts so kubelet sees one
       # volume reference per pod (multiple entries pointing to the same PVC
       # cause WaitForAttachAndMount to hang -- see plex-cutover-runbook).
       media:
         existingClaim: media-root
-        globalMounts:
-          - path: /media/torrents
-            subPath: downloads/torrents
-          - path: /media/Movies
-            subPath: movies
-          - path: /media/TV Shows
-            subPath: tv
+        advancedMounts:
+          sabnzbd:
+            app:
+              - path: /media/torrents
+                subPath: downloads/torrents
+              - path: /media/Movies
+                subPath: movies
+              - path: /media/TV Shows
+                subPath: tv
+            codec-config:
+              - path: /media/torrents
+                subPath: downloads/torrents
+              - path: /media/Movies
+                subPath: movies
+              - path: /media/TV Shows
+                subPath: tv

@@ -1,0 +1,78 @@
+{
+  "state": "PREPARED_NOT_RUNTIME_VALIDATED",
+  "deployment_approved_by_this_report": false,
+  "scope": ["bazarr", "prowlarr", "sabnzbd"],
+  "policy_binding": {
+    "method": "Each app's eleven unique uppercase SPKI SHA-256 values must exactly equal the canonical policy key set; tests compare keys, not checkout bytes.",
+    "canonical_path": ".github/security/emudhra-2026.json",
+    "canonical_utf8_lf_sha256": "1c6149e9b7a0e2c962b6a779ed58d773d6e4a2149b55f7539a6a680061ae820e"
+  },
+  "design": {
+    "ca-copy": "Runs only /bin/sh in the exact original pinned application image, copying public OS trust trees and complete known certifi packages into a fresh emptyDir. No user config/media mounts.",
+    "ca-filter": "Runs stock Python with bytecode disabled against that isolated snapshot. Bazarr and SABnzbd use their original application images; Prowlarr uses the already pinned Bazarr vendor image because Prowlarr has neither Python nor OpenSSL CLI.",
+    "fail_closed": "Kubernetes must complete the ordinary ca-copy and ca-filter init containers before any original application container starts. No custom-cont-init.d hook, s6 failure propagation assumption or fallback is used.",
+    "main": "Original vendor /init, application image/version, environment, auth/data initialization, probes, PVC mounts and SAB codec configuration command are retained. Main container receives only read-only trust overlays.",
+    "immutability": "Mount whole OS source directories, hash directory/bundle, and entire application/pip certifi packages read-only. Do not use environment-only CA redirection or file-only certifi mounts that leave package replacement unguarded.",
+    "hash_directories": "Remove denied aliases and compact surviving vendor subject-hash sequences to avoid OpenSSL lookup gaps. Preserve unaffected certificate DER identities; reject escaping/dangling/cyclic/unsupported aliases.",
+    "updates": "App-specific hashed ConfigMap names are transformed into HelmRelease persistence references, so script/policy changes alter pod volume references.",
+    "dependencies": "Guard uses only stock Python standard-library ssl/base64/hashlib and a bounded DER SubjectPublicKeyInfo parser. No newly built/maintained images, package installs, downloads, TLS bypass or compiled helpers.",
+    "sab_codec_init": "Original codec-config command/image/data mounts are unchanged; it runs after the two CA init containers and receives the same read-only sanitized trust overlays."
+  },
+  "immutable_platform_evidence": {
+    "bazarr": {
+      "index": "lscr.io/linuxserver/bazarr@sha256:946dc8c5bb5331418eac60050cf40a63cb8f66ac039841dda493870e3559799c",
+      "amd64": "lscr.io/linuxserver/bazarr@sha256:7f086a154470936463db52ad1fb9ea77cbcd2ee962ab08f08dad13540dde41e1",
+      "python": "3.12",
+      "certifi_packages": [
+        "/app/bazarr/bin/libs/certifi",
+        "/lsiopy/lib/python3.12/site-packages/pip/_vendor/certifi"
+      ]
+    },
+    "prowlarr": {
+      "index": "lscr.io/linuxserver/prowlarr@sha256:b3b00047ed20f6ce2b16780145cb6a0acb51c9e28ea6aa6f5dcd33c7034f1797",
+      "amd64": "lscr.io/linuxserver/prowlarr@sha256:9ad6d7c7f1334a879b1d8aa488539c8cad5d19e7a876bb2ca2f6fd47b23fbc81",
+      "filter_helper": "Exact same Bazarr index/amd64 child recorded above; it never runs vendor /init or makes network requests.",
+      "native_runtime": ".NET 8.0.27; stock native OpenSSL library; no Python/OpenSSL CLI"
+    },
+    "sabnzbd": {
+      "index": "lscr.io/linuxserver/sabnzbd@sha256:3ac1c9ea03bafa2588dd8acdcb809857bae305e71d2d90e11d689c78076a9c01",
+      "amd64": "lscr.io/linuxserver/sabnzbd@sha256:93e23ba7dd20c4a00da1bdeb9adf9d622890a11caed4f5468892f48eef7b0c0c",
+      "python": "3.14",
+      "certifi_packages": [
+        "/lsiopy/lib/python3.14/site-packages/certifi",
+        "/lsiopy/lib/python3.14/site-packages/pip/_vendor/certifi"
+      ]
+    }
+  },
+  "vendor_init_findings": [
+    "All stock image entrypoints are /init. Default /etc/ssl/cert.pem is a relative alias to certs/ca-certificates.crt, covered by the read-only cert-directory overlay.",
+    "Public pinned-image s6 init/service/dependency scripts, docker-mods, migration/preinit scripts and known trust paths were inspected without executing images.",
+    "init-custom-files/run echoes the custom script exit code and continues, so it cannot gate original application startup.",
+    "Existing init-mods-package-install/run can invoke apk/apt/pip and regenerate packages/trust. No such installers are added or invoked by either CA initializer.",
+    "SAB's existing pinned universal-package-install mod and INSTALL_PACKAGES=ffmpeg are preserved. Their real interaction with read-only trust directories remains an explicit deployment blocker until isolated Linux validation.",
+    "Read-only whole-directory/package overlays are intended to prevent later init/mod stages from overwriting or replacing sanitized stores; actual Linux mount enforcement and complete vendor bootstrap are not yet verified."
+  ],
+  "verified_preparation": [
+    "Independent cryptography SPKI hashes match the stdlib parser across all inspected real vendor PEM stores: Bazarr 124 stores / 3 baseline denied copies, Prowlarr 122 / 2, SABnzbd 121 / 1.",
+    "Fixture tests cover exact-key rather than subject matching, malformed/partial policies and bundles, source/bundle/application filtering, unaffected-root preservation, hash-sequence compaction and idempotent read-only verification.",
+    "Native Windows Python/OpenSSL memory-BIO TLS controls accept an unaffected synthetic fixture root after filtering and reject the removed synthetic fixture root. This does not certify stock Linux application/native/custom TLS.",
+    "Helm app-template 5.2.1 renders ca-copy then ca-filter, before original codec-config where present. New CA initializers have no config/media PVC mounts.",
+    "Hashed ConfigMap references render correctly for all three app Kustomizations.",
+    "Existing SAB codec/bootstrap, shared media codec policy and Servarr HTTPS regressions pass."
+  ],
+  "remaining_blockers": [
+    "No Docker executable, installed WSL distribution or known authorized isolated Linux runner is available in this Windows session. Real pinned-image execution, Linux absolute-alias tests, mount enforcement and stock /init readiness tests are NOT run.",
+    "Run the explicit --docker suite on isolated linux/amd64 Docker 26+ (volume-subpath support), with network disabled during execution and no user config/media. Images may be pulled before execution.",
+    "The Docker suite tests base vendor bootstrap without downloading SAB's optional mod; a complete replay of the already-existing pinned ffmpeg mod/package stage must also establish compatibility before deployment.",
+    "No .NET cached/user-added/custom/compiled certificate-store or chain-validation certification is claimed. Actual live public-store and native/application rejection verification is still required after separately authorized deployment.",
+    "Another session owns Longhorn repair. No storage diagnosis/changes or deployment is part of this preparation."
+  ],
+  "ci_commands": [
+    "python -B .github/scripts/test-media-runtime-ca-hardening.py",
+    "python -B .github/scripts/test-media-runtime-ca-hardening.py --registry --crane <verified-crane>",
+    "python -B .github/scripts/test-media-runtime-ca-hardening.py --registry --crane <verified-crane> --docker",
+    "python -B .github/scripts/test-sab-codec-guard.py",
+    "python -B .github/scripts/test-media-codec-policy.py",
+    "python -B .github/scripts/test-servarr-https.py"
+  ]
+}

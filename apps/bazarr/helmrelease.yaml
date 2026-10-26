@@ -32,6 +32,29 @@ spec:
         annotations:
           reloader.stakater.com/auto: "true"
 
+        initContainers:
+          ca-copy:
+            image:
+              repository: lscr.io/linuxserver/bazarr
+              tag: "v1.6.2-ls369@sha256:946dc8c5bb5331418eac60050cf40a63cb8f66ac039841dda493870e3559799c"
+            command: ["/bin/sh", "/ca-guard/copy-ca-overlay.sh", "bazarr"]
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop: ["ALL"]
+          ca-filter:
+            image:
+              repository: lscr.io/linuxserver/bazarr
+              tag: "v1.6.2-ls369@sha256:946dc8c5bb5331418eac60050cf40a63cb8f66ac039841dda493870e3559799c"
+            command: ["python3", "-B", "/ca-guard/ca-overlay.py"]
+            args: ["--root", "/ca-store", "--app", "bazarr", "--policy", "/ca-guard/blocked-spkis.sha256"]
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop: ["ALL"]
+
         containers:
           app:
             image:
@@ -69,17 +92,58 @@ spec:
             port: 6767
 
     persistence:
+      ca-guard:
+        type: configMap
+        name: bazarr-ca-guard
+        defaultMode: 0444
+        advancedMounts:
+          bazarr:
+            ca-copy:
+              - path: /ca-guard
+                readOnly: true
+            ca-filter:
+              - path: /ca-guard
+                readOnly: true
+      ca-store:
+        type: emptyDir
+        sizeLimit: 32Mi
+        advancedMounts:
+          bazarr:
+            ca-copy:
+              - path: /ca-store
+            ca-filter:
+              - path: /ca-store
+            app:
+              - path: /etc/ssl/certs
+                subPath: etc/ssl/certs
+                readOnly: true
+              - path: /usr/share/ca-certificates
+                subPath: usr/share/ca-certificates
+                readOnly: true
+              - path: /usr/local/share/ca-certificates
+                subPath: usr/local/share/ca-certificates
+                readOnly: true
+              - path: /app/bazarr/bin/libs/certifi
+                subPath: app/bazarr/bin/libs/certifi
+                readOnly: true
+              - path: /lsiopy/lib/python3.12/site-packages/pip/_vendor/certifi
+                subPath: lsiopy/lib/python3.12/site-packages/pip/_vendor/certifi
+                readOnly: true
       config:
         existingClaim: bazarr-config
-        globalMounts:
-          - path: /config
+        advancedMounts:
+          bazarr:
+            app:
+              - path: /config
       # Single persistence entry with multiple mounts so kubelet sees one
       # volume reference per pod (multiple entries pointing to the same PVC
       # cause WaitForAttachAndMount to hang — see plex-cutover-runbook).
       media:
         existingClaim: media-root
-        globalMounts:
-          - path: /media/Movies
-            subPath: movies
-          - path: /media/TV Shows
-            subPath: tv
+        advancedMounts:
+          bazarr:
+            app:
+              - path: /media/Movies
+                subPath: movies
+              - path: /media/TV Shows
+                subPath: tv

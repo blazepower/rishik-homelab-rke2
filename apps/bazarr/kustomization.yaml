@@ -9,3 +9,11 @@ resources:
   - ingress.yaml
   - ingress-bazarr-tailscale.yaml
   - certificate.yaml
+configurations:
+  - kustomize-ca.json
+configMapGenerator:
+  - name: bazarr-ca-guard
+    files:
+      - ca-overlay.py
+      - copy-ca-overlay.sh
+      - blocked-spkis.sha256
