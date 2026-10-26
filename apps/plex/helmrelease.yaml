@@ -23,13 +23,34 @@ spec:
     remediation:
       retries: 0
     timeout: 30m
+  postRenderers:
+    - kustomize:
+        patches:
+          - target:
+              kind: StatefulSet
+              name: plex-plex-media-server
+            patch: |-
+              apiVersion: apps/v1
+              kind: StatefulSet
+              metadata:
+                name: plex-plex-media-server
+              spec:
+                template:
+                  spec:
+                    containers:
+                      - name: plex-plex-media-server-pms
+                        command: ["/bin/bash", "-ec"]
+                        args:
+                          - |-
+                            /bin/bash /ca-hardening/harden-ca.sh
+                            exec /init
   values:
     nodeSelector:
       kubernetes.io/hostname: rishik-worker1
 
     image:
       repository: plexinc/pms-docker
-      tag: "1.43.5.11029-6bf8af3f0"
+      tag: "1.43.5.11029-6bf8af3f0@sha256:01bdf0ad6d53198da4331540c1e73ab65db7a72e961fff97ecb0847d46055c5f"
 
     pms:
       configExistingClaim: plex-config
@@ -78,7 +99,7 @@ spec:
 
     extraInitContainers:
       - name: require-plex-auth
-        image: plexinc/pms-docker:1.43.5.11029-6bf8af3f0
+        image: plexinc/pms-docker:1.43.5.11029-6bf8af3f0@sha256:01bdf0ad6d53198da4331540c1e73ab65db7a72e961fff97ecb0847d46055c5f
         command: ["/bin/sh", "-ec"]
         args:
           - |-
@@ -107,6 +128,10 @@ spec:
     # multiple extraVolumes entries trips a kubelet WaitForAttachAndMount hang
     # (see docs/charts.md gotcha #1).
     extraVolumes:
+      - name: plex-ca-hardening
+        configMap:
+          name: plex-ca-hardening
+          defaultMode: 0444
       - name: media
         persistentVolumeClaim:
           claimName: media-root
@@ -116,6 +141,9 @@ spec:
           type: Directory
 
     extraVolumeMounts:
+      - name: plex-ca-hardening
+        mountPath: /ca-hardening
+        readOnly: true
       - name: media
         mountPath: /media/Movies
         subPath: movies

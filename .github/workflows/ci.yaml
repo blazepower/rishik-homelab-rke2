@@ -88,6 +88,9 @@ jobs:
       - name: Test Flux bootstrap self-management
         run: python3 .github/scripts/test-flux-bootstrap.py
 
+      - name: Test Plex CA hardening
+        run: python3 .github/scripts/test-plex-ca-hardening.py
+
       - name: Test coordinated Kaneo upgrade wiring
         run: python3 .github/scripts/test-kaneo-upgrade.py
 
