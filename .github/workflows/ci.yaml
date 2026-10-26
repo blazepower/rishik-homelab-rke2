@@ -82,6 +82,12 @@ jobs:
       - name: Test monitoring admission network policy
         run: python3 .github/scripts/test-monitoring-admission-policy.py
 
+      - name: Test coordinated Kaneo upgrade wiring
+        run: python3 .github/scripts/test-kaneo-upgrade.py
+
+      - name: Test Servarr HTTPS proxy configuration
+        run: python3 .github/scripts/test-servarr-https.py
+
       - name: Run yamllint
         run: |
           # Run yamllint and check exit code

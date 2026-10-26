@@ -39,7 +39,7 @@ spec:
           bootstrap-library:
             image:
               repository: lscr.io/linuxserver/calibre-web
-              tag: "0.6.27@sha256:b206b791d77b731203fb47b5733d055c8d4ebd7c9fa59a4569a5d6a2b3ebda54"
+              tag: "0.6.27@sha256:470b4ed9a7d6ea1475fef17dbcf957cb60880910296d226bd0dca652c05f68ca"
             command: ["python3", "-c"]
             args:
               - |
@@ -124,7 +124,7 @@ spec:
               # twice already (PR #146 and PR #185). The
               # `allowedVersions: "<1.0.0"` rule in renovate.json now
               # prevents recurrence.
-              tag: "0.6.27@sha256:b206b791d77b731203fb47b5733d055c8d4ebd7c9fa59a4569a5d6a2b3ebda54"
+              tag: "0.6.27@sha256:470b4ed9a7d6ea1475fef17dbcf957cb60880910296d226bd0dca652c05f68ca"
             env:
               - name: PUID
                 valueFrom:

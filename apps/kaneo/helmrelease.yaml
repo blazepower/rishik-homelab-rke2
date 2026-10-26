@@ -20,16 +20,22 @@ spec:
     timeout: 10m
   upgrade:
     remediation:
-      retries: 3
+      # Application rollback cannot undo database migrations.
+      retries: 0
+      remediateLastFailure: false
     timeout: 10m
   values:
     replicaCount: 1
+    podSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 1001
+      fsGroup: 1001
 
     postgresql:
       enabled: true
       image:
-        repository: postgres
-        tag: "16-alpine@sha256:f4610795587492cd4fb887c2dc3de301b813278bb6f616992061141b5f15ac36"
+        repository: docker.io/library/postgres
+        tag: "16-alpine@sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685"
         pullPolicy: IfNotPresent
       auth:
         database: kaneo
@@ -50,88 +56,43 @@ spec:
           cpu: "200m"
           memory: "256Mi"
 
-    api:
+    kaneo:
       image:
-        repository: ghcr.io/usekaneo/api
-        tag: "2.12.1"
+        repository: ghcr.io/usekaneo/kaneo
+        tag: "2.47.1@sha256:880b2df38fe5385032c9772c8989182d45029bc1f1711a3cb9489b94f482848d"
         pullPolicy: IfNotPresent
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
       service:
         type: ClusterIP
-        port: 1337
-        targetPort: 1337
+        port: 5173
+        targetPort: 5173
       resources:
         requests:
-          cpu: "50m"
-          memory: "128Mi"
-        limits:
-          cpu: "200m"
+          cpu: "100m"
           memory: "256Mi"
+        limits:
+          cpu: "500m"
+          memory: "1Gi"
       livenessProbe:
         httpGet:
           path: /api/health
-          port: 1337
-        initialDelaySeconds: 30
-        periodSeconds: 10
-        failureThreshold: 3
-      readinessProbe:
-        httpGet:
-          path: /api/health
-          port: 1337
-        initialDelaySeconds: 5
-        periodSeconds: 10
-        failureThreshold: 3
-      env:
-        existingSecret:
-          enabled: true
-          name: kaneo-credentials
-          key: jwt-secret
-        disableRegistration: false
-        database:
-          external:
-            enabled: true
-            host: kaneo-postgresql
-            port: 5432
-            database: kaneo
-            username: kaneo_user
-            existingSecret:
-              enabled: true
-              name: kaneo-credentials
-              passwordKey: database-url
-
-    web:
-      image:
-        repository: ghcr.io/usekaneo/web
-        tag: "2.12.1"
-        pullPolicy: IfNotPresent
-      env:
-        apiUrl: "https://kaneo.homelab"
-      service:
-        type: ClusterIP
-        port: 80
-        targetPort: 5173
-      livenessProbe:
-        httpGet:
-          path: /
-          port: 5173
-        initialDelaySeconds: 120
-        periodSeconds: 10
-        failureThreshold: 3
-      readinessProbe:
-        httpGet:
-          path: /
-          port: 5173
+          port: kaneo
         initialDelaySeconds: 60
         periodSeconds: 10
+        timeoutSeconds: 5
         failureThreshold: 3
-      resources:
-        requests:
-          cpu: "50m"
-          memory: "128Mi"
-        limits:
-          cpu: "200m"
-          memory: "256Mi"
-
-    kaneo:
+      readinessProbe:
+        httpGet:
+          path: /api/health
+          port: kaneo
+        initialDelaySeconds: 10
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 3
       env:
         clientUrl: "https://kaneo.homelab"
         corsOrigins: "https://kaneo.homelab"
@@ -156,7 +117,6 @@ spec:
     ingress:
       enabled: false
 
-  # Patch the Kaneo monolith to consume the pre-encoded database URL secret.
   postRenderers:
     - kustomize:
         patches:
@@ -164,31 +124,26 @@ spec:
               kind: Deployment
               name: kaneo
             patch: |-
-              apiVersion: apps/v1
+              - op: add
+                path: /spec/strategy
+                value:
+                  type: Recreate
+                  rollingUpdate: null
+              - op: add
+                path: /spec/template/spec/containers/0/startupProbe
+                value:
+                  httpGet:
+                    path: /api/health
+                    port: kaneo
+                  periodSeconds: 5
+                  timeoutSeconds: 5
+                  failureThreshold: 60
+          - target:
               kind: Deployment
-              metadata:
-                name: kaneo
-              spec:
-                template:
-                  spec:
-                    containers:
-                      - name: kaneo
-                        env:
-                          - name: KANEO_POSTGRES_PASSWORD
-                            $patch: delete
-                          - name: AUTH_SECRET
-                            value: null
-                            valueFrom:
-                              secretKeyRef:
-                                name: kaneo-credentials
-                                key: jwt-secret
-                          - name: KANEO_CLIENT_URL
-                            value: "https://kaneo.homelab"
-                          - name: CORS_ORIGINS
-                            value: "https://kaneo.homelab"
-                          - name: DATABASE_URL
-                            value: null
-                            valueFrom:
-                              secretKeyRef:
-                                name: kaneo-credentials
-                                key: database-url
+              name: kaneo-postgresql
+            patch: |-
+              - op: add
+                path: /spec/strategy
+                value:
+                  type: Recreate
+                  rollingUpdate: null
