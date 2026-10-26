@@ -16,8 +16,8 @@ VALUES = RELEASE["spec"]["values"]
 class LonghornManagerResourceTests(unittest.TestCase):
     def test_manager_has_bounded_cpu_and_memory_headroom(self):
         self.assertEqual(VALUES["longhornManager"]["resources"], {
-            "requests": {"cpu": "100m", "memory": "512Mi"},
-            "limits": {"cpu": "1000m", "memory": "2Gi"},
+            "requests": {"cpu": "250m", "memory": "512Mi"},
+            "limits": {"cpu": "2000m", "memory": "2Gi"},
         })
 
     def test_recovery_keeps_current_chart_and_sequential_rollout(self):
@@ -40,6 +40,15 @@ class LonghornManagerResourceTests(unittest.TestCase):
                 "key": "node-role.kubernetes.io/control-plane",
                 "operator": "DoesNotExist",
             }],
+        }])
+
+    def test_manager_readiness_tolerates_bounded_control_plane_load(self):
+        patches = RELEASE["spec"]["postRenderers"][0]["kustomize"]["patches"]
+        manager = next(p for p in patches if p["target"]["name"] == "longhorn-manager")
+        containers = yaml.safe_load(manager["patch"])["spec"]["template"]["spec"]["containers"]
+        self.assertEqual(containers, [{
+            "name": "longhorn-manager",
+            "readinessProbe": {"timeoutSeconds": 5},
         }])
 
     def test_ci_runs_manager_regression_tests(self):

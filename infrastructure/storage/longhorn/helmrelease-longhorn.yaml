@@ -51,6 +51,10 @@ spec:
               spec:
                 template:
                   spec:
+                    containers:
+                      - name: longhorn-manager
+                        readinessProbe:
+                          timeoutSeconds: 5
                     affinity:
                       nodeAffinity:
                         requiredDuringSchedulingIgnoredDuringExecution:
@@ -101,10 +105,10 @@ spec:
           maxUnavailable: 1
       resources:
         requests:
-          cpu: "100m"
+          cpu: "250m"
           memory: "512Mi"
         limits:
-          cpu: "1000m"
+          cpu: "2000m"
           memory: "2Gi"
     longhornDriver:
       priorityClass: core-critical
