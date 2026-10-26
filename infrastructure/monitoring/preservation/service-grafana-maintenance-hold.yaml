@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana-maintenance-hold
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: grafana-maintenance-hold
+spec:
+  # No selector: this maintenance backend intentionally has no endpoints.
+  ports:
+    - name: http
+      port: 80
+      targetPort: 3000

@@ -3,7 +3,15 @@
 
 import argparse
 import configparser
+import hashlib
+import importlib.util
+import json
 from pathlib import Path
+import shutil
+import sqlite3
+import sys
+import uuid
+from unittest import mock
 
 import yaml
 
@@ -53,6 +61,9 @@ def compare_renders(baseline, target):
         new_auth = [env for env in current.get("env", []) if env.get("valueFrom", {}).get("secretKeyRef")]
         assert old_auth == new_auth, f"Grafana credential references changed: {current['name']}"
     main = containers["grafana"]
+    storage = next(volume for volume in after["volumes"] if volume["name"] == "storage")
+    assert storage["persistentVolumeClaim"]["claimName"] == "grafana-data"
+    assert not after.get("initContainers"), "Seed ownership must not require a privileged chown init"
     assert main["securityContext"]["readOnlyRootFilesystem"] is True
     assert any(mount["mountPath"] == "/tmp" for mount in main["volumeMounts"])
     assert not any(env["name"].endswith("__FILE") or env["name"] == "GF_INSTALL_PLUGINS"
@@ -90,6 +101,142 @@ def compare_renders(baseline, target):
             }
 
 
+def preservation_checks():
+    assets = ROOT / "infrastructure/monitoring/preservation"
+    job = documents(assets / "job-grafana-state-seed.yaml")[0]
+    pod = job["spec"]["template"]["spec"]
+    assert job["spec"]["backoffLimit"] == 0 and job["spec"]["activeDeadlineSeconds"] == 600
+    assert pod["automountServiceAccountToken"] is False
+    assert pod["nodeSelector"] == {"kubernetes.io/hostname": "rishik-worker2"}
+    assert {key: pod["securityContext"][key] for key in ("runAsUser", "runAsGroup", "fsGroup")} == \
+        {"runAsUser": 472, "runAsGroup": 472, "fsGroup": 472}
+    container = pod["containers"][0]
+    assert container["image"] == "quay.io/kiwigrid/k8s-sidecar@sha256:7eac5c4fed714a18d038fc9fea57d8744d113367935dac0ea4eb6a87cef704a3"
+    assert container["securityContext"]["readOnlyRootFilesystem"] is True
+    assert container["securityContext"]["allowPrivilegeEscalation"] is False
+    assert container["securityContext"]["capabilities"] == {"drop": ["ALL"]}
+    volumes = {volume["name"]: volume for volume in pod["volumes"]}
+    assert volumes["source"]["hostPath"] == {
+        "path": "/var/lib/kubelet/pods/62fb40e7-ab02-46d5-b6fc-0a7b4d05633d/volumes/kubernetes.io~empty-dir/storage",
+        "type": "Directory",
+    }
+    assert next(mount for mount in container["volumeMounts"] if mount["name"] == "source")["readOnly"] is True
+    assert volumes["destination"]["persistentVolumeClaim"]["claimName"] == "grafana-data"
+    policy = documents(assets / "networkpolicy-grafana-state-seed.yaml")[0]["spec"]
+    assert policy["ingress"] == [] and policy["policyTypes"] == ["Ingress", "Egress"]
+    assert len(policy["egress"]) == 2
+    assert policy["egress"][0]["ports"] == [{"protocol": "UDP", "port": 53}, {"protocol": "TCP", "port": 53}]
+    assert policy["egress"][1] == {
+        "to": [{"podSelector": {"matchLabels": {
+            "app.kubernetes.io/name": "alertmanager", "alertmanager": "kube-prometheus-stack-alertmanager",
+        }}}], "ports": [{"protocol": "TCP", "port": 9093}],
+    }
+    route = documents(assets / "ingressroute-grafana-maintenance-hold.yaml")[0]["spec"]
+    assert route["entryPoints"] == ["websecure"] and route["tls"] == {"secretName": "grafana-tls"}
+    assert route["routes"][0]["match"] == "Host(`grafana.homelab`)" and route["routes"][0]["priority"] == 1000000
+    assert "selector" not in documents(assets / "service-grafana-maintenance-hold.yaml")[0]["spec"]
+    root_resources = documents(ROOT / "infrastructure/monitoring/kustomization.yaml")[0]["resources"]
+    assert not any("preservation" in resource for resource in root_resources), "Helpers must never auto-run under Flux"
+    assert root_resources.count("pvc-grafana-data.yaml") == 1
+    claim = documents(ROOT / "infrastructure/monitoring/pvc-grafana-data.yaml")[0]
+    assert claim["metadata"]["annotations"]["kustomize.toolkit.fluxcd.io/prune"] == "disabled"
+    assert claim["spec"] == {
+        "accessModes": ["ReadWriteOnce"], "storageClassName": "longhorn-retain",
+        "resources": {"requests": {"storage": "2Gi"}},
+    }
+    storage_class = documents(ROOT / "infrastructure/storage/longhorn/storageclass-longhorn-retain.yaml")[0]
+    assert storage_class["reclaimPolicy"] == "Retain" and storage_class["parameters"]["numberOfReplicas"] == "2"
+    assert {item["name"] for item in json.loads(storage_class["parameters"]["recurringJobSelector"])} == \
+        {"snapshot-weekly", "backup-daily"}
+    workflow = documents(ROOT / ".github/workflows/ci.yaml")[0]
+    commands = [step.get("run") for step in workflow["jobs"]["yaml-lint"]["steps"]]
+    assert "python3 .github/scripts/test-monitoring-stack-upgrade.py" in commands
+    runner_spec = importlib.util.spec_from_file_location("grafana_runner", ROOT / ".github/scripts/preserve-grafana-state.py")
+    runner = importlib.util.module_from_spec(runner_spec)
+    sys.dont_write_bytecode = True
+    runner_spec.loader.exec_module(runner)
+    record = {"kind": "Job", "name": "grafana-state-seed", "apiVersion": "batch/v1", "uid": "owned-helper-uid"}
+    with mock.patch.object(runner, "get", return_value={"metadata": {"uid": record["uid"]}}), \
+            mock.patch.object(runner, "kubectl") as transport:
+        runner.delete_owned(record)
+        options = json.loads(transport.call_args.kwargs["payload"])
+        assert options["preconditions"] == {"uid": record["uid"]}
+        assert transport.call_args.args[:2] == ("delete", "--raw")
+    with mock.patch.object(runner, "kubectl") as transport:
+        try:
+            runner.delete_owned({"kind": "PersistentVolumeClaim", "name": "grafana-data"})
+        except RuntimeError:
+            pass
+        else:
+            raise AssertionError("Cleanup must never delete any PVC")
+        transport.assert_not_called()
+    with mock.patch.object(runner, "get", return_value={"items": []}):
+        try:
+            runner.source_pod()
+        except RuntimeError:
+            pass
+        else:
+            raise AssertionError("Missing exact source UID must fail closed")
+
+    specification = importlib.util.spec_from_file_location("grafana_seed", assets / "grafana-state-seed.py")
+    helper = importlib.util.module_from_spec(specification)
+    sys.dont_write_bytecode = True
+    specification.loader.exec_module(helper)
+    fixture = Path(".monitoring-preservation-checks-" + str(uuid.uuid4()))
+    fixture.mkdir()
+    try:
+        source, destination = fixture / "source", fixture / "destination"
+        source.mkdir()
+        destination.mkdir()
+        database = source / "grafana.db"
+        with sqlite3.connect(database) as connection:
+            connection.executescript("CREATE TABLE user (id INTEGER); INSERT INTO user VALUES(1);")
+        connection.close()
+        before = hashlib.sha256(database.read_bytes()).digest()
+        assert helper.backup_database(database, destination / "grafana.db") == {"user": 1}
+        assert hashlib.sha256(database.read_bytes()).digest() == before, "Source database was mutated"
+        try:
+            helper.backup_database(database, destination / "grafana.db")
+        except RuntimeError:
+            pass
+        else:
+            raise AssertionError("Seed must refuse to overwrite an existing destination database")
+        (source / "plugins").mkdir()
+        (source / "plugins/plugin.json").write_text('{"id":"fixture-plugin"}')
+        for name in helper.SIDECARS:
+            (source / name).write_text("do-not-copy")
+        assert helper.copy_other_files(source, destination)["nonDatabaseFiles"] == 1
+        assert (destination / "plugins/plugin.json").read_bytes() == (source / "plugins/plugin.json").read_bytes()
+        assert all(not (destination / name).exists() for name in helper.SIDECARS)
+
+        # A WAL writer commits after counting, but the held read snapshot must win.
+        wal = fixture / "wal.db"
+        writer = sqlite3.connect(wal)
+        writer.execute("PRAGMA journal_mode=WAL")
+        writer.executescript("CREATE TABLE user (id INTEGER); INSERT INTO user VALUES(1);")
+        original = helper.table_counts
+        changed = False
+
+        def racing_counts(connection):
+            nonlocal changed
+            result = original(connection)
+            if not changed:
+                changed = True
+                writer.execute("INSERT INTO user VALUES(2)")
+                writer.commit()
+            return result
+
+        try:
+            with mock.patch.object(helper, "table_counts", side_effect=racing_counts):
+                assert helper.backup_database(wal, fixture / "wal-backup.db") == {"user": 1}
+            assert original(writer) == {"user": 2}
+        finally:
+            writer.close()
+    finally:
+        shutil.rmtree(fixture)
+    print("PASS: restricted helper, retention/backup policy, native SQLite/WAL snapshot and overwrite guards")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--baseline", type=Path)
@@ -108,6 +255,9 @@ def main():
         "resources": {"requests": {"storage": "10Gi"}},
     }
     assert release["values"]["grafana"]["admin"]["existingSecret"] == "grafana-admin-credentials"
+    assert release["values"]["grafana"]["persistence"] == {"enabled": True, "existingClaim": "grafana-data"}
+    assert release["values"]["grafana"]["initChownData"]["enabled"] is False
+    preservation_checks()
     if args.baseline:
         compare_renders(documents(args.baseline), documents(args.target))
         print("PASS: rendered CRD, PVC, TSDB, Grafana and ServiceMonitor upgrade contracts")

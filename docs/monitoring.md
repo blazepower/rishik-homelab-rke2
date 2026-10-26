@@ -168,18 +168,108 @@ Secret is populated using **key names only**, never by displaying its values.
 
 Prometheus retains the same 10Gi Longhorn RWO claim, seven-day retention,
 resource/query limits, and release/resource names. Do not delete or recreate
-its PVC. Grafana and Alertmanager currently use ephemeral storage, so
-unprovisioned Grafana changes and Alertmanager silences can be lost during
-their normal rollout; Git-provisioned dashboards and credentials are retained.
+its PVC. Grafana switches from ephemeral storage to the **pre-seeded**
+`grafana-data` claim described below. Alertmanager remains ephemeral; its
+native silence export must be retained and imported if nonempty.
 
 For rollback, revert the chart version through Git/Flux while preserving the
-CRDs, monitoring custom resources, and Prometheus PVC. Do not assume Helm's
+CRDs, monitoring custom resources, Prometheus PVC, and **Grafana's
+`persistence.existingClaim: grafana-data` binding**. Revert the version, not
+the entire preservation change. Do not assume Helm's
 automatic rollback rolls back CRD schemas. A Git version revert with
 `CreateReplace` can reapply the older chart's CRDs; keep the newer, compatible
 CRDs by temporarily setting `upgrade.crds: Skip` for the downgrade, then review
 the intended CRD lifecycle policy before a subsequent forward upgrade. Check
 Prometheus logs and TSDB compatibility before downgrading its image; do not
 enable new storage encodings during this upgrade.
+
+### Preserving Grafana and Alertmanager state before the upgrade
+
+Phase A ([PR333](https://github.com/blazepower/rishik-homelab-rke2/pull/333))
+only provisions `monitoring/grafana-data`: 2Gi RWO on the existing
+`longhorn-retain` class (two replicas, weekly snapshots, daily off-cluster
+backups). The claim is Flux-prune-protected. Merge/reconcile that phase and
+wait for Bound **without upgrading Grafana**.
+
+The helper assets in `infrastructure/monitoring/preservation/` are deliberately
+**not** in the monitoring Flux Kustomization. Never auto-reconcile them.
+The coordinator runs `.github/scripts/preserve-grafana-state.py`; its default
+`plan` is read-only against the cluster and records only route identities/specs
+and aggregate Grafana/plugin metadata locally. No DB, silence payload or
+credential leaves the cluster. Use a relative, private state directory:
+
+```powershell
+python .github\scripts\preserve-grafana-state.py plan --state-directory .grafana-preservation-state
+python .github\scripts\preserve-grafana-state.py hold --state-directory .grafana-preservation-state --approve-live-writes --hold-tailscale-ingress
+python .github\scripts\preserve-grafana-state.py seed --state-directory .grafana-preservation-state --approve-live-writes
+```
+
+The source must still be pod UID
+`62fb40e7-ab02-46d5-b6fc-0a7b4d05633d` on `rishik-worker2`; a different UID
+requires a fresh reviewed source path, not a force flag. The runner checks this
+before creating the hostPath Job and after seeding. It also preserves the
+Prometheus claim UID `d5436bdf-a643-4028-8a7f-513a52ed66a8` and Grafana's
+`grafana-admin-credentials` / `admin-user` / `admin-password` references.
+
+For the final seed-to-rollout window, the runner first requires zero active
+sessions. A temporary, highest-priority Traefik IngressRoute shadows only
+`grafana.homelab` on `websecure` using the existing `grafana-tls` reference and
+a no-endpoint Service. The original main ingress is untouched. This requires
+Traefik's existing `allowEmptyServices=true` and a verified HTTPS **503**.
+No conflicting Grafana IngressRoute was present during preparation.
+**The Tailscale ingress bypasses Traefik**, so the overlay alone cannot prevent
+new edits. The explicit `--hold-tailscale-ingress` exception temporarily points
+that captured ingress at the empty Service with UID/resourceVersion/spec
+preconditions and a resource-level Flux reconcile-disable annotation. Its
+original spec/annotation is restored after internal verification; neither the
+root Kustomization nor HelmRelease is suspended. Both public health paths must
+be blocked before seeding and remain blocked through rollout. Operators must
+also refrain from direct service/port-forward API writes during this window.
+
+The seed Job is rootless UID/GID/fsGroup472, no service-account token, no
+capabilities, read-only root filesystem and read-only source hostPath of type
+Directory. It uses the cached sidecar image pinned by digest, bounded resources
+and a ten-minute deadline. Egress is limited to cluster DNS and Alertmanager9093.
+The runner injects the destination PVC UID; applying the bare Job is rejected.
+
+Python SQLite's **online backup API** copies from `mode=ro` with a held read
+transaction. Destination `integrity_check` must be `ok` and counts must match
+that exact snapshot, even if a writer commits concurrently. The helper refuses
+any nonempty destination, copies all other files/plugins without substituting
+live SQLite WAL/shm/journal files, and keeps a separate private0700/0600
+pre-upgrade database plus native silence JSON under `.grafana-preservation`
+on the destination PVC. Logs contain only receipt metadata/counts. Failure
+keeps the original source and partial destination intact: do not bypass the
+overwrite guard, delete either claim, or remove the maintenance hold.
+If aborting before upgrade, `abort-hold --approve-live-writes` restores routes
+only while the exact original Grafana is healthy and no seed Job is active;
+it retains all partial destination/recovery data. Never bypass a failed seed
+with an empty replacement claim.
+
+**Only after a successful seed receipt** may the coordinator merge the chart
+upgrade/persistence binding. After rollout, while the hold remains:
+
+```powershell
+# Needed only when the seed receipt's silenceCount is nonzero:
+python .github\scripts\preserve-grafana-state.py restore-silences --state-directory .grafana-preservation-state --approve-live-writes
+python .github\scripts\preserve-grafana-state.py verify --state-directory .grafana-preservation-state
+python .github\scripts\preserve-grafana-state.py release --state-directory .grafana-preservation-state --approve-live-writes
+python .github\scripts\preserve-grafana-state.py cleanup --state-directory .grafana-preservation-state --approve-live-writes
+```
+
+Native silence import uses the running Alertmanager image's exact digest and
+`amtool silence import`, with the JSON mounted read-only from the PVC and no
+payload logging. Verification requires the same PVC UID/binding, saved-object
+counts, database health, preference metadata and every previously enabled
+plugin ID. Plugin versions are inventoried before/after (bundled versions may
+legitimately advance); also check plugin load errors and dashboard rendering.
+Perform the Prometheus/Alertmanager checks above before release.
+
+Cleanup is a strict temporary-resource allowlist using Kubernetes
+`DeleteOptions.preconditions.uid`; it cannot delete PVCs, application pods,
+databases or recovery files. Keep the local state receipt and on-PVC recovery
+copy until post-upgrade backups are verified. The phase-A PVC and production
+data are never part of cleanup.
 
 ### Custom Dashboards
 

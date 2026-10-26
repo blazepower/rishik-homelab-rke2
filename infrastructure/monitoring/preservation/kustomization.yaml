@@ -1,0 +1,12 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: monitoring
+resources:
+  - job-grafana-state-seed.yaml
+  - networkpolicy-grafana-state-seed.yaml
+configMapGenerator:
+  - name: grafana-state-seed-code
+    files:
+      - grafana-state-seed.py
+generatorOptions:
+  disableNameSuffixHash: true

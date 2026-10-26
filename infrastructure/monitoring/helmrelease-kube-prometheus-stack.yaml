@@ -56,6 +56,11 @@ spec:
                   storage: 10Gi
     grafana:
       priorityClassName: infrastructure-high
+      persistence:
+        enabled: true
+        existingClaim: grafana-data
+      initChownData:
+        enabled: false
       adminUser: admin
       admin:
         existingSecret: grafana-admin-credentials

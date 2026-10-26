@@ -88,6 +88,9 @@ jobs:
       - name: Test monitoring admission network policy
         run: python3 .github/scripts/test-monitoring-admission-policy.py
 
+      - name: Test monitoring upgrade preservation
+        run: python3 .github/scripts/test-monitoring-stack-upgrade.py
+
       - name: Test cert-manager upgrade safeguards
         run: python3 .github/scripts/test-cert-manager-upgrade.py
 
