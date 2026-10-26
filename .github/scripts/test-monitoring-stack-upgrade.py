@@ -178,6 +178,37 @@ def preservation_checks():
             pass
         else:
             raise AssertionError("Missing exact source UID must fail closed")
+    proxy = {"metadata": {"namespace": "tailscale", "name": "proxy", "uid": "proxy-uid", "labels": {
+        "app": "captured-ingress-uid", "tailscale.com/parent-resource-ns": "monitoring",
+    }}, "status": {"containerStatuses": [{"ready": True}]}}
+    wrong_backend = False
+    has_endpoint = False
+
+    def fake_proxy_command(*arguments, **kwargs):
+        if arguments[:2] == ("get", "pods"):
+            return json.dumps({"items": [proxy]})
+        if arguments[0] == "exec":
+            ip = "10.0.0.9" if wrong_backend else "10.0.0.1"
+            return json.dumps({"Web": {"grafana:443": {"Handlers": {"/": {"Proxy": f"http://{ip}:80/"}}}}})
+        if arguments[:2] == ("get", "endpointslices.discovery.k8s.io"):
+            return json.dumps({"items": [{"endpoints": [{"addresses": ["10.0.0.2"]}]}] if has_endpoint else []})
+        raise AssertionError("Unexpected proxy test command")
+
+    def fake_proxy_get(kind, *arguments, **kwargs):
+        return {"spec": {"clusterIP": "10.0.0.1"}} if kind == "service" else None
+
+    with mock.patch.object(runner, "get", side_effect=fake_proxy_get), \
+            mock.patch.object(runner, "kubectl", side_effect=fake_proxy_command):
+        assert runner.tailscale_backend("grafana-maintenance-hold", "captured-ingress-uid")["readyBackendAddresses"] == 0
+        for unsafe in ("wrong-backend", "nonempty-service"):
+            wrong_backend = unsafe == "wrong-backend"
+            has_endpoint = unsafe == "nonempty-service"
+            try:
+                runner.tailscale_backend("grafana-maintenance-hold", "captured-ingress-uid")
+            except RuntimeError:
+                pass
+            else:
+                raise AssertionError("Unavailable client DNS must never bypass runtime ingress protection")
 
     specification = importlib.util.spec_from_file_location("grafana_seed", assets / "grafana-state-seed.py")
     helper = importlib.util.module_from_spec(specification)

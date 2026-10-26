@@ -234,6 +234,17 @@ root Kustomization nor HelmRelease is suspended. Both public health paths must
 be blocked before seeding and remain blocked through rollout. Operators must
 also refrain from direct service/port-forward API writes during this window.
 
+The preparation workstation cannot resolve the Tailscale MagicDNS hostname.
+When its external HTTPS probe is unavailable, the runner instead verifies
+the captured ingress UID's ready Tailscale proxy with the **read-only native
+`tailscale serve status --json` API**, requiring its runtime forwarder to
+point at the expected Service IP. During hold it additionally requires zero
+EndpointSlice/legacy endpoints and no Service selector. It never reads the
+proxy's Secret-mounted serve-config file. This prevents treating an
+unreachable client probe as proof of maintenance. Verify external Tailscale
+HTTPS separately from a tailnet-enabled client after release; the ordinary
+LAN hostname still requires a real200→503→200 probe.
+
 The seed Job is rootless UID/GID/fsGroup472, no service-account token, no
 capabilities, read-only root filesystem and read-only source hostPath of type
 Directory. It uses the cached sidecar image pinned by digest, bounded resources

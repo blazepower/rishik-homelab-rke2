@@ -103,6 +103,37 @@ def health_code(url):
         return 0
 
 
+def tailscale_backend(service_name, ingress_uid):
+    """Verify the live forwarder without reading its Secret-mounted serve file."""
+    service = get("service", service_name)
+    pods = json.loads(kubectl("get", "pods", "-A", "-l",
+                             "tailscale.com/parent-resource=grafana-tailscale", "-o", "json"))["items"]
+    pods = [pod for pod in pods if pod["metadata"]["labels"].get("app") == ingress_uid
+            and pod["metadata"]["labels"].get("tailscale.com/parent-resource-ns") == "monitoring"
+            and all(container.get("ready") for container in pod["status"].get("containerStatuses", []))]
+    if len(pods) != 1:
+        raise RuntimeError("Exactly one ready Tailscale forwarder for the captured ingress UID is required")
+    pod = pods[0]
+    config = json.loads(kubectl("exec", "-n", pod["metadata"]["namespace"], pod["metadata"]["name"],
+                               "-c", "tailscale", "--", "tailscale", "serve", "status", "--json"))
+    proxies = [handler.get("Proxy") for web in config.get("Web", {}).values()
+               for handler in web.get("Handlers", {}).values() if handler.get("Proxy")]
+    if proxies != [f"http://{service['spec']['clusterIP']}:80/"]:
+        raise RuntimeError("Tailscale runtime forwarder has not reached the expected Service")
+    slices = json.loads(kubectl("get", "endpointslices.discovery.k8s.io", "-n", "monitoring", "-l",
+                               f"kubernetes.io/service-name={service_name}", "-o", "json"))["items"]
+    ready = sum(len(endpoint.get("addresses", [])) for item in slices for endpoint in item.get("endpoints", [])
+                if endpoint.get("conditions", {}).get("ready") is not False)
+    if service_name == "grafana-maintenance-hold":
+        legacy = get("endpoints", service_name, optional=True)
+        if ready or (legacy and legacy.get("subsets")) or service["spec"].get("selector"):
+            raise RuntimeError("The maintenance Service must have no selector or endpoints")
+    elif ready == 0:
+        raise RuntimeError("The real Grafana Service has no ready endpoints")
+    return {"proxyPodUID": pod["metadata"]["uid"], "serviceName": service_name,
+            "runtimeBackendVerified": True, "readyBackendAddresses": ready}
+
+
 def write_state(path, state):
     path.write_text(json.dumps(state, indent=2), encoding="utf-8")
 
@@ -163,6 +194,7 @@ def assert_hold(state):
     codes = [health_code(url) for url in URLS]
     if codes[0] != 503 or codes[1] not in (0, 404, 502, 503):
         raise RuntimeError(f"Both user ingress paths must remain blocked; status codes={codes}")
+    tailscale_backend("grafana-maintenance-hold", state["ingresses"]["grafana-tailscale"]["uid"])
 
 
 def delete_owned(record):
@@ -220,10 +252,13 @@ def main():
         routes = json.loads(kubectl("get", "ingressroutes.traefik.io", "-A", "-o", "json"))["items"]
         if any("grafana.homelab" in json.dumps(route["spec"]) for route in routes):
             raise RuntimeError("An existing Grafana IngressRoute needs coordinator review")
-        if [health_code(url) for url in URLS] != [200, 200]:
-            raise RuntimeError("Both original user ingress health endpoints must be reachable before hold")
+        codes = [health_code(url) for url in URLS]
+        if codes[0] != 200 or codes[1] not in (0, 200):
+            raise RuntimeError("Original Grafana user ingress health preconditions failed")
+        tail_proof = tailscale_backend("kube-prometheus-stack-grafana", ingresses["grafana-tailscale"]["metadata"]["uid"])
         state = {"run": str(uuid.uuid4()), "sourcePodUID": SOURCE_UID, "owned": [], "phase": "planned",
-                 "inventory": inv, "ingresses": {name: {
+                 "inventory": inv, "originalHTTPStatusCodes": codes, "tailscaleRuntimeProof": tail_proof,
+                 "ingresses": {name: {
                      "uid": item["metadata"]["uid"], "resourceVersion": item["metadata"]["resourceVersion"],
                      "spec": item["spec"], "annotations": item["metadata"].get("annotations", {}),
                  } for name, item in ingresses.items()}}
@@ -391,9 +426,16 @@ def main():
         state["phase"] = "released"
         write_state(path, state)
         for _ in range(30):
-            if [health_code(url) for url in URLS] == [200, 200]:
-                state["publicHealthy"] = True
-                break
+            codes = [health_code(url) for url in URLS]
+            if codes[0] == 200 and codes[1] in (0, 200):
+                try:
+                    state["tailscaleRuntimeProof"] = tailscale_backend(
+                        "kube-prometheus-stack-grafana", state["ingresses"]["grafana-tailscale"]["uid"])
+                    state["releasedHTTPStatusCodes"] = codes
+                    state["publicHealthy"] = True
+                    break
+                except RuntimeError:
+                    pass
             time.sleep(5)
         else:
             raise RuntimeError("Routes restored but public health not yet recovered; do not clean up")
