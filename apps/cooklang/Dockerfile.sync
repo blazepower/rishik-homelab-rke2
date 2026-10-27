@@ -1,6 +1,6 @@
 # Cook Desktop Sync Agent with Xvfb for headless operation
 # Cook Desktop 0.2.5 uses WebKitGTK 4.0, shipped natively by supported Jammy.
-FROM ubuntu:22.04
+FROM ubuntu:26.04
 
 ARG COOK_DESKTOP_VERSION=0.2.5
 
