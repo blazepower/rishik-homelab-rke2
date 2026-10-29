@@ -145,18 +145,56 @@ Kindle Sender is designed to be extremely lightweight and efficient.
 
 ## Building the Docker Image
 
-The Go application is located in `src/` directory:
+The maintained application source is in `src/`, not a separate repository inferred
+from the GHCR username. The current immutable `v1.0.0` amd64 artifact
+(`sha256:4ecbbe85df4075286e3c5b2bab081abbd9b784e23856258b586d33e860754177`)
+has no OCI source/revision labels and its native build-info reports Go 1.21.13.
+Changing a CA bundle alone cannot patch that compiled runtime.
+
+From the repository root, on a Linux Docker/Buildx runner with Python, OpenSSL,
+and Go available, run the **non-publishing** acceptance command:
 
 ```bash
-cd apps/kindle-sender/src
-docker build -t ghcr.io/blazepower/kindle-sender:v1.0.0 .
-docker push ghcr.io/blazepower/kindle-sender:v1.0.0
+python3 .github/scripts/test-kindle-ca-build.py
+python3 .github/scripts/verify-kindle-ca.py --output .kindle-ca-proof.json
 ```
 
 ### Multi-stage Build
-The Dockerfile uses a multi-stage build:
-1. **Builder stage**: Compiles Go application with static linking
-2. **Final stage**: Minimal Alpine image with CA certificates
+The Dockerfile pins Go 1.27.3 and the distroless seed by immutable digest, keeps
+`GOTOOLCHAIN=local`, and retains the application version and maintained dependency
+manifest. The existing protobuf 1.33.0 security update is preserved; the old
+artifact used 1.31.0, so its dependency graph is not claimed to be byte-identical.
+No application behavior or database format is changed.
+
+The named build context `kindle-policy=.github/security` supplies the canonical
+eleven-SPKI policy without sending real application configuration as build
+context. A build-only Go tool removes exact matches before regenerating **all**
+system trust paths. The final image uses the distroless filesystem plus those
+cleared roots, a statically linked CGO/SQLite binary, and UID/GID 65532.
+
+Acceptance compares the actual production and test-image binaries and bundles,
+checks native application build-info and every module version against `go.mod`,
+checks the exact public-root SPKIs, and executes the same-toolchain native tests
+on the actual final filesystem with no outbound network, read-only root,
+no capabilities, and no application entrypoint. Tests never read real config,
+book data, SMTP credentials, or send messages. The test binary is absent from
+the production target.
+
+All eight compromised public SPKIs in `src/kindle-ca-spkis.json` were extracted
+from public certificates at
+`https://ctlogs.dev/ca/<certificate_sha256>/cert.pem`, with each certificate's DER
+SHA-256 verified against the incident disclosure linked in the canonical policy.
+The tests verify each SPKI against that policy, issue synthetic test certificates
+under an ephemeral local CA, prove native chain-policy rejection and real
+loopback TLS rejection, and include valid-TLS and ordinary unknown-root controls.
+No compromised private key is used: a negative TLS case must specifically fail
+**certificate validation**, not merely fail a subsequent handshake signature.
+
+The Kindle-only workflow records proof in its job summary. Local Windows native
+tests are not Linux image acceptance; the proof JSON is emitted only after the
+complete Linux acceptance succeeds. Publication and a separately reviewed
+immutable HelmRelease update remain gated on that evidence. This preparation
+does not publish, push, deploy, reconcile Flux, or modify cluster storage.
 
 ## Troubleshooting
 
