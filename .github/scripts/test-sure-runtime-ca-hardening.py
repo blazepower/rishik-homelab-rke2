@@ -7,6 +7,7 @@ import subprocess
 import sys
 import time
 import unittest
+from unittest import mock
 import uuid
 
 import yaml
@@ -30,6 +31,75 @@ def render(values):
     if result.returncode:
         raise AssertionError(result.stderr)
     return [doc for doc in yaml.safe_load_all(result.stdout) if doc]
+
+
+def sidekiq_probe_command(container):
+    # Factory gems live in BUNDLE_PATH/ruby/3.4.0, not plain GEM_HOME/specifications.
+    return ["exec", container, "bundle", "exec", "ruby", "-e", SIDEKIQ_REGISTRATION_PROBE]
+
+
+def probe_diagnostics(result):
+    details = {"exit_code": result.returncode}
+    for line in (result.stdout + result.stderr).decode(errors="replace").splitlines():
+        try:
+            data = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(data, dict):
+            continue
+        if type(data.get("sidekiq_registered")) is bool:
+            details["sidekiq_registered"] = data["sidekiq_registered"]
+        error = data.get("sidekiq_probe_error")
+        if isinstance(error, str) and len(error) <= 80 and re.fullmatch(r"[A-Za-z_]\w*(?:::[A-Za-z_]\w*)*", error):
+            details["error_class"] = error
+    classes = re.findall(
+        r"\((LoadError|SyntaxError|NameError|NoMethodError|ArgumentError|TypeError|Bundler::GemNotFound)\)",
+        result.stderr.decode(errors="replace"),
+    )
+    if classes:
+        details["ruby_error_classes"] = sorted(set(classes))
+    return details
+
+
+class SureProbeTests(unittest.TestCase):
+    def test_registration_probe_uses_factory_bundle_and_live_sidekiq_api(self):
+        command = sidekiq_probe_command("fixture")
+        self.assertEqual(command[:6], ["exec", "fixture", "bundle", "exec", "ruby", "-e"])
+        self.assertIn('require "sidekiq/api"', command[6])
+        self.assertIn("Sidekiq::ProcessSet.new(false).any?", command[6])
+        self.assertIn('worker["pid"] == 1', command[6])
+        self.assertIn('worker["beat"].to_f > now - 60', command[6])
+
+    def test_failure_retains_probe_exit_class_and_process_state_without_raw_output_or_logs(self):
+        case = SureLinuxAcceptance("test_original_rails_and_sidekiq_startup_native_defaults_and_mount_barriers")
+        case.containers = ["fixture"]
+        result = subprocess.CompletedProcess([], 2, b"private-generated-auth-output\n",
+                                            b'{"sidekiq_probe_error":"LoadError","message":"private-error"}\n')
+        state = {"Running": True, "ExitCode": 0, "OOMKilled": False, "Error": "private-state"}
+        case.docker = mock.Mock(side_effect=[result, subprocess.CompletedProcess([], 0, json.dumps(state).encode())])
+        with self.assertRaises(AssertionError) as failure:
+            case.wait_ready(sidekiq_probe_command("fixture"), 0, "Sidekiq registration")
+        message = str(failure.exception)
+        self.assertIn('"exit_code": 2', message)
+        self.assertIn('"error_class": "LoadError"', message)
+        self.assertIn('"Running": true', message)
+        self.assertIn('"OOMKilled": false', message)
+        self.assertNotIn("private-", message)
+        self.assertEqual([call.args[0] for call in case.docker.call_args_list], ["exec", "inspect"])
+
+    def test_unregistered_probe_is_retried_until_success(self):
+        case = SureLinuxAcceptance("test_original_rails_and_sidekiq_startup_native_defaults_and_mount_barriers")
+        case.docker = mock.Mock(side_effect=[
+            subprocess.CompletedProcess([], 1, b'{"sidekiq_registered":false}\n', b""),
+            subprocess.CompletedProcess([], 0, b'{"sidekiq_registered":true}\n', b""),
+        ])
+        with mock.patch.object(time, "sleep"):
+            case.wait_ready(sidekiq_probe_command("fixture"), 1, "Sidekiq registration")
+        self.assertEqual(case.docker.call_count, 2)
+
+    def test_unstructured_load_error_retains_class_without_error_message(self):
+        result = subprocess.CompletedProcess([], 1, b"", b"private-error (LoadError)\n")
+        self.assertEqual(probe_diagnostics(result), {"exit_code": 1, "ruby_error_classes": ["LoadError"]})
 
 
 class SureChartTests(unittest.TestCase):
@@ -281,10 +351,8 @@ class SureLinuxAcceptance(unittest.TestCase):
         self.assertGreater(int(schema.strip()), 0)
         sidekiq = self.create(options=[*options, "--entrypoint=bundle"], command=["exec", "sidekiq"], network=network)
         self.docker("start", sidekiq)
-        self.wait_ready([
-            "exec", sidekiq, "ruby", "-rredis", "-e",
-            "exit(Redis.new(url:ENV.fetch('REDIS_URL')).scard('processes')>0 ? 0 : 1)",
-        ], 90, "original bundle exec sidekiq process registration in disposable Redis")
+        self.wait_ready(sidekiq_probe_command(sidekiq), 90,
+                        "original bundle exec sidekiq process registration in disposable Redis")
         for container in (rails, sidekiq):
             state = json.loads(self.docker("inspect", "--format={{json .State}}", container).stdout)
             self.assertTrue(state["Running"])
@@ -296,18 +364,42 @@ class SureLinuxAcceptance(unittest.TestCase):
 
     def wait_ready(self, command, seconds, description):
         deadline = time.monotonic() + seconds
-        while time.monotonic() < deadline:
-            if self.docker(*command, timeout=10, check=False).returncode == 0:
+        while True:
+            last_probe = self.docker(*command, timeout=10, check=False)
+            if last_probe.returncode == 0:
                 return
+            if time.monotonic() >= deadline:
+                break
             time.sleep(1)
         container = command[1]
         self.assertIn(container, self.containers)
-        logs = self.docker("logs", "--tail=40", container, check=False)
-        text = (logs.stdout + logs.stderr).decode(errors="replace")
-        public_lines = [line for line in text.splitlines()
-                        if not re.search(r"secret|token|password|credential|https?://", line, re.I)]
-        self.fail(description + " acceptance failed (disposable fixture only):\n"
-                  + "\n".join(public_lines)[-2400:])
+        inspected = self.docker("inspect", "--format={{json .State}}", container, check=False)
+        try:
+            state = json.loads(inspected.stdout) if inspected.returncode == 0 else {}
+        except ValueError:
+            state = {}
+        public_state = {key: state[key] for key in ("Running", "ExitCode", "OOMKilled") if key in state}
+        self.fail(description + " acceptance failed (disposable fixture only): "
+                  + json.dumps({"last_probe": probe_diagnostics(last_probe), "container_state": public_state}))
+
+
+SIDEKIQ_REGISTRATION_PROBE = r"""
+require "json"
+begin
+ require "sidekiq/api"
+ Sidekiq.logger.level = Logger::FATAL
+ Sidekiq.configure_client{|config|config.redis={url:ENV.fetch("REDIS_URL")}}
+ now=Time.now.to_f
+ registered=Sidekiq::ProcessSet.new(false).any? do |worker|
+  worker["pid"] == 1 && worker["beat"].to_f > now - 60
+ end
+ puts JSON.generate({sidekiq_registered:registered})
+ exit(registered ? 0 : 1)
+rescue LoadError, StandardError => error
+ warn JSON.generate({sidekiq_probe_error:error.class.name})
+ exit 2
+end
+"""
 
 
 NATIVE_PROBE = r"""
