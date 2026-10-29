@@ -472,7 +472,7 @@ jobs:
           sudo mv gitleaks /usr/local/bin/
 
       - name: Run gitleaks
-        run: gitleaks detect --config .gitleaks.toml --source . --verbose
+        run: gitleaks detect --redact --config .gitleaks.toml --source . --verbose
 
   security-scan:
     name: Security Scan

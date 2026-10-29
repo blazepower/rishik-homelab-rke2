@@ -248,7 +248,7 @@ class SureLinuxAcceptance(unittest.TestCase):
             "--user=70:70", "--tmpfs=/pgdata:rw,uid=70,gid=70,mode=0700",
             "--tmpfs=/var/run/postgresql:rw,uid=70,gid=70,mode=0775",
             "--env=PGDATA=/pgdata", "--env=POSTGRES_DB=sure_fixture", "--env=POSTGRES_USER=fixture",
-            "--env=POSTGRES_PASSWORD=public-test-fixture",
+            "--env=POSTGRES_PASSWORD=public-test-fixture",  # gitleaks:allow
         ], network=network)
         redis = self.create(REDIS, options=["--read-only", "--user=1000:1000", "--entrypoint=redis-server"],
                             command=["--bind", "127.0.0.1", "--save", "", "--appendonly", "no"], network=network)
@@ -262,7 +262,7 @@ class SureLinuxAcceptance(unittest.TestCase):
             "SELF_HOSTING_ENABLED": "true", "RAILS_FORCE_SSL": "false", "RAILS_ASSUME_SSL": "false",
             "DB_HOST": "127.0.0.1", "POSTGRES_DB": "sure_fixture",
             "TMPDIR": "/rails/tmp",
-            "POSTGRES_USER": "fixture", "POSTGRES_PASSWORD": "public-test-fixture",
+            "POSTGRES_USER": "fixture", "POSTGRES_PASSWORD": "public-test-fixture",  # gitleaks:allow
             "REDIS_URL": "redis://127.0.0.1:6379/1",
         }
         options = self.app_options(output)

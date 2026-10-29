@@ -197,6 +197,22 @@ complete Linux acceptance succeeds. Publication and a separately reviewed
 immutable HelmRelease update remain gated on that evidence. This preparation
 does not publish, push, deploy, reconcile Flux, or modify cluster storage.
 
+### Subsequent isolated acceptance
+
+Run [40947138092](https://github.com/blazepower/rishik-homelab-rke2/actions/runs/40947138092)
+accepted source `7ee1cf9` on Linux/amd64, including actual static-CGO SQLite,
+Go 1.27.3 native chain/TLS controls and all public runtime trust paths.
+The final bundle had 148 roots and no matches for the eleven canonical SPKIs.
+The production/test-image binaries and bundles matched.
+
+The accepted binary SHA-256 was
+`5acba3ca38068dea9a88b64542cc7ba64442951b70eb57cf50f6ac18c79aad4e`.
+This candidate was **not published or deployed**; local Docker image/config IDs
+are not registry manifest digests and must not be used as Helm image pins.
+A publishing build must repeat acceptance on the exact artifact it pushes,
+use a non-mutating release tag, and undergo separate immutable-pin review.
+The live image remains unchanged.
+
 ## Troubleshooting
 
 ### Check pod status

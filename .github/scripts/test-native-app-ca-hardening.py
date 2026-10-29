@@ -69,14 +69,14 @@ def docker(*command, **kwargs):
 
 
 def readonly_probe(profile):
-    command = "set -eu; "
+    command = "set -eu; LC_ALL=C; export LC_ALL; "
     for tree in guard.NATIVE_TREES[profile]:
         command += (
             f"if error=$(touch /{tree}/.native-ca-write-probe 2>&1); then exit 31; fi; "
             'case "$error" in *"Read-only file system"*) ;; '
             '*) printf "%s\\n" "$error" >&2; exit 35 ;; esac; '
             f"if error=$(mv /{tree} /{tree}-replaced 2>&1); then exit 32; fi; "
-            'case "$error" in *"Read-only file system"*|*"Device or resource busy"*) ;; '
+            'case "$error" in *"Read-only file system"*|*"Device or resource busy"*|*"Resource busy"*) ;; '
             '*) printf "%s\\n" "$error" >&2; exit 36 ;; esac; '
         )
     command += (
@@ -93,6 +93,8 @@ class WiringTests(unittest.TestCase):
             probe = readonly_probe(profile)
             self.assertIn("Read-only file system", probe)
             self.assertIn("Device or resource busy", probe)
+            self.assertIn('"Resource busy"', probe)
+            self.assertIn("LC_ALL=C", probe)
             self.assertNotIn("update-ca-certificates", probe)
             self.assertNotIn("2>/dev/null", probe)
             for tree in guard.NATIVE_TREES[profile]:
@@ -387,6 +389,13 @@ class FilterTests(unittest.TestCase):
 
 
 class ImmutableImageTests(unittest.TestCase):
+    def assert_public_readonly(self, profile, *command):
+        result = subprocess.run(
+            ["docker", *command], capture_output=True, text=True, timeout=120,
+        )
+        self.assertEqual(result.returncode, 0,
+                         profile + " public filesystem barrier failed: " + result.stderr)
+
     def test_optional_public_export_has_exact_expected_layout_and_independent_spki(self):
         if not REGISTRY:
             self.skipTest("Explicit --registry required; no image execution")
@@ -475,9 +484,11 @@ class ImmutableImageTests(unittest.TestCase):
                 # Gluetun's real VPN startup requires credentials/NET_ADMIN. Do
                 # not bypass it, supply credentials, or claim full VPN validation.
                 if profile == "gluetun":
-                    docker("run", "--rm", "--network", "none", "--cap-drop", "ALL",
-                           "--security-opt", "no-new-privileges", *overlays,
-                           "--entrypoint", "/bin/sh", image(profile), "-c", readonly_probe(profile))
+                    self.assert_public_readonly(
+                        profile, "run", "--rm", "--network", "none", "--cap-drop", "ALL",
+                        "--security-opt", "no-new-privileges", *overlays,
+                        "--entrypoint", "/bin/sh", image(profile), "-c", readonly_probe(profile),
+                    )
                     RESULTS.append({"profile": profile, "public_store": "FILTERED_READONLY",
                                     "original_vpn_startup": "NOT_RUN_CREDENTIALS_AND_PRIVILEGES_PROHIBITED",
                                     "go_compiled_policy": "BLOCKED_GO1.25.11"})
@@ -513,7 +524,9 @@ class ImmutableImageTests(unittest.TestCase):
                         time.sleep(2)
                     # Do not print application logs: startup may generate auth credentials.
                     self.assertTrue(ready, profile + " original startup failed isolated HTTP readiness; no logs dumped")
-                    docker("exec", "--user", "0", name, "/bin/sh", "-c", readonly_probe(profile))
+                    self.assert_public_readonly(
+                        profile, "exec", "--user", "0", name, "/bin/sh", "-c", readonly_probe(profile),
+                    )
                     if profile == "overseerr":
                         native = (
                             "const fs=require('fs'),tls=require('tls'),crypto=require('crypto');"

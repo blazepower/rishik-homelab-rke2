@@ -782,7 +782,7 @@ class MediaSabFailureDiagnosticsTests(unittest.TestCase):
     def test_sanitizer_cli_never_emits_log_lines_authentication_data_urls_or_environment(self):
         canary = "canary-generated-auth-do-not-emit"
         fixture = (
-            f"SAB API key: {canary}\nPASSWORD={canary}\n"
+            f"SAB API key: {canary}\nPASSWORD={canary}\n"  # gitleaks:allow
             f"WARNING: fetching https://user:{canary}@repository.invalid/main: error\n"
             f"update-ca-certificates: Read-only file system /etc/ssl/certs/{canary}\n"
             "s6-rc: warning: unable to start service init-mods-package-install\n"

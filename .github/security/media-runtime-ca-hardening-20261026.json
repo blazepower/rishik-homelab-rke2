@@ -1,6 +1,19 @@
 {
   "state": "PREPARED_NOT_RUNTIME_VALIDATED",
   "deployment_approved_by_this_report": false,
+  "subsequent_linux_diagnostics": {
+    "head": "7ee1cf90f8b7a1eabe80fc44e24a5a28a0156e38",
+    "run_id": 40947138014,
+    "job_id": 123705362068,
+    "status": "FAILED_ACCEPTANCE_NOT_A_PROVEN_APPLICATION_OUTAGE",
+    "sab_http_status": 303,
+    "sab_container_running": true,
+    "paired_stage_exits": "mod, package and one non-ffmpeg APK call all exited zero; no unmatched or unfinished events",
+    "missing_required_evidence": "No observed ffmpeg_add=true APK transaction; complete pinned mod/ffmpeg acceptance is not established.",
+    "fixed_error_classes": ["startup_executable_unavailable"],
+    "conclusion": "The readiness allowlist omitted a legitimate HTTP303 redirect. Correct the harness, but do not weaken package/CA/native success requirements or infer a read-only CA-trigger conflict without evidence.",
+    "deployment_clearance": false
+  },
   "subsequent_linux_acceptance": {
     "head": "fc33b2d0b720cd3536e813361cd74dd5b1c64e9f",
     "run_id": 40943923000,
