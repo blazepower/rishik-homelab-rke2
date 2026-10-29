@@ -62,22 +62,29 @@
   ],
   "remaining_blockers": [
     "Local Windows execution lacks Docker/WSL. Coordinator has an authorized GitHub-hosted Linux/Docker runner through held draft PR326; media execution there is pending, not permanently unavailable. Real pinned-image execution, Linux absolute-alias tests, mount enforcement and stock /init readiness tests are NOT run in this worktree.",
-    "Run the explicit --docker suite on isolated linux/amd64 Docker 26+ (volume-subpath support), with network disabled during execution and no user config/media. Images may be pulled before execution.",
-    "The Docker suite tests base vendor bootstrap without downloading SAB's optional mod; a complete replay of the already-existing pinned ffmpeg mod/package stage must also establish compatibility before deployment.",
+    "Run the explicit --docker suite on isolated linux/amd64 Docker 26+ (volume-subpath support). All execution stays network-none except explicitly authorized disposable SAB main bootstrap with --allow-sab-bootstrap-network. No user config/media; images may be pulled before execution.",
+    "Complete SAB pinned mod/ffmpeg replay is implemented behind the opt-in flag but NOT executed locally. Require actual Linux CI success, including stage exit evidence and network disconnection, before any readiness/deployment claim.",
     "No .NET cached/user-added/custom/compiled certificate-store or chain-validation certification is claimed. Actual live public-store and native/application rejection verification is still required after separately authorized deployment.",
     "Another session owns Longhorn repair. No storage diagnosis/changes or deployment is part of this preparation."
   ],
   "sab_complete_mod_acceptance": {
     "status": "REQUIRED_NOT_RUN",
-    "execution_networking_added": false,
+    "execution_networking_added": true,
+    "bootstrap_network_default": false,
+    "required_flag": "--allow-sab-bootstrap-network",
+    "runtime_executed_in_this_worktree": false,
     "preserve_environment": {
       "DOCKER_MODS": "linuxserver/mods:universal-package-install@sha256:ae68d698c8745c48cd634e807eca41a57a2aacb142bee4ca6a2c3b2b6c64afaf",
       "INSTALL_PACKAGES": "ffmpeg"
     },
-    "existing_docker_suite_limit": "The current --docker suite starts stock base /init without DOCKER_MODS/INSTALL_PACKAGES. Its success cannot satisfy complete existing SAB bootstrap acceptance.",
+    "existing_docker_suite_limit": "Without --allow-sab-bootstrap-network, --docker tests only stock base SAB /init without the mod/package stage and explicitly labels that limitation. With the opt-in flag, SAB receives the exact Helm DOCKER_MODS/INSTALL_PACKAGES values and public PUID/PGID/TZ, while Bazarr/Prowlarr and all helpers remain network-none.",
     "stock_offline_mod_path": "Captured /docker-mods lines 383-410 support offline fallback to an existing /modcache/${FILENAME}.tar.xz. For this pin FILENAME is linuxserver.mods.universal-package-install.ae68d698c8745c48cd634e807eca41a57a2aacb142bee4ca6a2c3b2b6c64afaf. The offline branch accepts an existing valid tar without fetching/verifying a remote layer digest, so a prepared blob would need independent binding to the exact pinned mod manifest/layer before use.",
     "offline_package_limit": "The captured init-mods-package-install/run uses apk add --no-cache with the requested ffmpeg package. A cached mod tar does not provide signed APK repository indexes, ffmpeg or the complete dependency closure. No such prepared package input set is supplied here; simply mounting an ordinary apk cache does not establish offline operation for --no-cache.",
-    "network_requirement": "For a genuine clean-vendor-root replay with unchanged repository configuration and no prepared offline package repository, restricted bootstrap networking is required. A separately approved signed local repository/mirror and complete package closure could support offline installation, but would be test-specific repository configuration, not current stock configuration. No network-enabled execution or alternate bootstrap is implemented.",
+    "network_requirement": "User approved temporary outbound networking on 2026-10-29 for isolated CI SAB dependency bootstrap only. The explicit flag requires --docker and creates a uniquely labeled disposable bridge for SAB main only; it never uses host networking or publishes ports. The bridge is disconnected and NetworkSettings.Networks must be empty before public-store/native/read-only checks. The local Windows session has not executed this path.",
+    "exit_observation": "Before the first /init start, copy only public stock executables into the disposable container and install status-preserving test observers for /docker-mods, /sbin/apk, /usr/sbin/update-ca-certificates and the package-stage use of /usr/bin/with-contenv. Non-package with-contenv calls exec the original directly, preserving service supervision. Observers call original bytes with unchanged argv/environment/stdout/stderr, return the original status, and record only fixed stage names, process IDs, a public ffmpeg-transaction predicate and exit codes. They do not stub installers or alter production files.",
+    "success_requirements": "A network-none stock-image preflight rejects any preinstalled ffmpeg/ffprobe shortcut. Require successful paired mod/package events, an actual successful exact apk add --no-cache ffmpeg transaction within the original package stage, and no failed observed APK or CA refresh operation. Bind a fresh installed-mod marker to the exact pinned amd64 manifest's single layer, verify observers were not overwritten, verify APK installed state, and run both ffmpeg -version and ffprobe -version. HTTP/auth readiness alone cannot hide installer failures. The later offline update-ca-certificates negative probe is deliberately required to fail and is outside bootstrap-stage success evidence.",
+    "runtime_fidelity": "Explicitly pull/create/run linux/amd64 children of the immutable image pins. Keep the original image /init, stock authentication/bootstrap and public identity/timezone values. Apply Helm CPU/memory limits, keep normal Docker image user/default application capabilities without privileged/cap-add/host-device/socket access, and use only ephemeral empty config. Trust-overlay scripts, read-only mounts, policies, HelmRelease resources and production ffmpeg/mod behavior are unchanged.",
+    "cleanup": "All main/helper containers, volume and optional bridge carry a unique per-run ownership label. Finally remove only resources selected by that exact label, containers before networks/volumes. Container removal also removes only its attached anonymous volumes; named volumes are separately label-selected. Helpers mount empty tmpfs config instead of image-declared anonymous config volumes. Attempt remaining kinds after cleanup errors/timeouts, and surface cleanup failures rather than ignoring them.",
     "conditional_ca_conflict": "The Alpine ca-certificates refresh executable /usr/sbin/update-ca-certificates rewrites /etc/ssl/certs/ca-certificates.crt and subject-hash aliases; apk trigger invocation would conflict with the read-only cert-directory mount. Installing/upgrading CA source packages could also write the read-only /usr/share/ca-certificates tree. The actual ffmpeg dependency transaction and trigger invocation have not been captured, so this report does not assert that ffmpeg always triggers CA regeneration.",
     "required_observations": [
       "Exact pinned vendor SAB image and exact pinned universal-package-install mod; original /init and both existing environment values, with ephemeral empty config and no user media/config.",
@@ -85,14 +92,33 @@
       "Capture actual package/trigger exit statuses and bounded public initialization evidence, without secrets; demonstrate ffmpeg and ffprobe available and working.",
       "Verify original HTTP/auth readiness and unchanged codec/bootstrap behavior; verify canonical eleven SPKIs absent from all public OS/application stores, native Python and certifi contexts after the entire mod/package stage.",
       "Test whether any CA package trigger/update-ca-certificates operation fails against the read-only trust mounts and whether vendor bootstrap wrongly continues after package failure. Any such incompatibility remains a blocker, not permission to make trust writable or ignore errors.",
-      "Require separate approval before any restricted network-enabled isolated bootstrap. No cluster/storage/deployment/publication operations."
+      "Use only the explicitly approved opt-in disposable SAB bootstrap network; verify zero network attachments before trust checks. No cluster/storage/deployment/publication operations."
     ],
     "evidence": "Previously captured public pinned-image /docker-mods SHA256 53123a7f0449fe59b5111a4d96d70407beff77e8120ce06111a0b84cbeaae705 and etc/s6-overlay/s6-rc.d/init-mods-package-install/run; no new vendor downloads."
+  },
+  "bootstrap_harness_validation": {
+    "scope": "Offline unit/fixture validation only, not stock-image execution",
+    "focused_tests_total": 24,
+    "focused_tests_passed": 21,
+    "focused_tests_skipped": [
+      "Linux absolute CA-directory aliases unavailable on Windows",
+      "Explicit Docker stock-image execution not run locally",
+      "Explicit registry scan not repeated for this test-only follow-up"
+    ],
+    "existing_regressions_passed": {
+      "test-sab-codec-guard.py": 22,
+      "test-media-codec-policy.py": 19,
+      "test-servarr-https.py": 4
+    },
+    "observer_shell_syntax": "All four generated observers pass Git Bash -n; syntax only",
+    "actual_bootstrap_network_execution": "NOT_RUN",
+    "production_manifests_guard_policy_modified": false
   },
   "ci_commands": [
     "python -B .github/scripts/test-media-runtime-ca-hardening.py",
     "python -B .github/scripts/test-media-runtime-ca-hardening.py --registry --crane <verified-crane>",
     "python -B .github/scripts/test-media-runtime-ca-hardening.py --registry --crane <verified-crane> --docker",
+    "python -B .github/scripts/test-media-runtime-ca-hardening.py --registry --crane <verified-crane> --docker --allow-sab-bootstrap-network",
     "python -B .github/scripts/test-sab-codec-guard.py",
     "python -B .github/scripts/test-media-codec-policy.py",
     "python -B .github/scripts/test-servarr-https.py"
