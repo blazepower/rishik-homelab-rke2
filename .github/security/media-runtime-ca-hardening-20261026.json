@@ -1,6 +1,23 @@
 {
   "state": "PREPARED_NOT_RUNTIME_VALIDATED",
   "deployment_approved_by_this_report": false,
+  "subsequent_direct_registry_fix": {
+    "preceding_head": "93c0ffa0050e695d6cc938954c70cb66e1f0adde",
+    "preceding_run_id": 40951095423,
+    "preceding_job_id": 123719104907,
+    "preceding_failure": "HTTP303 readiness passed, but only the APK architecture query ran. Expected mod marker/cache and ffmpeg transaction were absent; fixed startup classification included mod_offline_cache_missing.",
+    "status": "SOURCE_AND_PUBLIC_REGISTRY_REPRODUCTION_COMPLETE_HOSTED_BOOTSTRAP_PENDING",
+    "stock_loader_sha256": "53123a7f0449fe59b5111a4d96d70407beff77e8120ce06111a0b84cbeaae705",
+    "root_cause": "The pinned stock loader selects LSCR by default, including for GHCR-qualified linuxserver names unless DOCKER_MODS_FORCE_REGISTRY=true. An independent TLS-verified public-registry reproduction observed cross-host redirect authorization stripping: LSCR route HTTP401/curl22, direct GHCR route HTTP200. Failed manifest resolution explains the offline-cache fallback.",
+    "fix": "GHCR-qualify the existing exact mod reference and set the stock vendor-supported DOCKER_MODS_FORCE_REGISTRY=true in both Helm values and the actual acceptance environment.",
+    "mod_index_sha256": "ae68d698c8745c48cd634e807eca41a57a2aacb142bee4ca6a2c3b2b6c64afaf",
+    "unchanged_mod_layer": "sha256:88067519a35c23252461641dbace3f7349cee70a7085fe99c57a4afa409b8262",
+    "limits": "Source trace and public registry reproduction are not complete hosted-Linux mod/package acceptance or native CA-trigger compatibility proof. No read-only CA-trigger conflict is inferred from this failure.",
+    "host_regressions": {"tests_run": 36, "passed": 33, "skipped": 3},
+    "strict_requirements_preserved": ["Exact immutable mod/layer and fresh marker", "Actual ffmpeg APK transaction and ffmpeg/ffprobe execution", "Paired successful package/APK/CA stages", "Verified network disconnection before trust checks", "Read-only canonical public stores"],
+    "deployment_clearance": false,
+    "storage_or_node_changes": false
+  },
   "subsequent_linux_diagnostics": {
     "head": "7ee1cf90f8b7a1eabe80fc44e24a5a28a0156e38",
     "run_id": 40947138014,
