@@ -5,7 +5,7 @@ metadata:
   name: calibre-web
   namespace: media
 spec:
-  suspend: false
+  suspend: true
   interval: 30m
   chart:
     spec:

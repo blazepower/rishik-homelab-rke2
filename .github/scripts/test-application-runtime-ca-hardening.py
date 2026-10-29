@@ -26,6 +26,7 @@ ROOT = Path(__file__).resolve().parents[2]
 APP = ROOT / "apps/calibre-web"
 RELEASE = yaml.safe_load((APP / "helmrelease.yaml").read_text())
 VALUES = RELEASE["spec"]["values"]
+CHART_VERSION = RELEASE["spec"]["chart"]["spec"]["version"]
 spec = importlib.util.spec_from_file_location("calibre_certifi_guard", APP / "harden-certifi.py")
 guard = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(guard)
@@ -78,7 +79,7 @@ class CalibreWiringTests(unittest.TestCase):
     def test_exact_chart_preserves_bootstrap_order_and_isolates_guard_from_user_volumes(self):
         chart = os.environ.get("APPLICATION_CA_CHART", "oci://ghcr.io/bjw-s-labs/helm/app-template")
         rendered = subprocess.run(
-            ["helm", "template", "calibre-web", chart, "--version", "5.2.1",
+            ["helm", "template", "calibre-web", chart, "--version", CHART_VERSION,
              "--namespace", "media", "--values", "-"],
             input=yaml.safe_dump(VALUES), text=True, capture_output=True, timeout=120,
         )

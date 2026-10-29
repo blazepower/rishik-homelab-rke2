@@ -42,6 +42,17 @@ Sure's Ruby/default/vendor bundles remain unmitigated; explicit custom TLS
 contexts and compiled Go blacklist gaps are outside this Calibre-specific
 overlay. The historical audit remains a timestamped pre-deployment baseline.
 
+### Controlled activation
+
+The prepared Radarr, Calibre-Web, Bazarr, Prowlarr and SABnzbd releases are
+explicitly suspended in Git. This prevents merging the preparation from
+starting five independent stateful rollouts together. Do not remove these
+holds during external storage maintenance. After the storage owner confirms
+completion and a fresh sustained safety check passes, activate one release at
+a time through Git, update its CI hold assertion, and verify actual startup,
+trust rejection, authentication and storage before activating the next.
+Preparation reports and passing CI do not authorize deployment.
+
 ## cert-manager
 
 [cert-manager](https://cert-manager.io/) is deployed to automate TLS certificate management for services exposed via Ingress.

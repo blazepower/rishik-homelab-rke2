@@ -88,6 +88,15 @@ def release(app):
 
 
 class MediaVendorPinTests(unittest.TestCase):
+    def test_prepared_releases_remain_held_for_serial_activation(self):
+        held = ("radarr", "calibre-web", "bazarr", "prowlarr", "sabnzbd")
+        for app in held:
+            with self.subTest(app=app):
+                manifest = yaml.safe_load(
+                    (ROOT / "apps" / app / "helmrelease.yaml").read_text()
+                )
+                self.assertIs(manifest["spec"]["suspend"], True)
+
     def test_manifest_pins_match_the_recorded_immutable_audits(self):
         evidence = json.loads(EVIDENCE.read_text())
         policy_bytes = POLICY.read_text(encoding="utf-8").encode("utf-8")
