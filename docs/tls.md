@@ -63,6 +63,13 @@ separately reviewed immutable release pin. Its deployed image is unchanged.
 Explicit custom TLS contexts and other compiled Go gaps remain outside
 these overlays. Historical audits remain timestamped pre-deployment baselines.
 
+On October 29, RKE2 published
+[`v1.34.13-rc1+rke2r1`](https://github.com/rancher/rke2/releases/tag/v1.34.13-rc1%2Brke2r1)
+with release notes declaring Go 1.26.10. The checked official v1.34 stable
+channel still resolves to `v1.34.12+rke2r1`. The RC is a vendor-declared
+candidate, not verified per-component binary evidence or an accepted stable
+upgrade. No node changes or prerelease deployment are authorized by this audit.
+
 ### Controlled activation
 
 The prepared Radarr, Calibre-Web, Bazarr, Prowlarr, SABnzbd, Sure, Bookshelf,
