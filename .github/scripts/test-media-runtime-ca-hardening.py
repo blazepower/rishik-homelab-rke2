@@ -41,6 +41,23 @@ PROXIES = {
     "/usr/sbin/update-ca-certificates": ("ca-update", "update-ca-certificates"),
     "/usr/bin/with-contenv": ("package", "with-contenv"),
 }
+STARTUP_ERROR_CLASSES = {
+    "read_only_filesystem": rb"read-only file system",
+    "permission_denied": rb"permission denied",
+    "apk_package_selection_failed": rb"unable to select packages|unsatisfiable constraints",
+    "apk_repository_fetch_failed": rb"WARNING: fetching|ERROR: fetching",
+    "tls_verification_failed": rb"certificate verify failed|SSL certificate problem|unable to get local issuer certificate|curl: \(60\)",
+    "dns_resolution_failed": rb"could not resolve host|temporary failure in name resolution",
+    "network_connection_failed": rb"failed to connect|connection refused|network is unreachable",
+    "network_request_timeout": rb"curl: \(28\)|operation timed out",
+    "dependency_http_download_failed": rb"curl: \(22\)",
+    "filesystem_space_exhausted": rb"no space left on device",
+    "dynamic_loader_failed": rb"error loading shared library|error relocating",
+    "startup_executable_unavailable": rb"not found|bad interpreter|exec format error|cannot execute",
+    "python_import_failed": rb"ModuleNotFoundError:|ImportError:",
+    "s6_service_start_failed": rb"s6-rc:[^\r\n]{0,80}unable to start service",
+    "s6_fatal": rb"s6-[a-z0-9-]{1,40}: fatal:",
+}
 spec = importlib.util.spec_from_file_location("media_overlay", SHARED / "ca-overlay.py")
 guard = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(guard)
@@ -141,10 +158,10 @@ exit "$status"
     )).encode("ascii")
 
 
-def tar_member(archive_bytes):
+def tar_member(archive_bytes, limit=8 * 1024 * 1024):
     with tarfile.open(fileobj=io.BytesIO(archive_bytes), mode="r:*") as archive:
         members = [member for member in archive if member.isfile()]
-        if len(members) != 1 or members[0].size > 8 * 1024 * 1024:
+        if len(members) != 1 or members[0].size > limit:
             raise ValueError("Expected one bounded public executable")
         return archive.extractfile(members[0]).read(), members[0].mode
 
@@ -274,6 +291,123 @@ def disconnect_bootstrap_network(name, network):
     ).stdout)
     if networks:
         raise ValueError("SAB still has network attachments; refusing trust checks")
+
+
+def public_bootstrap_journal(data):
+    if len(data) > 65536:
+        raise ValueError("Public bootstrap journal exceeded its bound")
+    events, pending, unmatched, paired = [], {}, [], []
+    for line in data.decode("ascii").splitlines():
+        entry = json.loads(line)
+        if not isinstance(entry, dict):
+            raise ValueError("Invalid public bootstrap event")
+        stage, event, identity = (entry.get(k) for k in ("stage", "event", "id"))
+        keys = {"stage", "event", "id", "ffmpeg_add"} | ({"rc"} if event == "exit" else set())
+        if set(entry) != keys or stage not in ("mod", "package", "apk", "ca-update") or event not in ("start", "exit"):
+            raise ValueError("Invalid public bootstrap event schema")
+        if type(identity) is not int or not 0 < identity < 2**31 or type(entry["ffmpeg_add"]) is not bool:
+            raise ValueError("Invalid public bootstrap metadata")
+        if stage != "apk" and entry["ffmpeg_add"]:
+            raise ValueError("Invalid public package predicate")
+        if event == "exit" and (type(entry["rc"]) is not int or not 0 <= entry["rc"] <= 255):
+            raise ValueError("Invalid public bootstrap exit code")
+        events.append(entry)
+        key = (stage, identity)
+        if event == "start" and key not in pending:
+            pending[key] = entry
+        elif event == "exit" and key in pending and pending[key]["ffmpeg_add"] == entry["ffmpeg_add"]:
+            pending.pop(key)
+            paired.append({"stage": stage, "id": identity, "rc": entry["rc"]})
+        else:
+            unmatched.append(entry)
+    return {"events": events, "paired_exits": paired, "pending_starts": list(pending.values()),
+            "unmatched_events": unmatched, "all_events_paired": not pending and not unmatched}
+
+
+def public_startup_errors(stream):
+    # Only fixed error-class identifiers leave this process, never log lines,
+    # URLs, arguments, tracebacks, environment or generated authentication data.
+    data = stream.read(65537)
+    return {"error_classes": sorted(k for k, pattern in STARTUP_ERROR_CLASSES.items()
+                                   if re.search(pattern, data[:65536], re.IGNORECASE)),
+            "truncated": len(data) > 65536}
+
+
+def collect_public_startup_errors(name):
+    with subprocess.Popen(
+        [sys.executable, "-B", str(Path(__file__)), "--sanitize-sab-startup-errors"],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+    ) as sanitizer:
+        try:
+            try:
+                # Raw Docker output goes straight into the bounded sanitizer,
+                # not a captured parent buffer, console, report or scratch file.
+                logs = subprocess.run(["docker", "logs", "--tail", "200", name],
+                                      stdout=sanitizer.stdin, stderr=subprocess.STDOUT, timeout=10)
+            finally:
+                sanitizer.stdin.close()
+                sanitizer.stdin = None
+            output, _ = sanitizer.communicate(timeout=5)
+        except (subprocess.TimeoutExpired, OSError):
+            sanitizer.kill()
+            sanitizer.communicate()
+            raise
+        if sanitizer.returncode:
+            raise ValueError("Public startup-error sanitizer failed")
+    result = json.loads(output)
+    if not isinstance(result, dict) or set(result) != {"error_classes", "truncated"}:
+        raise ValueError("Invalid public startup-error result")
+    if type(result["truncated"]) is not bool or not isinstance(result["error_classes"], list):
+        raise ValueError("Invalid public startup-error metadata")
+    if any(type(code) is not str or code not in STARTUP_ERROR_CLASSES for code in result["error_classes"]):
+        raise ValueError("Unknown public startup-error class")
+    return {**result, "docker_logs_command_succeeded": logs.returncode == 0}
+
+
+def sab_failure_evidence(name, last_probe):
+    evidence = {"diagnostic_only": True, "root_cause_proven": False}
+    if last_probe is not None:
+        evidence["last_http_probe"] = {
+            "exit_code": last_probe.returncode,
+            "http_status": last_probe.stdout if re.fullmatch(r"[0-9]{3}", last_probe.stdout) else "unavailable",
+        }
+    state_format = (
+        '{"status":{{json .State.Status}},"running":{{json .State.Running}},'
+        '"exit_code":{{json .State.ExitCode}},"oom_killed":{{json .State.OOMKilled}},'
+        '"dead":{{json .State.Dead}}}'
+    )
+    for source in ("termination_state", "bootstrap_journal", "startup_errors"):
+        try:
+            if source == "startup_errors":
+                evidence[source] = collect_public_startup_errors(name)
+                continue
+            command = (
+                ["docker", "inspect", "--format", state_format, name] if source == "termination_state"
+                else ["docker", "cp", name + ":" + ACCEPTANCE + "/events.jsonl", "-"]
+            )
+            result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=10)
+            if result.returncode:
+                evidence[source] = {"unavailable": "docker_command_failed"}
+                continue
+            if source == "bootstrap_journal":
+                data = tar_member(result.stdout, limit=65536)[0]
+                evidence[source] = public_bootstrap_journal(data)
+            else:
+                state = json.loads(result.stdout)
+                if not isinstance(state, dict) or set(state) != {"status", "running", "exit_code", "oom_killed", "dead"}:
+                    raise ValueError("Invalid public container state")
+                if state["status"] not in ("created", "running", "paused", "restarting", "removing", "exited", "dead"):
+                    raise ValueError("Unknown public container status")
+                if any(type(state[k]) is not bool for k in ("running", "oom_killed", "dead")):
+                    raise ValueError("Invalid public container state flags")
+                if type(state["exit_code"]) is not int or not 0 <= state["exit_code"] <= 255:
+                    raise ValueError("Invalid public container exit code")
+                evidence[source] = state
+        except subprocess.TimeoutExpired:
+            evidence[source] = {"unavailable": "diagnostic_timeout"}
+        except (OSError, ValueError, UnicodeError, tarfile.TarError):
+            evidence[source] = {"unavailable": "invalid_or_unavailable_public_evidence"}
+    return evidence
 
 
 def cleanup_owned(token):
@@ -625,6 +759,144 @@ class MediaSabBootstrapHarnessTests(unittest.TestCase):
                          {"container", "network", "volume"})
 
 
+class MediaSabFailureDiagnosticsTests(unittest.TestCase):
+    def test_journal_preserves_failed_exits_and_unfinished_stages_without_acceptance(self):
+        events = MediaSabBootstrapHarnessTests.events()[:-1]
+        events[5]["rc"] = 1
+        journal = public_bootstrap_journal("\n".join(json.dumps(e) for e in events).encode())
+        self.assertEqual(journal["events"], events)
+        self.assertFalse(journal["all_events_paired"])
+        self.assertEqual(journal["pending_starts"], [events[2]])
+        self.assertIn({"stage": "ca-update", "id": 4, "rc": 1}, journal["paired_exits"])
+        with self.assertRaises(ValueError):
+            validate_bootstrap_events(events)
+        for unsafe in (
+            b'{"stage":"mod","event":"start","id":1,"ffmpeg_add":false,"token":"canary-secret"}',
+            b'{"stage":"canary-secret","event":"start","id":1,"ffmpeg_add":false}',
+            b"canary-secret",
+            b"x" * 65537,
+        ):
+            with self.subTest(payload_size=len(unsafe)), self.assertRaises(ValueError):
+                public_bootstrap_journal(unsafe)
+
+    def test_sanitizer_cli_never_emits_log_lines_authentication_data_urls_or_environment(self):
+        canary = "canary-generated-auth-do-not-emit"
+        fixture = (
+            f"SAB API key: {canary}\nPASSWORD={canary}\n"
+            f"WARNING: fetching https://user:{canary}@repository.invalid/main: error\n"
+            f"update-ca-certificates: Read-only file system /etc/ssl/certs/{canary}\n"
+            "s6-rc: warning: unable to start service init-mods-package-install\n"
+        ).encode()
+        result = subprocess.run([
+            sys.executable, "-B", str(Path(__file__)), "--sanitize-sab-startup-errors",
+        ], input=fixture, capture_output=True, timeout=30, check=True)
+        self.assertEqual(json.loads(result.stdout), {
+            "error_classes": ["apk_repository_fetch_failed", "read_only_filesystem", "s6_service_start_failed"],
+            "truncated": False,
+        })
+        self.assertEqual(result.stderr, b"")
+        for forbidden in (canary.encode(), b"https://", b"PASSWORD", b"API key", b"/etc/ssl"):
+            self.assertNotIn(forbidden, result.stdout)
+        truncated = public_startup_errors(io.BytesIO(b"x" * 65537 + b"Permission denied"))
+        self.assertEqual(truncated, {"error_classes": [], "truncated": True})
+
+    def test_only_sanitized_output_is_captured_by_parent_and_raw_stream_is_not_printed(self):
+        worker = mock.MagicMock()
+        input_pipe = worker.stdin
+        worker.returncode = 0
+        worker.communicate.return_value = (b'{"error_classes":["permission_denied"],"truncated":false}', None)
+        worker.__enter__.return_value = worker
+        with mock.patch.object(subprocess, "Popen", return_value=worker), \
+                mock.patch.object(subprocess, "run", return_value=subprocess.CompletedProcess([], 0)) as run:
+            result = collect_public_startup_errors("owned-main")
+        self.assertEqual(run.call_args.args[0], ["docker", "logs", "--tail", "200", "owned-main"])
+        self.assertIs(run.call_args.kwargs["stdout"], input_pipe)
+        self.assertIs(run.call_args.kwargs["stderr"], subprocess.STDOUT)
+        self.assertNotIn("capture_output", run.call_args.kwargs)
+        input_pipe.close.assert_called_once()
+        self.assertTrue(result["docker_logs_command_succeeded"])
+        with mock.patch.object(subprocess, "Popen", return_value=worker), \
+                mock.patch.object(subprocess, "run", side_effect=subprocess.TimeoutExpired("docker", 10)), \
+                self.assertRaises(subprocess.TimeoutExpired):
+            worker.stdin = mock.Mock()
+            collect_public_startup_errors("owned-main")
+        worker.kill.assert_called_once()
+
+    def test_stopped_container_evidence_uses_only_public_state_and_cp_not_exec(self):
+        state = {"status": "exited", "running": False, "exit_code": 111, "oom_killed": False, "dead": False}
+        events = MediaSabBootstrapHarnessTests.events()
+        events[6]["rc"] = 2
+        archive = MediaSabBootstrapHarnessTests.archive("\n".join(json.dumps(e) for e in events).encode())
+        probe = subprocess.CompletedProcess([], 7, "generated-auth-canary", "never-print-stderr")
+        with mock.patch.object(subprocess, "run", side_effect=[
+            subprocess.CompletedProcess([], 0, json.dumps(state).encode()),
+            subprocess.CompletedProcess([], 0, archive),
+        ]) as run, mock.patch.dict(globals(), {
+            "collect_public_startup_errors": lambda name: {"error_classes": ["read_only_filesystem"]},
+        }):
+            evidence = sab_failure_evidence("owned-main", probe)
+        self.assertEqual(evidence["termination_state"], state)
+        self.assertEqual(evidence["last_http_probe"], {"exit_code": 7, "http_status": "unavailable"})
+        self.assertFalse(evidence["root_cause_proven"])
+        self.assertEqual(evidence["bootstrap_journal"]["events"], events)
+        self.assertEqual(run.call_args_list[1].args[0],
+                         ["docker", "cp", "owned-main:" + ACCEPTANCE + "/events.jsonl", "-"])
+        self.assertNotIn("generated-auth-canary", json.dumps(evidence))
+        inspect = run.call_args_list[0].args[0]
+        for forbidden in (".Config", ".Env", ".Error", ".Health"):
+            self.assertNotIn(forbidden, inspect[3])
+
+    def test_diagnostic_failures_are_explicit_and_never_echo_malformed_data_or_skip_other_sources(self):
+        for failure in ("malformed", "timeout"):
+            with self.subTest(failure=failure), mock.patch.object(subprocess, "run", side_effect=(
+                [subprocess.CompletedProcess([], 0, b'{"token":"canary-secret"}'),
+                 subprocess.CompletedProcess([], 0, MediaSabBootstrapHarnessTests.archive(b"canary-secret"))]
+                if failure == "malformed"
+                else [subprocess.TimeoutExpired("docker", 10), subprocess.TimeoutExpired("docker", 10)]
+            )), mock.patch.dict(globals(), {
+                "collect_public_startup_errors": mock.Mock(side_effect=OSError("canary-secret")),
+            }):
+                evidence = sab_failure_evidence("owned-main", None)
+            for source in ("termination_state", "bootstrap_journal", "startup_errors"):
+                self.assertIn("unavailable", evidence[source])
+            self.assertNotIn("canary-secret", json.dumps(evidence))
+
+    def test_readiness_failure_collects_before_cleanup_without_weakening_failure_or_running_trust_checks(self):
+        order, calls = [], []
+
+        def run(command, **kwargs):
+            calls.append(command)
+            output, code = "", 0
+            if command[:2] == ["docker", "version"]:
+                output = "linux/amd64"
+            elif any("media-ca-filter-" in a for a in command):
+                output = '{"removed_certificate_copies":1}'
+            elif "curl" in command:
+                output, code = "000", 7
+            return subprocess.CompletedProcess(command, code, output, "")
+
+        def diagnostics(name, probe):
+            order.append("diagnostics")
+            self.assertEqual(probe.stdout, "000")
+            return {"diagnostic_only": True, "root_cause_proven": False}
+
+        captured = io.StringIO()
+        with mock.patch.dict(globals(), {
+            "DOCKER": True, "ALLOW_SAB_BOOTSTRAP_NETWORK": True, "APPS": ("sabnzbd",),
+            "expected_sab_mod": lambda: {}, "install_sab_observers": lambda name: {},
+            "sab_failure_evidence": diagnostics, "cleanup_owned": lambda token: order.append("cleanup"),
+        }), mock.patch.object(subprocess, "run", side_effect=run), \
+                mock.patch.object(time, "monotonic", side_effect=[0, 0, 601]), \
+                mock.patch.object(time, "sleep"), contextlib.redirect_stdout(captured), \
+                self.assertRaisesRegex(AssertionError, "original /init did not reach"):
+            MediaRealVendorTests("test_real_linux_docker_init_and_readonly_overlay").test_real_linux_docker_init_and_readonly_overlay()
+        self.assertEqual(order, ["diagnostics", "cleanup"])
+        self.assertIn('"root_cause_proven": false', captured.getvalue())
+        self.assertNotIn("accepted", captured.getvalue())
+        self.assertFalse(any("--verify-only" in c or ".ca-write-probe" in " ".join(c) for c in calls))
+        self.assertFalse(any(c[:3] == ["docker", "network", "disconnect"] for c in calls))
+
+
 class MediaOverlayFilterTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -837,6 +1109,7 @@ class MediaRealVendorTests(unittest.TestCase):
                 volume, name = "media-ca-" + token, "media-ca-app-" + token
                 network = "media-ca-bootstrap-" + token
                 allow_network = app == "sabnzbd" and ALLOW_SAB_BOOTSTRAP_NETWORK
+                last_probe = None
                 directory = SHARED
                 subprocess.run(["docker", "pull", "--platform=linux/amd64", image(app)],
                                check=True, capture_output=True, timeout=300)
@@ -891,6 +1164,7 @@ class MediaRealVendorTests(unittest.TestCase):
                             "docker", "exec", name, "curl", "--silent", "--max-time", "2",
                             "--output", "/dev/null", "--write-out", "%{http_code}", f"http://127.0.0.1:{port}/",
                         ], capture_output=True, text=True, timeout=10)
+                        last_probe = probe
                         if probe.returncode == 0 and probe.stdout in ("200", "301", "302", "401", "403"):
                             ready = True
                             break
@@ -940,7 +1214,11 @@ class MediaRealVendorTests(unittest.TestCase):
                     if app == "sabnzbd" and not allow_network:
                         print("SAB base-image test only: complete mod/package acceptance requires --allow-sab-bootstrap-network")
                 finally:
-                    cleanup_owned(token)
+                    try:
+                        if allow_network and sys.exc_info()[0] is not None:
+                            print("\nSAB safe failure evidence: " + json.dumps(sab_failure_evidence(name, last_probe)))
+                    finally:
+                        cleanup_owned(token)
 
 
 if __name__ == "__main__":
@@ -948,11 +1226,17 @@ if __name__ == "__main__":
     parser.add_argument("--registry", action="store_true")
     parser.add_argument("--crane", default="crane")
     parser.add_argument("--docker", action="store_true")
+    parser.add_argument("--sanitize-sab-startup-errors", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument(
         "--allow-sab-bootstrap-network", action="store_true",
         help="Explicitly allow only disposable SAB main outbound during its existing pinned mod/package bootstrap; disconnect before trust checks",
     )
     options, remaining = parser.parse_known_args()
+    if options.sanitize_sab_startup_errors:
+        if options.registry or options.docker or options.allow_sab_bootstrap_network or remaining:
+            parser.error("Public startup-error sanitizer cannot be combined with test options")
+        print(json.dumps(public_startup_errors(sys.stdin.buffer)))
+        sys.exit(0)
     if options.allow_sab_bootstrap_network and not options.docker:
         parser.error("--allow-sab-bootstrap-network requires --docker")
     REGISTRY, CRANE, DOCKER = options.registry, options.crane, options.docker
