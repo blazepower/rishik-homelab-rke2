@@ -8,7 +8,7 @@ spec:
   chart:
     spec:
       chart: kube-prometheus-stack
-      version: 88.6.5
+      version: 92.13.1
       sourceRef:
         kind: HelmRepository
         name: prometheus-community
@@ -18,8 +18,14 @@ spec:
     remediation:
       retries: 3
   upgrade:
+    # Helm otherwise leaves the Operator's installed CRD schemas behind.
+    crds: CreateReplace
+    # Three-way patching removes emptyDir when storage becomes the seeded PVC.
+    serverSideApply: disabled
     remediation:
       retries: 3
+  rollback:
+    serverSideApply: disabled
   values:
     defaultRules:
       rules:
@@ -54,6 +60,11 @@ spec:
                   storage: 10Gi
     grafana:
       priorityClassName: infrastructure-high
+      persistence:
+        enabled: true
+        existingClaim: grafana-data
+      initChownData:
+        enabled: false
       adminUser: admin
       admin:
         existingSecret: grafana-admin-credentials

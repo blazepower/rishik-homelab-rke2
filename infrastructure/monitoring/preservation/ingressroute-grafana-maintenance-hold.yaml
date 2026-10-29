@@ -1,0 +1,19 @@
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: grafana-maintenance-hold
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: grafana-maintenance-hold
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - kind: Rule
+      match: Host(`grafana.homelab`)
+      priority: 1000000
+      services:
+        - name: grafana-maintenance-hold
+          port: 80
+  tls:
+    secretName: grafana-tls

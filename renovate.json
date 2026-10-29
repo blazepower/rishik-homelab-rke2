@@ -117,7 +117,7 @@
       "labels": ["renovate", "github-actions", "dependencies"]
     },
     {
-      "description": "Group infrastructure Helm charts",
+      "description": "Review infrastructure Helm charts independently so one incompatible controller does not block every upgrade",
       "matchDatasources": ["helm"],
       "matchPackageNames": [
         "cert-manager",
@@ -133,7 +133,6 @@
         "node-feature-discovery",
         "intel-device-plugins-operator"
       ],
-      "groupName": "infrastructure",
       "labels": ["renovate", "helm", "infrastructure"]
     },
     {
@@ -218,6 +217,7 @@
       "matchDatasources": ["docker"],
       "matchPackageNames": ["lscr.io/linuxserver/calibre-web"],
       "versioning": "loose",
+      "pinDigests": true,
       "allowedVersions": "/^0\\.\\d+\\.\\d+(?:-ls\\d+)?$/i"
     },
     {
@@ -233,6 +233,36 @@
       "matchPackageNames": ["ghcr.io/we-promise/sure"],
       "allowedVersions": "!/(^|[._-])(alpha|beta|rc|preview|pre|dev|snapshot|nightly|canary)([._-]|[0-9]|$)/i",
       "respectLatest": false
+    },
+    {
+      "description": "Upgrade the generated Flux bootstrap as an official coordinated release, not as independent controller images",
+      "matchDatasources": ["docker"],
+      "matchFileNames": ["clusters/production/flux-system/gotk-components.yaml"],
+      "matchPackageNames": [
+        "ghcr.io/fluxcd/source-controller",
+        "ghcr.io/fluxcd/kustomize-controller",
+        "ghcr.io/fluxcd/helm-controller",
+        "ghcr.io/fluxcd/notification-controller"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "Keep maintenance kubectl on the Kubernetes 1.34 cluster minor; review this ceiling with each node minor upgrade",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["docker.io/alpine/k8s", "alpine/k8s"],
+      "allowedVersions": "/^1\\.34\\.\\d+$/"
+    },
+    {
+      "description": "Hold Longhorn chart automation until the dedicated storage recovery and upgrade gates are reviewed",
+      "matchDatasources": ["helm"],
+      "matchPackageNames": ["longhorn"],
+      "enabled": false
+    },
+    {
+      "description": "Keep Descheduler on 0.36.x while Kubernetes is 1.34; 0.37 tests only Kubernetes 1.35 through 1.37",
+      "matchDatasources": ["helm"],
+      "matchPackageNames": ["descheduler"],
+      "allowedVersions": "/^0\\.36\\.\\d+$/"
     }
   ],
   "ignoreDeps": [

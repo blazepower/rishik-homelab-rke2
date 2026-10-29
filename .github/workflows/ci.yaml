@@ -99,6 +99,9 @@ jobs:
       - name: Test media codec policy
         run: python3 .github/scripts/test-media-codec-policy.py
 
+      - name: Test Python media runtime compatibility
+        run: python3 .github/scripts/test-python-media-runtime.py
+
       - name: Test SAB codec guard
         run: python3 .github/scripts/test-sab-codec-guard.py
 
@@ -107,6 +110,12 @@ jobs:
 
       - name: Test monitoring admission network policy
         run: python3 .github/scripts/test-monitoring-admission-policy.py
+
+      - name: Test monitoring upgrade preservation
+        run: python3 .github/scripts/test-monitoring-stack-upgrade.py
+
+      - name: Test cert-manager upgrade safeguards
+        run: python3 .github/scripts/test-cert-manager-upgrade.py
 
       - name: Test Flux bootstrap self-management
         run: python3 .github/scripts/test-flux-bootstrap.py
