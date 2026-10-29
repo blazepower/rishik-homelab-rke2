@@ -1,0 +1,84 @@
+{
+  "captured_utc": "2026-10-29T19:53:30Z",
+  "status": "PREPARED_PENDING_COORDINATOR_GITHUB_LINUX_ACCEPTANCE",
+  "scope": "Sure only, Rails and Sidekiq. No Calibre, Plex, media/shared helpers, canonical policy, shared CI, infrastructure, storage, vendor rebuild or application/database version changes.",
+  "deployed": false,
+  "image": {
+    "requested_version": "0.7.2-alpha.2",
+    "same_running_index": "ghcr.io/we-promise/sure@sha256:b5d6d822fdef24c1af06ad455ce003139a2bd50cb6cf76a84a147dfd06b0e3dc",
+    "factory_amd64": "ghcr.io/we-promise/sure@sha256:0b58098fc7f5c189f348abcc64be1858d7789f8f724b8465d0a2a2c48a4e4b55",
+    "ruby": "3.4.7",
+    "native_openssl": "OpenSSL 3.5.4 30 Sep 2025",
+    "user": "1000:1000",
+    "working_dir": "/rails",
+    "entrypoint": ["/rails/bin/docker-entrypoint"],
+    "cmd": ["./bin/rails", "server"],
+    "sidekiq_existing_command": ["bundle", "exec", "sidekiq"]
+  },
+  "factory_evidence": {
+    "method": "Daemonless exact immutable amd64 export. Persist only public CA paths/hashes/link targets; no credentials, keystores, user configuration, or data copied.",
+    "manifest": "apps/sure-finance/factory-ca.json",
+    "manifest_entries": 453,
+    "regular_public_files": 153,
+    "public_symlinks": 300,
+    "factory_locked_startup_dependencies": {"sidekiq": "8.0.5", "redis": "5.4.0"},
+    "default_file": "/usr/lib/ssl/cert.pem -> /etc/ssl/certs/ca-certificates.crt",
+    "default_dir": "/usr/lib/ssl/certs -> /etc/ssl/certs",
+    "private_alias": "/usr/lib/ssl/private and /etc/ssl/private remain untouched and uninspected",
+    "factory_gem_ancestor_permissions": "The ruby/3.4.0/gems hierarchy and both vendor bundle parent directories are UID:GID 1000:1000, mode 0755. Single-file read-only mounts alone are insufficient against ancestor replacement."
+  },
+  "readonly_native_evidence": {
+    "method": "Existing same-image Ruby process; only known public factory CA files read. Guard and both acceptance probes passed Ruby syntax checks. Filtering and native Store verification performed in memory; no files or active stores modified.",
+    "system": {"before": 150, "after": 148, "removed_native_roots_rejected": true, "unaffected_native_control": true},
+    "aws": {"before": 135, "after": 134, "removed_native_roots_rejected": true, "unaffected_native_control": true},
+    "skylight": {"before": 128, "after": 126, "removed_native_roots_rejected": true, "unaffected_native_control": true},
+    "factory_native_default_still_trusts_both_bad_roots": true,
+    "public_negative_fixture_roots": 2,
+    "common_positive_control_available": true,
+    "preserved_public_regular_files": 151,
+    "removed_public_source_files": 2,
+    "full_mounted_default_store_or_application_startup_verified": false
+  },
+  "implementation": {
+    "policy": "All eleven canonical SPKI keys; LF/CRLF-independent key comparison, no raw Windows-byte hash assumption.",
+    "initializer": "Same pinned Sure image, existing Ruby/OpenSSL only, UID/GID 1000, read-only rootfs and no capabilities; mounts only tools ConfigMap plus dedicated public-CA emptyDir. No application env, DB credentials, SA token, PVC, config or media mounts.",
+    "overlays": ["/etc/ssl/certs", "/usr/share/ca-certificates", "/usr/local/bundle/ruby/3.4.0/gems/aws-sdk-core-3.240.0/ca-bundle.crt", "/usr/local/bundle/ruby/3.4.0/gems/skylight-6.0.4/lib/skylight/data/cacert.pem"],
+    "failure_barrier": "All factory file hashes, symlink identities and resolutions, policy keys, native trust selection, exact unaffected certificate DER multiplicities and native controls verified before initializer success. Expected input errors return 78. Kubernetes must complete the initializer before original Rails db:prepare or Sidekiq executes.",
+    "replacement_barrier": "Both application root filesystems read-only to protect writable gem ancestors, in addition to public CA read-only mounts. Three dedicated runtime writable paths added; TMPDIR selects the writable /rails/tmp instead of an unwritable root-filesystem directory. Existing optional Rails storage PVC preserved.",
+    "startup": "Original Rails jemalloc setup, db:prepare and exec remain unchanged; Sidekiq retains bundle exec sidekiq and its previous entrypoint override. No runtime package installations/downloads introduced.",
+    "version_refresh": "Factory manifest/hash drift intentionally prevents startup until re-audited and accepted.",
+    "private_custom_limits": "No private/custom/user CA stores or keystores read, copied, rewritten or mounted by the guard. Explicit custom TLS contexts, user overrides and alternate stores are preserved but not certified; an explicit custom trust context may still accept the public denied fixture.",
+    "not_a_compiled_runtime_guarantee": true
+  },
+  "acceptance": {
+    "command": "python3 .github/scripts/test-sure-runtime-ca-hardening.py",
+    "runner": "Approved GitHub-hosted Linux Docker runner is available; coordinator owns CI wiring, publication and invocation.",
+    "local_result": "8 chart/policy/isolation tests passed; 2 Linux acceptance tests intentionally deferred to that runner. Existing Calibre library bootstrap regression: 10 passed. Changed plain YAML lint and helm lint passed. Ruby guard and both probe syntax checks, actual factory fixture controls and pure native filtering passed using read-only existing-image probes.",
+    "local_validation_commands": [
+      "python .github\\scripts\\test-sure-runtime-ca-hardening.py",
+      "python .github\\scripts\\test-calibre-library-bootstrap.py",
+      "python -m yamllint apps\\sure-finance\\helmrelease.yaml apps\\sure-finance\\kustomization.yaml charts\\maybe-finance\\values.yaml charts\\maybe-finance\\Chart.yaml",
+      "helm lint charts\\maybe-finance --quiet",
+      "git diff --check"
+    ],
+    "full_startup_status": "NOT_EXECUTED_IN_THIS_UNPUBLISHED_WORKTREE",
+    "remaining_gate": "Coordinator must run prepared Linux acceptance before integration/rollout. In particular verify full Rails db:prepare and Sidekiq startup under read-only rootfs; additional unexpected application write paths must fail acceptance rather than be assumed safe.",
+    "fixtures": {
+      "postgres": "docker.io/library/postgres:18-alpine@sha256:898c60cb390d1085bc97bdd6a1ae968757421df394b071848b52b1c09c89d6a5",
+      "redis": "docker.io/library/redis:8-alpine@sha256:0bf6577d7774e592b29d093e3ac9390eb91e13d72c21e506afce736de5e0eeb0",
+      "provenance": "Existing verified repository pins, not guessed versions. Sure factory schema requires only pgcrypto/plpgsql; fresh fixture db:prepare must actually pass.",
+      "postgres_factory_account": "Exact pinned amd64 daemonless export verified public factory postgres UID:GID 70:70; fixture tmpfs ownership matches that account, not Debian's unrelated UID 999.",
+      "isolation": "Namespace owner uses --network=none; DB/Redis/Rails/Sidekiq join only its loopback namespace, with no published ports, host network, socket or privileged flags. Public synthetic credentials only, tmpfs disposable DB, no user configuration/media or real DB credentials. Every owned container/volume/output is cleaned.",
+      "public_controls": "Extract actual public bad roots and a shared unaffected native control from the pinned factory image during preparation, not invented key/version fixtures."
+    },
+    "assertions": ["Original image entrypoint and command", "Invalid/partial/duplicate policy and factory drift prevent initialization", "CRLF policy acceptance", "Actual Rails readiness and schema_migrations against disposable DB", "Actual Sidekiq process registration in disposable Redis", "No non-loopback interfaces", "Every preserved regular public file's exact certificate identity and multiplicity", "Removed source files absent", "Ruby default, AWS and Skylight native bad-root rejection and positive controls", "Read-only file and ancestor replacement barriers for both application paths", "Honest custom-context limit"]
+  },
+  "safety": {
+    "cluster_operations": "READ_ONLY_PUBLIC_APPLICATION_PROBES",
+    "storage_actions": [],
+    "deployments_publications_pushes_merges": [],
+    "historical_reports": "Unchanged; current Sure remains unmitigated until accepted and later separately deployed by coordinator.",
+    "calibre": "Untouched. Parent-reported PR326/e7969fe run40273407820 acceptance retained by coordinator; no rework.",
+    "remaining_other_runtime_gaps": "Untouched and still blocked in historical scoped audit; no umbrella completion."
+  }
+}

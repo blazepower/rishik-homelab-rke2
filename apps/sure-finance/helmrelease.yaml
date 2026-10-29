@@ -26,7 +26,11 @@ spec:
     # Use Sure fork (community fork with SimpleFIN support)
     image:
       repository: ghcr.io/we-promise/sure
-      tag: "0.7.2-alpha.2"
+      tag: "0.7.2-alpha.2@sha256:b5d6d822fdef24c1af06ad455ce003139a2bd50cb6cf76a84a147dfd06b0e3dc"
+
+    runtimeCaHardening:
+      enabled: true
+      configMapName: sure-runtime-ca
 
     # Enable OpenAI integration
     openai:

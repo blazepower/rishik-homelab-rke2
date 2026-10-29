@@ -17,6 +17,11 @@ spec:
       labels:
         {{- include "maybe-finance.selectorLabels" . | nindent 8 }}
     spec:
+      {{- if .Values.runtimeCaHardening.enabled }}
+      automountServiceAccountToken: false
+      initContainers:
+        {{- include "maybe-finance.runtimeCaInit" . | nindent 8 }}
+      {{- end }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
@@ -24,12 +29,16 @@ spec:
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
-            {{- toYaml .Values.securityContext | nindent 12 }}
+            {{- include "maybe-finance.runtimeCaSecurity" . | nindent 12 }}
           ports:
             - name: http
               containerPort: {{ .Values.service.targetPort }}
               protocol: TCP
           env:
+            {{- if .Values.runtimeCaHardening.enabled }}
+            - name: TMPDIR
+              value: /rails/tmp
+            {{- end }}
             - name: SELF_HOSTING_ENABLED
               value: {{ .Values.env.SELF_HOSTING_ENABLED | quote }}
             - name: RAILS_FORCE_SSL
@@ -74,10 +83,15 @@ spec:
             - name: REDIS_URL
               value: "redis://{{ include "maybe-finance.fullname" . }}-redis:6379/1"
             {{- end }}
-          {{- if .Values.persistence.appStorage.enabled }}
+          {{- if or .Values.persistence.appStorage.enabled .Values.runtimeCaHardening.enabled }}
           volumeMounts:
+            {{- if .Values.runtimeCaHardening.enabled }}
+            {{- include "maybe-finance.runtimeCaMounts" (dict "root" . "persistentStorage" .Values.persistence.appStorage.enabled) | nindent 12 }}
+            {{- end }}
+            {{- if .Values.persistence.appStorage.enabled }}
             - name: storage
               mountPath: /rails/storage
+            {{- end }}
           {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
@@ -85,9 +99,14 @@ spec:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
           readinessProbe:
             {{- toYaml .Values.readinessProbe | nindent 12 }}
-      {{- if .Values.persistence.appStorage.enabled }}
+      {{- if or .Values.persistence.appStorage.enabled .Values.runtimeCaHardening.enabled }}
       volumes:
+        {{- if .Values.runtimeCaHardening.enabled }}
+        {{- include "maybe-finance.runtimeCaVolumes" (dict "root" . "persistentStorage" .Values.persistence.appStorage.enabled) | nindent 8 }}
+        {{- end }}
+        {{- if .Values.persistence.appStorage.enabled }}
         - name: storage
           persistentVolumeClaim:
             claimName: {{ include "maybe-finance.fullname" . }}-storage
+        {{- end }}
       {{- end }}
