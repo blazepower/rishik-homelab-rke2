@@ -20,7 +20,17 @@ PACKAGES = {
         "lsiopy/lib/python3.14/site-packages/certifi",
         "lsiopy/lib/python3.14/site-packages/pip/_vendor/certifi",
     ),
+    "bookshelf": (),
+    "qbittorrent": (),
+    "gluetun": (),
+    "overseerr": (),
 }
+NATIVE_TREES = {
+    name: ("etc/ssl", *TREES[1:])
+    for name in ("bookshelf", "qbittorrent", "gluetun")
+}
+# The exact Seerr image has the Alpine bundle and alias, but no source trees.
+NATIVE_TREES["overseerr"] = ("etc/ssl",)
 PEM = re.compile(rb"-----BEGIN CERTIFICATE-----\s+([A-Za-z0-9+/=\r\n]+)-----END CERTIFICATE-----")
 HASH_NAME = re.compile(r"([0-9a-f]{8})\.([0-9]+)")
 
@@ -122,15 +132,20 @@ def harden(root, app, denied, verify_only=False):
     if root.is_symlink() or not root.is_dir():
         raise ValueError("Trust snapshot root must be a real directory")
     required = [TREES[0] + "/ca-certificates.crt"] + [p + "/cacert.pem" for p in PACKAGES[app]]
+    trees = NATIVE_TREES.get(app, TREES)
+    if app == "overseerr" and any(
+        (root / tree).exists() or (root / tree).is_symlink() for tree in TREES[1:]
+    ):
+        raise ValueError("Unexpected source tree in bundle-only Seerr snapshot")
     files, links = {}, {}
-    for tree in TREES:
+    for tree in trees:
         directory = root / tree
         if directory.is_symlink() or not directory.is_dir():
             raise ValueError("Missing or symlinked trust directory: " + tree)
         for path in directory.rglob("*"):
             relative = path.relative_to(root).as_posix()
             if path.is_symlink():
-                links[relative] = resolved(root, relative, TREES)
+                links[relative] = resolved(root, relative, trees)
             elif path.is_file():
                 if path.suffix in (".crt", ".pem") or HASH_NAME.fullmatch(path.name):
                     files[relative] = certificates(path.read_bytes())
@@ -145,6 +160,12 @@ def harden(root, app, denied, verify_only=False):
     for relative in required:
         if sum(key not in denied for _, key, _ in files[relative]) < 10:
             raise ValueError("Required bundle would contain fewer than ten unaffected roots")
+    if app in NATIVE_TREES and app != "overseerr" and sum(
+        key not in denied
+        for relative, certs in files.items() if relative.startswith(TREES[1] + "/")
+        for _, key, _ in certs
+    ) < 10:
+        raise ValueError("Required native public source store is empty or unexpectedly small")
     before = {fingerprint for certs in files.values() for _, key, fingerprint in certs if key not in denied}
     removed, deleted = 0, set()
     for relative, certs in files.items():
@@ -187,10 +208,10 @@ def harden(root, app, denied, verify_only=False):
             for index, (stage, subject_hash) in enumerate(staged):
                 stage.rename(stage.with_name(subject_hash + "." + str(index)))
     after = set()
-    for directory in [root / t for t in TREES] + [root / p for p in PACKAGES[app]]:
+    for directory in [root / t for t in trees] + [root / p for p in PACKAGES[app]]:
         for path in directory.rglob("*"):
             if path.is_symlink():
-                target = resolved(root, path.relative_to(root).as_posix(), TREES)
+                target = resolved(root, path.relative_to(root).as_posix(), trees)
                 path = root / target
             if not path.is_file() or not (
                 path.suffix in (".crt", ".pem") or HASH_NAME.fullmatch(path.name)
