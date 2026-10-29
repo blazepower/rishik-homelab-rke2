@@ -1,6 +1,22 @@
 {
   "created_utc": "2026-10-29",
   "status": "SUSPENDED_PREPARATION_NOT_RUNTIME_OR_ROLLOUT_CLEARANCE",
+  "subsequent_github_linux_acceptance": {
+    "head": "93c0ffa0050e695d6cc938954c70cb66e1f0adde",
+    "run_id": 40951095423,
+    "job_id": 123719104843,
+    "conclusion": "success",
+    "tests_run": 16,
+    "skipped": 0,
+    "seconds": 98.278,
+    "executed_modes": ["registry", "docker", "render"],
+    "evidence": "Actual job invocation and complete unittest result; detailed per-profile JSON is in the GitHub step summary, not reconstructed from stdout.",
+    "scope": "Exact-image public-store filtering and strict read-only barriers, original isolated Bookshelf/qBittorrent/Seerr startup, and Seerr native Node system/default/bundled root inventory.",
+    "gluetun": "Public store and read-only protection accepted only; no real VPN startup, credentialed integration or compiled Go clearance.",
+    "supersedes_pending_ci_gate_only": true,
+    "rollout_clearance": false,
+    "remaining_limits": [".NET/Qt/custom native chain validation", "Gluetun Go1.25.11 below policy floor", "Credentialed VPN startup/integration", "External storage maintenance and separately authorized serial activation"]
+  },
   "base_commit": "2508a6c",
   "scope": ["bookshelf", "qbittorrent", "qbittorrent/gluetun", "overseerr SYSTEM"],
   "rollout_clearance": false,

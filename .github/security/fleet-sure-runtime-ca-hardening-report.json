@@ -1,6 +1,20 @@
 {
   "captured_utc": "2026-10-29T19:53:30Z",
   "status": "PREPARED_PENDING_COORDINATOR_GITHUB_LINUX_ACCEPTANCE",
+  "subsequent_github_linux_acceptance": {
+    "head": "93c0ffa0050e695d6cc938954c70cb66e1f0adde",
+    "run_id": 40951095423,
+    "job_id": 123719104946,
+    "conclusion": "success",
+    "tests_run": 14,
+    "skipped": 0,
+    "seconds": 73.349,
+    "scope": "Actual Rails db:prepare/HTTP readiness and Bundler-aware native Sidekiq registration, default/OS/AWS/Skylight controls and strict read-only barriers for both application surfaces, using loopback-only disposable fixtures.",
+    "supersedes_pending_ci_gate_only": true,
+    "deployed": false,
+    "rollout_clearance": false,
+    "remaining_limits": ["Explicit private/custom trust contexts not certified", "External storage maintenance and separately authorized serial activation"]
+  },
   "scope": "Sure only, Rails and Sidekiq. No Calibre, Plex, media/shared helpers, canonical policy, shared CI, infrastructure, storage, vendor rebuild or application/database version changes.",
   "deployed": false,
   "image": {

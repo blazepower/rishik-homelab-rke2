@@ -47,28 +47,39 @@ read-only default/OS, AWS and Skylight public trust overlays. It preserves
 the original commands and requires exact-image Linux startup with disposable
 loopback-only PostgreSQL/Redis before acceptance. No real database or
 credentials are used. See `test-sure-runtime-ca-hardening.py` and its scoped
-preparation report.
+preparation report. The corrected Bundler-aware Sidekiq registration probe
+and full Linux suite passed at `93c0ffa` (14 tests, zero skips,
+[job 123719104946](https://github.com/blazepower/rishik-homelab-rke2/actions/runs/40951095423/job/123719104946)).
+This is isolated acceptance, not deployment clearance.
 
 Bookshelf, qBittorrent/Gluetun and Seerr system stores reuse the shared media
 guard. Their separate Linux gate checks original isolated startup and
 read-only public stores; Seerr also checks native default/bundled/system root
 inventories. This is not .NET/Qt/custom TLS or credentialed VPN clearance.
-Gluetun's Go 1.25.11 remains below the incident floor.
+The registry/Docker/render suite passed at `93c0ffa` (16 tests, zero skips,
+[job 123719104843](https://github.com/blazepower/rishik-homelab-rke2/actions/runs/40951095423/job/123719104843)).
+Gluetun's public-store barrier passed, but its Go 1.25.11 remains below the
+incident floor; no real VPN startup was attempted.
 
 The owned Kindle Sender has a pinned Go 1.27.3 rebuild and non-publishing
 Linux acceptance workflow. Native tests use the exact eight public SPKIs and
 require certificate-policy rejection, not an arbitrary handshake failure.
 The maintained static-CGO/SQLite image must pass before publication and a
 separately reviewed immutable release pin. Its deployed image is unchanged.
+The isolated acceptance passed again at `93c0ffa` in
+[run 40951095407](https://github.com/blazepower/rishik-homelab-rke2/actions/runs/40951095407),
+with the same accepted binary and public bundle hashes as `7ee1cf9`.
 Explicit custom TLS contexts and other compiled Go gaps remain outside
 these overlays. Historical audits remain timestamped pre-deployment baselines.
 
 On October 29, RKE2 published
 [`v1.34.13-rc1+rke2r1`](https://github.com/rancher/rke2/releases/tag/v1.34.13-rc1%2Brke2r1)
 with release notes declaring Go 1.26.10. The checked official v1.34 stable
-channel still resolves to `v1.34.12+rke2r1`. The RC is a vendor-declared
-candidate, not verified per-component binary evidence or an accepted stable
-upgrade. No node changes or prerelease deployment are authorized by this audit.
+channel still resolves to `v1.34.12+rke2r1`. Read-only ELF inspection of the
+checksum-verified public amd64 RKE2 server binary confirms
+`go1.26.10-X:boringcrypto`. This does not verify kube-apiserver, kubelet,
+containerd, native CA behavior or any deployed node. The RC is not an accepted
+stable upgrade; no node changes or prerelease deployment are authorized.
 
 ### Controlled activation
 
