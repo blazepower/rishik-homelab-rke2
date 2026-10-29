@@ -35,6 +35,7 @@ CRANE = "crane"
 RUN_LABEL = "homelab.media-ca-test"
 ACCEPTANCE = "/media-ca-acceptance"
 PACKAGE_STAGE = "/etc/s6-overlay/s6-rc.d/init-mods-package-install/run"
+APK_OPERATIONS = ("architecture_query", "ffmpeg_install", "bootstrap_curl_jq", "other")
 PROXIES = {
     "/docker-mods": ("mod", "docker-mods"),
     "/sbin/apk": ("apk", "apk"),
@@ -57,6 +58,14 @@ STARTUP_ERROR_CLASSES = {
     "python_import_failed": rb"ModuleNotFoundError:|ImportError:",
     "s6_service_start_failed": rb"s6-rc:[^\r\n]{0,80}unable to start service",
     "s6_fatal": rb"s6-[a-z0-9-]{1,40}: fatal:",
+    "mod_offline_cache_missing": rb"\[mod-init\] \(ERROR\) OFFLINE:[^\r\n]{0,250}not found in modcache, skipping",
+    "mod_manifest_unavailable": rb"\[mod-init\] \(ERROR\) No manifest available for arch",
+    "mod_registry_no_response": rb"\[mod-init\] \(ERROR\) No response from",
+    "mod_invalid_archive": rb"\[mod-init\] \(ERROR\) Invalid tarball for",
+    "mod_download_lock_timeout": rb"timed out waiting for lock, skipping",
+    "mod_jq_unavailable": rb"(?:/media-ca-acceptance/docker-mods|/docker-mods): line [0-9]+: jq: (?:command )?not found",
+    "mod_curl_unavailable": rb"(?:/media-ca-acceptance/docker-mods|/docker-mods): line [0-9]+: curl: (?:command )?not found",
+    "stock_s6_interpreter_unavailable": rb"/command/with-contenv:[^\r\n]{0,80}(?:not found|cannot execute)",
 }
 spec = importlib.util.spec_from_file_location("media_overlay", SHARED / "ca-overlay.py")
 guard = importlib.util.module_from_spec(spec)
@@ -84,6 +93,10 @@ def bootstrap_network(app, allowed, network):
             raise ValueError("SAB bootstrap requires its own disposable network")
         return network
     return "none"
+
+
+def http_endpoint_ready(probe):
+    return probe.returncode == 0 and probe.stdout in ("200", "301", "302", "303", "401", "403")
 
 
 def public_environment(app):
@@ -142,9 +155,16 @@ def proxy_script(stage, original):
         )
     prelude += "ffmpeg_add=false\n"
     if stage == "apk":
+        # Separate diagnostic classes never replace the strict transaction gate.
         prelude += (
             'if [ "$#" -eq 3 ] && [ "$1" = add ] && [ "$2" = --no-cache ] && [ "$3" = ffmpeg ]; '
             "then ffmpeg_add=true; fi\n"
+            "operation=other\n"
+            'if [ "$#" -eq 1 ] && [ "$1" = --print-arch ]; then operation=architecture_query\n'
+            'elif [ "$ffmpeg_add" = true ]; then operation=ffmpeg_install\n'
+            'elif [ "$#" -eq 4 ] && [ "$1" = add ] && [ "$2" = --no-cache ]; then\n'
+            'case "$3/$4" in curl/jq|jq/curl) operation=bootstrap_curl_jq;; esac\nfi\n'
+            f"""printf '{{"id":%s,"operation":"%s"}}\\n' "$$" "$operation" >> {ACCEPTANCE}/apk-operations.jsonl\n"""
         )
     # Record only fixed stage names, process IDs, a public-package predicate and
     # return codes. Never copy command arguments, output, environment or tokens.
@@ -333,6 +353,54 @@ def public_startup_errors(stream):
             "truncated": len(data) > 65536}
 
 
+def public_apk_operations(data):
+    if len(data) > 65536:
+        raise ValueError("Public APK operation journal exceeded its bound")
+    operations = []
+    for line in data.decode("ascii").splitlines():
+        entry = json.loads(line)
+        if not isinstance(entry, dict) or set(entry) != {"id", "operation"}:
+            raise ValueError("Invalid public APK operation schema")
+        if type(entry["id"]) is not int or not 0 < entry["id"] < 2**31 or entry["operation"] not in APK_OPERATIONS:
+            raise ValueError("Invalid public APK operation")
+        operations.append(entry)
+    return operations
+
+
+def public_mod_installation(name, mod):
+    if not mod:
+        return {"unavailable": "expected_mod_metadata_not_resolved"}
+    marker, layer = mod["marker"], mod["layer"]
+    if not re.fullmatch(r"/linuxserver\.mods\.universal-package-install\.[a-f0-9]{64}", marker) \
+            or not re.fullmatch(r"sha256:[a-f0-9]{64}", layer):
+        raise ValueError("Invalid public mod metadata")
+    cache = "/modcache" + marker + ".tar.xz"
+    command = (
+        f'if [ -f "{marker}" ] && [ ! -L "{marker}" ]; then '
+        f'printf "present\\n%s\\n" "$(head -c 80 "{marker}")"; else printf "absent\\n\\n"; fi; '
+        f'if [ -f "{cache}" ] && [ ! -L "{cache}" ]; then '
+        f'printf "present\\n"; sha256sum "{cache}" | cut -d " " -f 1; else printf "absent\\n\\n"; fi'
+    )
+    result = subprocess.run(["docker", "exec", name, "/bin/sh", "-ec", command],
+                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=10)
+    if result.returncode:
+        return {"unavailable": "docker_command_failed"}
+    lines = result.stdout.decode("ascii").splitlines()
+    if len(lines) != 4 or lines[0] not in ("present", "absent") or lines[2] not in ("present", "absent"):
+        raise ValueError("Invalid public mod installation result")
+    marker_valid = re.fullmatch(r"sha256:[a-f0-9]{64}", lines[1]) is not None
+    cache_valid = re.fullmatch(r"[a-f0-9]{64}", lines[3]) is not None
+    return {
+        "regular_marker_present": lines[0] == "present",
+        "marker_is_sha256_digest": marker_valid,
+        "marker_matches_expected_layer": lines[0] == "present" and marker_valid and lines[1] == layer,
+        "regular_cache_present": lines[2] == "present",
+        "cache_is_sha256_digest": cache_valid,
+        "cache_matches_expected_layer": lines[2] == "present" and cache_valid and "sha256:" + lines[3] == layer,
+        "expected_layer": layer,
+    }
+
+
 def collect_public_startup_errors(name):
     with subprocess.Popen(
         [sys.executable, "-B", str(Path(__file__)), "--sanitize-sab-startup-errors"],
@@ -364,7 +432,7 @@ def collect_public_startup_errors(name):
     return {**result, "docker_logs_command_succeeded": logs.returncode == 0}
 
 
-def sab_failure_evidence(name, last_probe):
+def sab_failure_evidence(name, last_probe, mod=None):
     evidence = {"diagnostic_only": True, "root_cause_proven": False}
     if last_probe is not None:
         evidence["last_http_probe"] = {
@@ -376,22 +444,27 @@ def sab_failure_evidence(name, last_probe):
         '"exit_code":{{json .State.ExitCode}},"oom_killed":{{json .State.OOMKilled}},'
         '"dead":{{json .State.Dead}}}'
     )
-    for source in ("termination_state", "bootstrap_journal", "startup_errors"):
+    for source in ("termination_state", "bootstrap_journal", "apk_operations", "mod_installation", "startup_errors"):
         try:
+            if source == "mod_installation":
+                evidence[source] = public_mod_installation(name, mod)
+                continue
             if source == "startup_errors":
                 evidence[source] = collect_public_startup_errors(name)
                 continue
             command = (
                 ["docker", "inspect", "--format", state_format, name] if source == "termination_state"
-                else ["docker", "cp", name + ":" + ACCEPTANCE + "/events.jsonl", "-"]
+                else ["docker", "cp", name + ":" + ACCEPTANCE + (
+                    "/events.jsonl" if source == "bootstrap_journal" else "/apk-operations.jsonl"
+                ), "-"]
             )
             result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=10)
             if result.returncode:
                 evidence[source] = {"unavailable": "docker_command_failed"}
                 continue
-            if source == "bootstrap_journal":
+            if source in ("bootstrap_journal", "apk_operations"):
                 data = tar_member(result.stdout, limit=65536)[0]
-                evidence[source] = public_bootstrap_journal(data)
+                evidence[source] = public_bootstrap_journal(data) if source == "bootstrap_journal" else public_apk_operations(data)
             else:
                 state = json.loads(result.stdout)
                 if not isinstance(state, dict) or set(state) != {"status", "running", "exit_code", "oom_killed", "dead"}:
@@ -553,6 +626,57 @@ class MediaSabBootstrapHarnessTests(unittest.TestCase):
             member.size, member.mode = len(content), 0o755
             archive.addfile(member, io.BytesIO(content))
         return stream.getvalue()
+
+    def test_sab_303_is_ready_but_the_observed_no_ffmpeg_bootstrap_still_fails(self):
+        self.assertTrue(http_endpoint_ready(subprocess.CompletedProcess([], 0, "303")))
+        for code, status in ((7, "303"), (0, "000"), (0, "304"), (0, "500")):
+            self.assertFalse(http_endpoint_ready(subprocess.CompletedProcess([], code, status)))
+        events = [
+            {"stage": "mod", "event": "start", "id": 26, "ffmpeg_add": False},
+            {"stage": "apk", "event": "start", "id": 54, "ffmpeg_add": False},
+            {"stage": "apk", "event": "exit", "id": 54, "ffmpeg_add": False, "rc": 0},
+            {"stage": "mod", "event": "exit", "id": 26, "ffmpeg_add": False, "rc": 0},
+            {"stage": "package", "event": "start", "id": 169, "ffmpeg_add": False},
+            {"stage": "package", "event": "exit", "id": 169, "ffmpeg_add": False, "rc": 0},
+        ]
+        self.assertTrue(public_bootstrap_journal("\n".join(json.dumps(e) for e in events).encode())["all_events_paired"])
+        with self.assertRaisesRegex(ValueError, "exact stock apk add --no-cache ffmpeg transaction"):
+            validate_bootstrap_events(events)
+
+    def test_apk_observer_preserves_command_substitution_output_arguments_and_exit_status(self):
+        bash = Path("/bin/bash") if sys.platform.startswith("linux") else Path(r"C:\Program Files\Git\bin\bash.exe")
+        if not bash.is_file():
+            self.skipTest("Synthetic shell fixture requires Bash; no image execution")
+        directory = ROOT / (".media-apk-observer-" + uuid.uuid4().hex)
+        directory.mkdir()
+        self.addCleanup(shutil.rmtree, directory)
+        original, proxy = directory / "original-apk", directory / "observed-apk"
+        original.write_bytes(
+            b'#!/bin/sh\ncase "$*" in\n'
+            b'"--print-arch") printf "x86_64\\n";;\n'
+            b'"add --no-cache ffmpeg") printf "ffmpeg fixture\\n";;\n'
+            b'"add --no-cache curl jq") printf "tools fixture\\n";;\n'
+            b'*) exit 17;;\nesac\n'
+        )
+        original.chmod(0o755)
+        with mock.patch.dict(globals(), {"ACCEPTANCE": directory.as_posix()}):
+            proxy.write_bytes(proxy_script("apk", original.as_posix()))
+        proxy.chmod(0o755)
+        arguments = (["--print-arch"], ["add", "--no-cache", "ffmpeg"],
+                     ["add", "--no-cache", "curl", "jq"], ["unsupported-public-fixture"])
+        for args in arguments:
+            direct = subprocess.run([str(bash), str(original), *args], capture_output=True, timeout=10)
+            observed = subprocess.run([str(bash), str(proxy), *args], capture_output=True, timeout=10)
+            self.assertEqual((observed.returncode, observed.stdout, observed.stderr),
+                             (direct.returncode, direct.stdout, direct.stderr))
+        subprocess.run([
+            str(bash), "-c", 'architecture="$("$1" --print-arch)"; test "$architecture" = x86_64',
+            "public-fixture", proxy.as_posix(),
+        ], check=True, capture_output=True, timeout=10)
+        operations = public_apk_operations((directory / "apk-operations.jsonl").read_bytes())
+        self.assertEqual([e["operation"] for e in operations],
+                         ["architecture_query", "ffmpeg_install", "bootstrap_curl_jq", "other", "architecture_query"])
+        self.assertNotIn(b"unsupported-public-fixture", (directory / "apk-operations.jsonl").read_bytes())
 
     def test_only_explicitly_authorized_sab_main_gets_disposable_network(self):
         for app in APPS:
@@ -726,7 +850,7 @@ class MediaSabBootstrapHarnessTests(unittest.TestCase):
             elif command[:2] == ["docker", "inspect"]:
                 output = "{}" if detached else '{"bootstrap":{}}'
             elif "curl" in command:
-                output = "200"
+                output = "303"
             elif command[:2] == ["docker", "exec"] and "/bin/sh" in command:
                 self.assertTrue(detached)
                 code, error = 1, "Read-only file system"
@@ -739,6 +863,8 @@ class MediaSabBootstrapHarnessTests(unittest.TestCase):
 
         with mock.patch.dict(globals(), {"DOCKER": True, "ALLOW_SAB_BOOTSTRAP_NETWORK": True, "APPS": ("sabnzbd",)}), \
                 mock.patch.object(subprocess, "run", side_effect=run), \
+                mock.patch.object(time, "monotonic", side_effect=[0, 0]), \
+                mock.patch.object(time, "sleep"), \
                 contextlib.redirect_stdout(io.StringIO()), \
                 mock.patch.dict(globals(), {
                     "expected_sab_mod": lambda: {"manifest": "public-manifest", "layer": "public-layer"},
@@ -831,6 +957,8 @@ class MediaSabFailureDiagnosticsTests(unittest.TestCase):
         with mock.patch.object(subprocess, "run", side_effect=[
             subprocess.CompletedProcess([], 0, json.dumps(state).encode()),
             subprocess.CompletedProcess([], 0, archive),
+            subprocess.CompletedProcess([], 0, MediaSabBootstrapHarnessTests.archive(
+                b'{"id":54,"operation":"architecture_query"}\n')),
         ]) as run, mock.patch.dict(globals(), {
             "collect_public_startup_errors": lambda name: {"error_classes": ["read_only_filesystem"]},
         }):
@@ -839,6 +967,7 @@ class MediaSabFailureDiagnosticsTests(unittest.TestCase):
         self.assertEqual(evidence["last_http_probe"], {"exit_code": 7, "http_status": "unavailable"})
         self.assertFalse(evidence["root_cause_proven"])
         self.assertEqual(evidence["bootstrap_journal"]["events"], events)
+        self.assertEqual(evidence["apk_operations"], [{"id": 54, "operation": "architecture_query"}])
         self.assertEqual(run.call_args_list[1].args[0],
                          ["docker", "cp", "owned-main:" + ACCEPTANCE + "/events.jsonl", "-"])
         self.assertNotIn("generated-auth-canary", json.dumps(evidence))
@@ -850,16 +979,48 @@ class MediaSabFailureDiagnosticsTests(unittest.TestCase):
         for failure in ("malformed", "timeout"):
             with self.subTest(failure=failure), mock.patch.object(subprocess, "run", side_effect=(
                 [subprocess.CompletedProcess([], 0, b'{"token":"canary-secret"}'),
+                 subprocess.CompletedProcess([], 0, MediaSabBootstrapHarnessTests.archive(b"canary-secret")),
                  subprocess.CompletedProcess([], 0, MediaSabBootstrapHarnessTests.archive(b"canary-secret"))]
                 if failure == "malformed"
-                else [subprocess.TimeoutExpired("docker", 10), subprocess.TimeoutExpired("docker", 10)]
+                else [subprocess.TimeoutExpired("docker", 10)] * 3
             )), mock.patch.dict(globals(), {
                 "collect_public_startup_errors": mock.Mock(side_effect=OSError("canary-secret")),
             }):
                 evidence = sab_failure_evidence("owned-main", None)
-            for source in ("termination_state", "bootstrap_journal", "startup_errors"):
+            for source in ("termination_state", "bootstrap_journal", "apk_operations", "mod_installation", "startup_errors"):
                 self.assertIn("unavailable", evidence[source])
             self.assertNotIn("canary-secret", json.dumps(evidence))
+
+    def test_mod_marker_and_cached_layer_evidence_never_echo_invalid_marker_contents(self):
+        mod = {"marker": "/linuxserver.mods.universal-package-install." + "a" * 64, "layer": "sha256:" + "b" * 64}
+        for marker, cache, expected in (("", "", False), (mod["layer"], "b" * 64, True),
+                                         ("private-canary-never-emit", "c" * 64, False)):
+            output = (("present" if marker else "absent") + "\n" + marker + "\n"
+                      + ("present" if cache else "absent") + "\n" + cache + "\n").encode()
+            with self.subTest(matches=expected), mock.patch.object(subprocess, "run", return_value=
+                    subprocess.CompletedProcess([], 0, output)) as run:
+                evidence = public_mod_installation("owned-main", mod)
+            self.assertEqual(evidence["marker_matches_expected_layer"], expected)
+            self.assertEqual(evidence["cache_matches_expected_layer"], expected)
+            self.assertNotIn("private-canary-never-emit", json.dumps(evidence))
+            self.assertIn("head -c 80", run.call_args.args[0][-1])
+            self.assertIn('[ ! -L "', run.call_args.args[0][-1])
+        for bad in (b'{"id":54,"operation":"private-canary"}',
+                    b'{"id":54,"operation":"architecture_query","arguments":"private-canary"}'):
+            with self.assertRaises(ValueError):
+                public_apk_operations(bad)
+
+    def test_captured_vendor_skip_and_executable_errors_emit_only_fixed_classifications(self):
+        fixture = (
+            b"/media-ca-acceptance/docker-mods: line 177: jq: command not found\n"
+            b"[mod-init] (ERROR) OFFLINE: private-canary not found in modcache, skipping\n"
+            b"[mod-init] (ERROR) No manifest available for arch amd64, cannot fetch mod\n"
+            b"[mod-init] (ERROR) Invalid tarball for private-canary, skipping\n"
+        )
+        evidence = public_startup_errors(io.BytesIO(fixture))
+        for code in ("mod_jq_unavailable", "mod_offline_cache_missing", "mod_manifest_unavailable", "mod_invalid_archive"):
+            self.assertIn(code, evidence["error_classes"])
+        self.assertNotIn("private-canary", json.dumps(evidence))
 
     def test_readiness_failure_collects_before_cleanup_without_weakening_failure_or_running_trust_checks(self):
         order, calls = [], []
@@ -875,7 +1036,7 @@ class MediaSabFailureDiagnosticsTests(unittest.TestCase):
                 output, code = "000", 7
             return subprocess.CompletedProcess(command, code, output, "")
 
-        def diagnostics(name, probe):
+        def diagnostics(name, probe, mod=None):
             order.append("diagnostics")
             self.assertEqual(probe.stdout, "000")
             return {"diagnostic_only": True, "root_cause_proven": False}
@@ -1110,6 +1271,7 @@ class MediaRealVendorTests(unittest.TestCase):
                 network = "media-ca-bootstrap-" + token
                 allow_network = app == "sabnzbd" and ALLOW_SAB_BOOTSTRAP_NETWORK
                 last_probe = None
+                mod = None
                 directory = SHARED
                 subprocess.run(["docker", "pull", "--platform=linux/amd64", image(app)],
                                check=True, capture_output=True, timeout=300)
@@ -1165,7 +1327,7 @@ class MediaRealVendorTests(unittest.TestCase):
                             "--output", "/dev/null", "--write-out", "%{http_code}", f"http://127.0.0.1:{port}/",
                         ], capture_output=True, text=True, timeout=10)
                         last_probe = probe
-                        if probe.returncode == 0 and probe.stdout in ("200", "301", "302", "401", "403"):
+                        if http_endpoint_ready(probe):
                             ready = True
                             break
                         time.sleep(2)
@@ -1216,7 +1378,7 @@ class MediaRealVendorTests(unittest.TestCase):
                 finally:
                     try:
                         if allow_network and sys.exc_info()[0] is not None:
-                            print("\nSAB safe failure evidence: " + json.dumps(sab_failure_evidence(name, last_probe)))
+                            print("\nSAB safe failure evidence: " + json.dumps(sab_failure_evidence(name, last_probe, mod)))
                     finally:
                         cleanup_owned(token)
 
