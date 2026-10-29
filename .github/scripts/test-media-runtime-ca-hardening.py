@@ -4,6 +4,7 @@ import argparse
 import contextlib
 import datetime
 import hashlib
+import http.server
 import importlib.util
 import io
 import json
@@ -14,6 +15,7 @@ import ssl
 import subprocess
 import sys
 import tarfile
+import threading
 import time
 import unittest
 from unittest import mock
@@ -105,7 +107,7 @@ def public_environment(app):
     result = {}
     for entry in entries:
         name = entry["name"]
-        if name not in ("PUID", "PGID", "TZ", "DOCKER_MODS", "INSTALL_PACKAGES"):
+        if name not in ("PUID", "PGID", "TZ", "DOCKER_MODS", "DOCKER_MODS_FORCE_REGISTRY", "INSTALL_PACKAGES"):
             raise ValueError("Unexpected environment entry; do not capture arbitrary app environment")
         if "value" in entry:
             result[name] = entry["value"]
@@ -121,6 +123,7 @@ def main_command(app, name, volume, token, network, allow_sab_network):
     environment = public_environment(app)
     if app != "sabnzbd" or not allow_sab_network:
         environment.pop("DOCKER_MODS", None)
+        environment.pop("DOCKER_MODS_FORCE_REGISTRY", None)
         environment.pop("INSTALL_PACKAGES", None)
     limits = values(app)["controllers"][app]["containers"]["app"]["resources"]["limits"]
     memory = limits["memory"]
@@ -214,10 +217,11 @@ def install_sab_observers(name):
 def expected_sab_mod():
     environment = public_environment("sabnzbd")
     ref = environment["DOCKER_MODS"]
-    prefix = "linuxserver/mods:universal-package-install@sha256:"
-    if not ref.startswith(prefix) or not re.fullmatch(r"[a-f0-9]{64}", ref.removeprefix(prefix)) or environment["INSTALL_PACKAGES"] != "ffmpeg":
-        raise ValueError("SAB acceptance must replay the existing exact pinned mod and ffmpeg request")
-    metadata_ref = "lscr.io/" + ref
+    prefix = "ghcr.io/linuxserver/mods:universal-package-install@sha256:"
+    if not ref.startswith(prefix) or not re.fullmatch(r"[a-f0-9]{64}", ref.removeprefix(prefix)) \
+            or environment["INSTALL_PACKAGES"] != "ffmpeg" or environment.get("DOCKER_MODS_FORCE_REGISTRY") != "true":
+        raise ValueError("SAB acceptance requires the pinned direct GHCR mod, forced registry and ffmpeg request")
+    metadata_ref = ref
     digest = subprocess.run(
         [CRANE, "--platform=linux/amd64", "digest", metadata_ref],
         capture_output=True, text=True, check=True, timeout=120,
@@ -533,7 +537,10 @@ class MediaOverlayWiringTests(unittest.TestCase):
             for e in values("sabnzbd")["controllers"]["sabnzbd"]["containers"]["app"]["env"]
         }
         for name, value in acceptance["preserve_environment"].items():
-            self.assertEqual(env[name], value)
+            # The historical baseline keeps its original reference; qualifying
+            # that exact tag+digest must be the only module-content difference.
+            self.assertEqual(env[name], "ghcr.io/" + value if name == "DOCKER_MODS" else value)
+        self.assertEqual(env["DOCKER_MODS_FORCE_REGISTRY"], "true")
 
     def test_apps_use_one_shared_guard_and_exact_eleven_policy_keys(self):
         self.assertEqual(guard.policy_keys(SHARED / "blocked-spkis.sha256"), CANONICAL)
@@ -694,9 +701,11 @@ class MediaSabBootstrapHarnessTests(unittest.TestCase):
                 for key in ("PUID", "PGID", "TZ"):
                     self.assertEqual(observed[key], public_environment(app)[key])
                 self.assertEqual("DOCKER_MODS" in observed, app == "sabnzbd" and allowed)
+                self.assertEqual("DOCKER_MODS_FORCE_REGISTRY" in observed, app == "sabnzbd" and allowed)
                 self.assertEqual("INSTALL_PACKAGES" in observed, app == "sabnzbd" and allowed)
                 if app == "sabnzbd" and allowed:
                     self.assertEqual(observed["DOCKER_MODS"], public_environment(app)["DOCKER_MODS"])
+                    self.assertEqual(observed["DOCKER_MODS_FORCE_REGISTRY"], "true")
                     self.assertEqual(observed["INSTALL_PACKAGES"], "ffmpeg")
                     self.assertEqual(command[command.index("--memory") + 1], "2147483648")
                     self.assertEqual(float(command[command.index("--cpus") + 1]), 2)
@@ -756,9 +765,88 @@ class MediaSabBootstrapHarnessTests(unittest.TestCase):
         ]) as run:
             result = expected_sab_mod()
         self.assertEqual(result["layer"], layer)
-        self.assertTrue(result["manifest"].startswith("lscr.io/linuxserver/mods@sha256:"))
+        self.assertTrue(result["manifest"].startswith("ghcr.io/linuxserver/mods@sha256:"))
         self.assertIn("--platform=linux/amd64", run.call_args_list[0].args[0])
         self.assertIn(public_environment("sabnzbd")["DOCKER_MODS"], run.call_args_list[0].args[0][-1])
+
+    def test_pinned_vendor_registry_selection_requires_both_qualification_and_force_flag(self):
+        bash = Path("/bin/bash") if sys.platform.startswith("linux") else Path(r"C:\Program Files\Git\bin\bash.exe")
+        if not bash.is_file():
+            self.skipTest("Public vendor registry-selection fixture requires Bash")
+        # Exact relevant branches of /docker-mods SHA-256
+        # 53123a7f0449fe59b5111a4d96d70407beff77e8120ce06111a0b84cbeaae705.
+        selector = r'''
+DOCKER_MOD="$1"
+DOCKER_MODS_FORCE_REGISTRY="$2"
+case "${DOCKER_MOD}" in
+linuxserver/* )
+    [[ ${DOCKER_MODS_FORCE_REGISTRY,,} = "true" ]] && REGISTRY="registry-1.docker.io" || REGISTRY="lscr.io"
+    ;;
+ghcr.io/linuxserver/* )
+    [[ ${DOCKER_MODS_FORCE_REGISTRY,,} = "true" ]] && REGISTRY="ghcr.io" || REGISTRY="lscr.io"
+    DOCKER_MOD="${DOCKER_MOD#ghcr.io/*}"
+    ;;
+esac
+printf '%s\n%s\n' "$REGISTRY" "$DOCKER_MOD"
+'''
+        environment = public_environment("sabnzbd")
+        direct = environment["DOCKER_MODS"]
+        logical = direct.removeprefix("ghcr.io/")
+        for ref, force, registry in ((logical, "false", "lscr.io"),
+                                     (direct, "false", "lscr.io"), (direct, "true", "ghcr.io")):
+            result = subprocess.run([str(bash), "-c", selector, "public-fixture", ref, force],
+                                    check=True, capture_output=True, text=True, timeout=10)
+            self.assertEqual(result.stdout.splitlines(), [registry, logical])
+        for overrides in ({"DOCKER_MODS": logical}, {"DOCKER_MODS_FORCE_REGISTRY": "false"},
+                          {"DOCKER_MODS_FORCE_REGISTRY": None}):
+            with mock.patch.dict(globals(), {"public_environment": lambda app: {**environment, **overrides}}), \
+                    mock.patch.object(subprocess, "run") as run, self.assertRaises(ValueError):
+                expected_sab_mod()
+            run.assert_not_called()
+
+    def test_stock_curl_drops_authorization_on_cross_host_redirect_but_direct_route_preserves_it(self):
+        curl = shutil.which("curl.exe" if sys.platform == "win32" else "curl")
+        if not curl:
+            self.skipTest("Loopback-only stock HTTP-client regression requires curl")
+        observed = []
+        fixture_header = "public-registry-fixture"
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                authorized = self.headers.get("Authorization") == fixture_header
+                observed.append((self.path, authorized))
+                if self.path == "/redirect":
+                    self.send_response(302)
+                    self.send_header("Location", "http://localhost:" + str(self.server.server_port) + "/manifest")
+                    self.end_headers()
+                else:
+                    self.send_response(200 if authorized else 401)
+                    self.end_headers()
+                    self.wfile.write(b'{"layers":[]}' if authorized else b'{"errors":[{"code":"UNAUTHORIZED"}]}')
+
+            def log_message(self, format, *args):
+                return
+
+        with http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler) as server:
+            thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
+            thread.start()
+            try:
+                options = [
+                    curl, "--silent", "--show-error", "--fail", "--location", "--max-time", "5",
+                    "--noproxy", "localhost,127.0.0.1", "--header", "Authorization: " + fixture_header,
+                    "--header", "Accept: application/vnd.docker.distribution.manifest.v2+json",
+                    "--write-out", "\n%{http_code}",
+                ]
+                base = "http://127.0.0.1:" + str(server.server_port)
+                redirect = subprocess.run([*options, base + "/redirect"], capture_output=True, timeout=10)
+                direct = subprocess.run([*options, base + "/manifest"], capture_output=True, timeout=10)
+                self.assertEqual((redirect.returncode, redirect.stdout.splitlines()[-1]), (22, b"401"))
+                self.assertEqual((direct.returncode, direct.stdout.splitlines()[-1]), (0, b"200"))
+                self.assertEqual(observed, [("/redirect", True), ("/manifest", False), ("/manifest", True)])
+            finally:
+                server.shutdown()
+                thread.join(timeout=5)
+        self.assertFalse(thread.is_alive())
 
     def test_disconnect_is_verified_and_residual_endpoints_fail_closed(self):
         for endpoints in ({}, {"still-connected": {}}):
