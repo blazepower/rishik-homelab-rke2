@@ -288,7 +288,7 @@ class CalibreVendorDockerTests(unittest.TestCase):
             time.sleep(1)
         self.assertTrue(ready, "original /init did not reach Calibre service readiness")
         probe = r"""
-import certifi,requests,ssl,json,hashlib,os
+import certifi,requests,ssl,json,hashlib,os,errno
 from pathlib import Path
 from cryptography import x509
 from cryptography.hazmat.primitives.serialization import Encoding,PublicFormat
@@ -305,11 +305,13 @@ for ctx in contexts:
 try:
  Path(certifi.where()).write_bytes(b'forbidden')
  raise AssertionError('read-only package was writable')
-except OSError: pass
+except OSError as error:
+ assert error.errno==errno.EROFS, 'write failed for a reason other than read-only enforcement'
 try:
  Path(certifi.__file__).parent.rename(Path(certifi.__file__).parent.with_name('certifi-moved'))
  raise AssertionError('mounted package could be replaced by pip')
-except OSError: pass
+except OSError as error:
+ assert error.errno in (errno.EROFS,errno.EBUSY), 'rename did not prove mount replacement protection'
 print('direct certifi/requests and pip native contexts clear; package replacement blocked')
 """.replace("BLOCKED", repr(sorted(denied)))
         self.docker("exec", main, "python3", "-B", "-c", probe)

@@ -582,7 +582,7 @@ class MediaSabBootstrapHarnessTests(unittest.TestCase):
         def run(command, **kwargs):
             nonlocal detached
             calls.append(command)
-            output, code = "", 0
+            output, error, code = "", "", 0
             if command[:2] == ["docker", "version"]:
                 output = "linux/amd64"
             elif "media-ca-filter-" in " ".join(command) and command[:2] == ["docker", "run"]:
@@ -593,15 +593,15 @@ class MediaSabBootstrapHarnessTests(unittest.TestCase):
                 output = "{}" if detached else '{"bootstrap":{}}'
             elif "curl" in command:
                 output = "200"
-            elif command[:2] == ["docker", "exec"] and "/usr/sbin/update-ca-certificates" in command:
+            elif command[:2] == ["docker", "exec"] and "/bin/sh" in command:
                 self.assertTrue(detached)
-                code = 1
+                code, error = 1, "Read-only file system"
             elif command[:2] == ["docker", "exec"] and "python3" in command:
                 self.assertTrue(detached)
                 code = 1 if "import os; os.rename(" in " ".join(command) else 0
             elif "--verify-only" in command:
                 self.assertTrue(detached)
-            return subprocess.CompletedProcess(command, code, output, "")
+            return subprocess.CompletedProcess(command, code, output, error)
 
         with mock.patch.dict(globals(), {"DOCKER": True, "ALLOW_SAB_BOOTSTRAP_NETWORK": True, "APPS": ("sabnzbd",)}), \
                 mock.patch.object(subprocess, "run", side_effect=run), \
@@ -899,9 +899,13 @@ class MediaRealVendorTests(unittest.TestCase):
                         bootstrap = verify_sab_bootstrap(name, mod, observers)
                         disconnect_bootstrap_network(name, network)
                         print("\nSAB bootstrap accepted before offline trust checks: " + json.dumps(bootstrap))
-                    update = subprocess.run(["docker", "exec", name, "/usr/sbin/update-ca-certificates"],
-                                            capture_output=True, text=True, timeout=30)
-                    self.assertNotEqual(update.returncode, 0, "Read-only system store unexpectedly writable")
+                    for path in guard.TREES + guard.PACKAGES[app]:
+                        write = subprocess.run([
+                            "docker", "exec", name, "/bin/sh", "-ec",
+                            'LC_ALL=C; export LC_ALL; : > "/' + path + '/.ca-write-probe"',
+                        ], capture_output=True, text=True, timeout=30)
+                        self.assertNotEqual(write.returncode, 0, "Trust overlay unexpectedly writable")
+                        self.assertIn("read-only file system", write.stderr.lower())
                     if app != "prowlarr":
                         native = (
                             "import runpy,ssl,sys; from pathlib import Path; "
