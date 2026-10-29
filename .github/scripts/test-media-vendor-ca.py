@@ -89,7 +89,10 @@ def release(app):
 
 class MediaVendorPinTests(unittest.TestCase):
     def test_prepared_releases_remain_held_for_serial_activation(self):
-        held = ("radarr", "calibre-web", "bazarr", "prowlarr", "sabnzbd")
+        held = (
+            "radarr", "calibre-web", "bazarr", "prowlarr", "sabnzbd",
+            "sure-finance", "bookshelf", "qbittorrent", "overseerr",
+        )
         for app in held:
             with self.subTest(app=app):
                 manifest = yaml.safe_load(

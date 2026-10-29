@@ -174,7 +174,8 @@ cleared roots, a statically linked CGO/SQLite binary, and UID/GID 65532.
 
 Acceptance compares the actual production and test-image binaries and bundles,
 checks native application build-info and every module version against `go.mod`,
-checks the exact public-root SPKIs, and executes the same-toolchain native tests
+checks the exact public-root SPKIs, and executes a native in-memory SQLite query
+and the same-toolchain native trust tests
 on the actual final filesystem with no outbound network, read-only root,
 no capabilities, and no application entrypoint. Tests never read real config,
 book data, SMTP credentials, or send messages. The test binary is absent from

@@ -111,7 +111,7 @@ def verify(output: Path) -> dict:
             "--pids-limit", "128", "--memory", "256m", "--cpus", "2",
             images["kindle-ca-acceptance"], capture=True,
         )
-        for name in ("Toolchain", "NativeDenylist", "TLSControls", "RuntimeRoots"):
+        for name in ("Toolchain", "NativeDenylist", "TLSControls", "SQLiteRuntime", "RuntimeRoots"):
             if f"--- PASS: TestKindleCA{name} " not in native_tests:
                 raise ValueError(f"Missing native test evidence: {name}")
         proof = {

@@ -71,6 +71,50 @@ jobs:
           python3 -B .github/scripts/test-media-runtime-ca-hardening.py
           --registry --crane crane --docker --allow-sab-bootstrap-network
 
+  native-runtime-ca-acceptance:
+    name: Native Public Store CA Acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install trust test dependencies
+        run: pip install cryptography PyYAML
+
+      - name: Install pinned Crane with patched Go
+        env:
+          GOTOOLCHAIN: go1.27.3
+        run: |
+          go install github.com/google/go-containerregistry/cmd/crane@v0.22.1
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Verify native public stores and isolated startup
+        run: >-
+          python3 -B .github/scripts/test-native-app-ca-hardening.py
+          --registry --docker --render --evidence fleet-native-app-ca-ci.json
+
+      - name: Record scoped acceptance evidence
+        run: |
+          echo '### Native public-store acceptance (not deployment clearance)' >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          cat fleet-native-app-ca-ci.json >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+  sure-runtime-ca-acceptance:
+    name: Sure Runtime CA Acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install trust test dependencies
+        run: pip install PyYAML
+
+      - name: Verify isolated Rails and Sidekiq startup and trust
+        run: python3 -B .github/scripts/test-sure-runtime-ca-hardening.py
+
   yaml-lint:
     name: YAML Lint
     runs-on: ubuntu-latest

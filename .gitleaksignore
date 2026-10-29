@@ -1,0 +1,3 @@
+# Historical malformed header-only fixture; no key body or end marker exists.
+5603bfdbb3ca4d833b8bf1e3a313c3ed1d61e892:.github/scripts/test-media-runtime-ca-hardening.py:private-key:211
+00e19431bfa048669da15b31d91701743664a36f:.github/scripts/test-native-app-ca-hardening.py:private-key:280

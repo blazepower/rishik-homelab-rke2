@@ -74,8 +74,8 @@ func main() {
 				fmt.Printf("removed public SPKI %x from %s\n", hash, path)
 			}
 		}
-		if certs == 0 {
-			panic("empty certificate file: " + path)
+		if certs != 1 {
+			panic("expected one certificate per public source file: " + path)
 		}
 		count += certs
 		if remove {

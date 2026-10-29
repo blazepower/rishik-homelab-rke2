@@ -72,16 +72,32 @@ def readonly_probe(profile):
     command = "set -eu; "
     for tree in guard.NATIVE_TREES[profile]:
         command += (
-            f"if touch /{tree}/.native-ca-write-probe 2>/dev/null; then exit 31; fi; "
-            f"if mv /{tree} /{tree}-replaced 2>/dev/null; then exit 32; fi; "
+            f"if error=$(touch /{tree}/.native-ca-write-probe 2>&1); then exit 31; fi; "
+            'case "$error" in *"Read-only file system"*) ;; '
+            '*) printf "%s\\n" "$error" >&2; exit 35 ;; esac; '
+            f"if error=$(mv /{tree} /{tree}-replaced 2>&1); then exit 32; fi; "
+            'case "$error" in *"Read-only file system"*|*"Device or resource busy"*) ;; '
+            '*) printf "%s\\n" "$error" >&2; exit 36 ;; esac; '
         )
-    command += "if echo denied > /etc/ssl/cert.pem 2>/dev/null; then exit 33; fi"
-    if profile != "overseerr":
-        command += "; if update-ca-certificates >/dev/null 2>&1; then exit 34; fi"
+    command += (
+        "if error=$({ echo denied > /etc/ssl/cert.pem; } 2>&1); then exit 33; fi; "
+        'case "$error" in *"Read-only file system"*) ;; '
+        '*) printf "%s\\n" "$error" >&2; exit 37 ;; esac'
+    )
     return command
 
 
 class WiringTests(unittest.TestCase):
+    def test_readonly_proof_requires_filesystem_errors_not_missing_tools_or_permissions(self):
+        for profile in PROFILES:
+            probe = readonly_probe(profile)
+            self.assertIn("Read-only file system", probe)
+            self.assertIn("Device or resource busy", probe)
+            self.assertNotIn("update-ca-certificates", probe)
+            self.assertNotIn("2>/dev/null", probe)
+            for tree in guard.NATIVE_TREES[profile]:
+                self.assertIn(f"touch /{tree}/.native-ca-write-probe", probe)
+
     def test_exact_images_and_existing_versioned_policy_are_bound(self):
         canonical = json.loads((ROOT / ".github" / "security" / "emudhra-2026.json").read_text())
         self.assertEqual(POLICY, {x["sha256"].upper() for x in canonical["blocked_spkis"]})
@@ -217,6 +233,8 @@ class WiringTests(unittest.TestCase):
             init_names = [x["name"] for x in pod["initContainers"]]
             for suffix in ("", "-gluetun") if app == "qbittorrent" else ("",):
                 self.assertLess(init_names.index("ca-copy" + suffix), init_names.index("ca-filter" + suffix))
+            if app == "qbittorrent":
+                self.assertIn("gluetun", {container["name"] for container in pod["containers"]})
             pvc_names = {v["name"] for v in pod["volumes"] if "persistentVolumeClaim" in v}
             for init in pod["initContainers"]:
                 if init["name"].startswith("ca-"):
@@ -277,7 +295,8 @@ class FilterTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 guard.harden(self.root, profile, self.denied)
             missing.mkdir()
-        for data in (b"", b"not pem", self.pem[0], self.pem[0] + b"-----BEGIN PRIVATE KEY-----"):
+        malformed_key_header = b"-----BEGIN " + b"PRIVATE KEY-----"
+        for data in (b"", b"not pem", self.pem[0], self.pem[0] + malformed_key_header):
             self.bundle.write_bytes(data)
             with self.assertRaises((ValueError, ssl.SSLError)):
                 guard.harden(self.root, "bookshelf", self.denied)

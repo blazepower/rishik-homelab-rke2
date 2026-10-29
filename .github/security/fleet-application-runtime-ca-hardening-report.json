@@ -5,6 +5,19 @@
   "baseline_commit": "00df8efeb84e41ed6c536acb976d41a4ba1ac966",
   "baseline_unchanged": true,
   "deployed": false,
+  "subsequent_linux_acceptance": {
+    "head": "fc33b2d0b720cd3536e813361cd74dd5b1c64e9f",
+    "run_id": 40943923000,
+    "job_id": 123694162231,
+    "step": "Test application runtime CA hardening",
+    "status": "ISOLATED_ACCEPTANCE_PASSED_NOT_DEPLOYED",
+    "tests_run": 13,
+    "skipped": 0,
+    "actual_log_result": "Ran 13 tests in 31.277s; OK",
+    "scope": "Exact pinned image, selected app-template 5.3.0, original /init startup, native rejection/positive controls, fail-closed invalid policy and strict EROFS/EBUSY package write/rename barriers.",
+    "deployment_clearance": false,
+    "original_preparation_fields": "The capture-time status and outstanding-gate descriptions below are preserved as historical preparation evidence; this subsequent result is not live application verification."
+  },
   "cluster_operations": "read-only public application tooling/store probes only; no storage investigation or changes",
   "scope": "Calibre-Web packaged certifi overlay preparation only. No source rebuild, vendor upgrade, environment-only trust redirection, custom trust/secret keystore changes, package downloads/installs at runtime, publication, or deployment.",
   "image": {

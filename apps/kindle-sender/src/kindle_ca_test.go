@@ -10,6 +10,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"database/sql"
 	_ "embed"
 	"encoding/base64"
 	"encoding/hex"
@@ -145,6 +146,26 @@ func TestKindleCAToolchain(t *testing.T) {
 	t.Log("native toolchain:", runtime.Version())
 }
 
+func TestKindleCASQLiteRuntime(t *testing.T) {
+	if os.Getenv("KINDLE_CA_RUNTIME") != "1" {
+		t.Skip("static CGO/SQLite acceptance requires the Linux runtime image")
+	}
+	db, err := sql.Open("sqlite3", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var version string
+	var value int
+	if err := db.QueryRow("SELECT sqlite_version(), 42").Scan(&version, &value); err != nil {
+		t.Fatal("native in-memory SQLite execution failed:", err)
+	}
+	if !strings.HasPrefix(version, "3.") || value != 42 {
+		t.Fatalf("unexpected native SQLite result: %s %d", version, value)
+	}
+	t.Log("native in-memory SQLite:", version)
+}
+
 func TestKindleCANativeDenylist(t *testing.T) {
 	for _, key := range kindleKeys(t) {
 		t.Run(key.Hash, func(t *testing.T) {
@@ -260,9 +281,9 @@ func TestKindleCARuntimeRoots(t *testing.T) {
 				if denied[hex.EncodeToString(hash[:])] {
 					t.Fatalf("runtime trust path %s retains denied public SPKI %x", path, hash)
 				}
-				if inFile == 0 {
-					t.Fatalf("empty certificate file in runtime trust path %s", path)
-				}
+			}
+			if inFile == 0 {
+				t.Fatalf("empty certificate file in runtime trust path %s", path)
 			}
 			return nil
 		})

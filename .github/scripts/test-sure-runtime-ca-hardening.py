@@ -289,6 +289,7 @@ class SureLinuxAcceptance(unittest.TestCase):
             state = json.loads(self.docker("inspect", "--format={{json .State}}", container).stdout)
             self.assertTrue(state["Running"])
             self.docker("exec", container, "ruby", "-e", NATIVE_PROBE)
+            self.docker("exec", "--user=0:0", container, "ruby", "-e", READONLY_PROBE)
             self.docker("exec", container, "ruby", "-rsocket", "-e",
                         "abort 'non-loopback interface' unless Socket.getifaddrs.all?"
                         "{|a|!a.addr||!a.addr.ip?||['127.0.0.1','::1'].include?(a.addr.ip_address)}")
@@ -344,6 +345,27 @@ end
 custom=OpenSSL::X509::Store.new;custom.add_cert(bad.first)
 raise "custom context semantics changed" unless custom.verify(bad.first)
 puts "native default/vendor rejection, positive controls and replacement barriers verified"
+"""
+
+READONLY_PROBE = r"""
+require "json"
+m=JSON.parse(File.read("/ca-test-tools/factory-ca.json"))
+m.fetch("bundles").each_value do |path|
+ begin
+  File.open("/"+path,"wb"){}
+  raise "writable public bundle"
+ rescue Errno::EROFS
+ end
+end
+for directory in ["/etc/ssl/certs","/usr/share/ca-certificates",
+                  "/usr/local/bundle/ruby","/usr/local/bundle/ruby/3.4.0/gems"]
+ begin
+  File.rename(directory,directory+"-forbidden")
+  raise "replaceable public trust ancestor"
+ rescue Errno::EROFS,Errno::EBUSY
+ end
+end
+puts "root public trust write/rename attempts failed with filesystem barriers"
 """
 
 FIXTURE_PROBE = r"""

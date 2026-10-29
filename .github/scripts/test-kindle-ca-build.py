@@ -55,7 +55,7 @@ class KindleBuildTests(unittest.TestCase):
 
     def test_native_tests_include_policy_errors_not_generic_tls_failure(self):
         text = (SOURCE / "kindle_ca_test.go").read_text()
-        for name in ("Toolchain", "NativeDenylist", "TLSControls", "RuntimeRoots"):
+        for name in ("Toolchain", "NativeDenylist", "TLSControls", "SQLiteRuntime", "RuntimeRoots"):
             self.assertIn(f"func TestKindleCA{name}", text)
         self.assertIn('verification.Err.Error() != "x509: no valid chains built"', text)
         self.assertIn("leaf.CheckSignatureFrom(root)", text)
@@ -111,9 +111,9 @@ class KindleBuildTests(unittest.TestCase):
                     data = b"different"
                 destination.write_bytes(data)
             elif args[:2] == ("docker", "run"):
-                names = ["Toolchain", "NativeDenylist", "TLSControls", "RuntimeRoots"]
+                names = ["Toolchain", "NativeDenylist", "TLSControls", "SQLiteRuntime", "RuntimeRoots"]
                 if missing_test:
-                    names.pop()
+                    names.remove(missing_test)
                 return "\n".join(f"--- PASS: TestKindleCA{name} (0.01s)" for name in names)
             return ""
 
@@ -143,7 +143,10 @@ class KindleBuildTests(unittest.TestCase):
         self.exercise(different_binary=True)
 
     def test_missing_native_root_evidence_fails_closed(self):
-        self.exercise(missing_test=True)
+        self.exercise(missing_test="RuntimeRoots")
+
+    def test_missing_native_sqlite_evidence_fails_closed(self):
+        self.exercise(missing_test="SQLiteRuntime")
 
 
 if __name__ == "__main__":

@@ -1,6 +1,18 @@
 {
   "state": "PREPARED_NOT_RUNTIME_VALIDATED",
   "deployment_approved_by_this_report": false,
+  "subsequent_linux_acceptance": {
+    "head": "fc33b2d0b720cd3536e813361cd74dd5b1c64e9f",
+    "run_id": 40943923000,
+    "job_id": 123694161871,
+    "status": "FAILED_SAB_ORIGINAL_BOOTSTRAP_READINESS",
+    "tests_run": 24,
+    "failures": 1,
+    "observations": "The only failing subcase was SABnzbd original /init not reaching an HTTP/auth endpoint. Bazarr and Prowlarr isolated startup/read-only checks and all other cases did not fail. This is not .NET/custom chain clearance.",
+    "sab_root_cause": "Not yet established. Safe bootstrap exit journals and termination diagnostics are required before changing production behavior; do not infer a CA-trigger conflict from readiness failure alone.",
+    "deployment_clearance": false,
+    "original_preparation_fields": "The remaining preparation and local-validation fields below describe the historical capture, not a later successful SAB run."
+  },
   "scope": ["bazarr", "prowlarr", "sabnzbd"],
   "policy_binding": {
     "method": "Each app's eleven unique uppercase SPKI SHA-256 values must exactly equal the canonical policy key set; tests compare keys, not checkout bytes.",

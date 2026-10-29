@@ -28,25 +28,47 @@ No custom init hook, runtime package installation, or user trust-store rewrite
 is introduced. A vendor image refresh must revalidate and update the package
 fingerprints; an unknown package intentionally blocks startup.
 
-Preparation evidence and outstanding gates are in
-`.github/security/fleet-application-runtime-ca-hardening-report.json`. This is
-**not deployed or cleared**: isolated Linux/Docker verification must pass before
-merge to the deployment branch or rollout. Run
+Preparation evidence and subsequent isolated acceptance are in
+`.github/security/fleet-application-runtime-ca-hardening-report.json`.
+Run 40943923000 at `fc33b2d` passed all thirteen Calibre checks without skips,
+including the strict filesystem barriers and selected app-template 5.3.0.
+This is **not deployed or live-cleared**; the storage and serial activation
+gates still apply. Run
 `python .github/scripts/test-application-runtime-ca-hardening.py` on a Linux
 Docker runner, together with
 `python .github/scripts/test-calibre-library-bootstrap.py`. Docker executions
 use the exact pinned image with networking disabled and no user configuration
 or media. Windows-only passes with Docker tests skipped are not clearance.
 
-Sure's Ruby/default/vendor bundles remain unmitigated; explicit custom TLS
-contexts and compiled Go blacklist gaps are outside this Calibre-specific
-overlay. The historical audit remains a timestamped pre-deployment baseline.
+### Additional held preparations
+
+Sure has a same-image Ruby initializer for both Rails and Sidekiq, with
+read-only default/OS, AWS and Skylight public trust overlays. It preserves
+the original commands and requires exact-image Linux startup with disposable
+loopback-only PostgreSQL/Redis before acceptance. No real database or
+credentials are used. See `test-sure-runtime-ca-hardening.py` and its scoped
+preparation report.
+
+Bookshelf, qBittorrent/Gluetun and Seerr system stores reuse the shared media
+guard. Their separate Linux gate checks original isolated startup and
+read-only public stores; Seerr also checks native default/bundled/system root
+inventories. This is not .NET/Qt/custom TLS or credentialed VPN clearance.
+Gluetun's Go 1.25.11 remains below the incident floor.
+
+The owned Kindle Sender has a pinned Go 1.27.3 rebuild and non-publishing
+Linux acceptance workflow. Native tests use the exact eight public SPKIs and
+require certificate-policy rejection, not an arbitrary handshake failure.
+The maintained static-CGO/SQLite image must pass before publication and a
+separately reviewed immutable release pin. Its deployed image is unchanged.
+Explicit custom TLS contexts and other compiled Go gaps remain outside
+these overlays. Historical audits remain timestamped pre-deployment baselines.
 
 ### Controlled activation
 
-The prepared Radarr, Calibre-Web, Bazarr, Prowlarr and SABnzbd releases are
-explicitly suspended in Git. This prevents merging the preparation from
-starting five independent stateful rollouts together. Do not remove these
+The prepared Radarr, Calibre-Web, Bazarr, Prowlarr, SABnzbd, Sure, Bookshelf,
+qBittorrent and Seerr releases are explicitly suspended in Git. This prevents
+merging the preparation from starting nine independent stateful rollouts
+together. Do not remove these
 holds during external storage maintenance. After the storage owner confirms
 completion and a fresh sustained safety check passes, activate one release at
 a time through Git, update its CI hold assertion, and verify actual startup,

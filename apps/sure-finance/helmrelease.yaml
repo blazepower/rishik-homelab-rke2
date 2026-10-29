@@ -4,6 +4,7 @@ metadata:
   name: sure-finance
   namespace: sure-finance
 spec:
+  suspend: true
   interval: 30m
   chart:
     spec:

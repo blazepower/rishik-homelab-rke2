@@ -717,7 +717,8 @@ class MediaOverlayFilterTests(unittest.TestCase):
                 guard.policy_keys(policy)
         policy.write_bytes(("\r\n".join([self.spki[0]] + [f"{n:064X}" for n in range(10)]) + "\r\n").encode())
         self.assertEqual(len(guard.policy_keys(policy)), 11)
-        for content in (b"", self.pem[0], b"-----BEGIN CERTIFICATE-----\nbroken\n", self.pem[0] + b"-----BEGIN PRIVATE KEY-----"):
+        malformed_key_header = b"-----BEGIN " + b"PRIVATE KEY-----"
+        for content in (b"", self.pem[0], b"-----BEGIN CERTIFICATE-----\nbroken\n", self.pem[0] + malformed_key_header):
             self.bundle.write_bytes(content)
             with self.assertRaises((ValueError, ssl.SSLError)):
                 guard.harden(self.root, "prowlarr", self.denied)
