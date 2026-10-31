@@ -24,7 +24,7 @@ spec:
       containers:
         - name: restore
           # The runner replaces this with the live Alertmanager's exact imageID.
-          image: quay.io/prometheus/alertmanager:v0.34.1
+          image: quay.io/prometheus/alertmanager:v0.34.2
           command:
             - /bin/sh
             - -ec
