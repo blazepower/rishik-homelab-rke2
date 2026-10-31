@@ -90,7 +90,6 @@ spec:
                     check_media_mount "media" "bazarr" "app" "deployment" "bazarr"
                     check_media_mount "media" "bookshelf" "app" "deployment" "bookshelf"
                     check_media_mount "media" "calibre-web" "app" "deployment" "calibre-web"
-                    check_media_mount "media" "kindle-sender" "app" "deployment" "kindle-sender"
                     check_media_mount "media" "syncthing" "app" "deployment" "syncthing"
 
                     # Siloarr namespace apps

@@ -158,13 +158,6 @@ config:
             server: homepage-kubernetes
             namespace: media
             app: bookshelf
-        - Kindle-sender:
-            icon: mdi-book-arrow-right
-            href: https://kindle.homelab
-            description: Send to Kindle
-            server: homepage-kubernetes
-            namespace: media
-            app: kindle-sender
         - RReading-glasses:
             icon: mdi-glasses
             href: https://rreading.homelab
@@ -174,13 +167,6 @@ config:
             app: rreading-glasses
 
     - Productivity:
-        - Cooklang:
-            icon: mdi-chef-hat
-            href: https://cooklang.homelab
-            description: Recipe Manager
-            server: homepage-kubernetes
-            namespace: media
-            app: cooklang
         - Kaneo:
             icon: mdi-kangaroo
             href: https://kaneo.homelab

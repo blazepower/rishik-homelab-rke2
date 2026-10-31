@@ -52,7 +52,7 @@ apps/
 ├── homebox/                    # Homebox inventory management
 ├── homepage/                   # Homepage dashboard
 ├── kaneo/                      # Kaneo project management
-├── kindle-sender/              # Kindle eBook delivery service
+├── kindle-sender/              # Retired delivery service; retained history PVC
 ├── overseerr/                  # Overseerr media request management
 ├── paperless-ngx/              # Paperless-ngx document management
 ├── plex/                       # Plex media server
@@ -97,7 +97,6 @@ This cluster implements power-saving features to optimize resource usage:
 |-----|------------------|----------|
 | `calibre-web` | Prometheus (HTTP traffic), minimum 1 | Always-on OPDS and browser uploads |
 | `homebox` | Prometheus (HTTP traffic) | Scales to 0 after 10 min idle |
-| `kindle-sender` | Prometheus (pending files) | Scales to 0 after 15 min idle |
 | `overseerr` | Time-based (cron) | Active 8 AM - 1 AM only |
 | `bookshelf` | Time-based (cron) | Active 8 AM - 1 AM only |
 
@@ -137,9 +136,8 @@ See [docs/scheduling.md](docs/scheduling.md) for detailed configuration.
 | Application | Port | Description |
 |-------------|------|-------------|
 | **Bookshelf** | 8787 | Book library manager |
-| **Calibre-Web** | 8083 | eBook library browser |
+| **Calibre-Web** | 8083 | eBook library, browser uploads, and OPDS downloads |
 | **rreading-glasses** | 8788 | Book metadata service |
-| **Kindle Sender** | - | Automatic eBook delivery |
 | **Hardcover Sync** | - | Reading list synchronization |
 
 ### Productivity & Utilities

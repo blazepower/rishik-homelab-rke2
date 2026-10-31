@@ -30,6 +30,10 @@ Calibre-Web provides:
   retain their existing NFS mounts.
 - Browser uploads go directly through Calibre-Web; no ingest directory, desktop
   sync, or second library/progress-sync service is required.
+- Keep **Admin > Database Configuration > Separate Book Files from Library**
+  unchecked. Only `/media/books/calibre-library` is mounted as library storage;
+  `/media/books` outside that mount is not persistent. Verify an actual EPUB
+  download after importing, not just the book count or OPDS feed.
 
 ### First Longhorn cutover
 
@@ -71,6 +75,26 @@ database check. Do not roll back to the old empty NFS library after uploading
 books; restore the Longhorn library and configuration together instead.
 
 ### Uploads and device OPDS
+
+The shared library is populated with the canonical EPUBs, and authenticated
+downloads have been confirmed on both readers. For each new book, upload the
+unchanged EPUB through the browser and download that same format on both devices.
+Do not use Amazon Send to Kindle or convert/optimize one device's copy: changed
+bytes can break the document identity used by hosted reading-progress sync.
+
+Reader setup:
+
+- CrossPoint: **Settings > Connectivity > OPDS Servers > Add Server**.
+- KOReader: return to the file browser, open the top **Search** menu, select
+  **OPDS catalog**, then tap its upper-left menu and **Add catalog**.
+- Catalog: `http://192.168.1.153:8083/opds`; use the dedicated download-only
+  `ereaders` account, with its password entered on the devices.
+
+The X3 pulls books when selected in OPDS; it does not need File Transfer mode for
+these downloads. Computer-pushed uploads still require File Transfer mode.
+Avoid overwriting books already on either reader, which can reset local progress.
+The former automatic `kindle-sender` email service is retired; its history PVC
+and the NAS originals remain intact.
 
 After cutover, use the authenticated admin UI to change any default password,
 keep anonymous browsing and public registration disabled, enable book uploading,
