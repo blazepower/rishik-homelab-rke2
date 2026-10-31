@@ -2,7 +2,7 @@
 
 image:
   repository: ghcr.io/blazepower/cooklang
-  tag: "0.21.0@sha256:0d5cf185e7901f8e06bf1965fb663bde207431318db6535d5e51d4712cb3e9fb"
+  tag: "0.21.0@sha256:a07e3bd7a49b19316b41eb099b4c4b1e45aeb5e6a2232956f0179fe83052ea32"
   pullPolicy: IfNotPresent
 
 replicaCount: 1
