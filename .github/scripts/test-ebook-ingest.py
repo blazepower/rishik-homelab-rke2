@@ -1,5 +1,7 @@
 """Regression tests for safe NAS-to-native-CWA staging."""
 import hashlib
+import errno
+from contextlib import closing
 import importlib.util
 import json
 import os
@@ -8,6 +10,7 @@ import sqlite3
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 import zipfile
 
 
@@ -18,9 +21,9 @@ stage = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(stage)
 
 
-def epub(path, title="Bridge Verification", extra=""):
+def epub(path, title="Bridge Verification", extra="", mimetype="application/epub+zip"):
     with zipfile.ZipFile(path, "w") as archive:
-        archive.writestr("mimetype", "application/epub+zip")
+        archive.writestr("mimetype", mimetype)
         archive.writestr("META-INF/container.xml", (
             '<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container" version="1.0">'
             '<rootfiles><rootfile full-path="content.opf" '
@@ -51,7 +54,7 @@ class StagingTests(unittest.TestCase):
         )
         self.source.mkdir()
         self.library.mkdir()
-        with sqlite3.connect(self.library / "metadata.db") as connection:
+        with closing(sqlite3.connect(self.library / "metadata.db")) as connection, connection:
             connection.executescript(
                 "CREATE TABLE books(id INTEGER PRIMARY KEY, path TEXT);"
                 "CREATE TABLE data(book INTEGER, name TEXT, format TEXT);"
@@ -68,7 +71,7 @@ class StagingTests(unittest.TestCase):
         directory.mkdir()
         target = directory / "book.epub"
         target.write_bytes(book.read_bytes())
-        with sqlite3.connect(self.library / "metadata.db") as connection:
+        with closing(sqlite3.connect(self.library / "metadata.db")) as connection, connection:
             connection.execute("INSERT INTO books VALUES(?,?)", (book_id, str(book_id)))
             connection.execute("INSERT INTO data VALUES(?,?,?)", (book_id, "book", "EPUB"))
 
@@ -95,6 +98,13 @@ class StagingTests(unittest.TestCase):
         self.assertEqual(self.scan(61)["waiting_for_stable_source"], 1)
         self.assertEqual(self.scan(122)["queued"], 1)
 
+    def test_stability_is_measured_locally_even_with_future_nas_timestamps(self):
+        book = self.source / "book.epub"
+        epub(book)
+        os.utime(book, (self.now + 86400, self.now + 86400))
+        self.assertEqual(self.scan()["waiting_for_stable_source"], 1)
+        self.assertEqual(self.scan(61)["queued"], 1)
+
     def test_existing_bytes_and_differing_copy_with_same_metadata_are_not_reimported(self):
         existing = self.source / "original.epub"
         epub(existing)
@@ -119,6 +129,38 @@ class StagingTests(unittest.TestCase):
         self.assertEqual(list((self.bridge / "queue").glob("*.epub")), [])
         self.assertEqual(bad.read_bytes(), b"An incomplete download")
         self.assertTrue(outside.exists())
+
+    def test_existing_and_new_reader_epubs_with_crlf_mimetype_are_preserved(self):
+        existing = self.source / "existing.epub"
+        epub(existing, mimetype="application/epub+zip\r\n")
+        self.register(existing)
+        new = self.source / "new.epub"
+        epub(new, title="New CRLF Book", mimetype="application/epub+zip\r\n")
+        original = new.read_bytes()
+        self.scan()
+        result = self.scan(61)
+        self.assertEqual(result["already_in_library"], 1)
+        self.assertEqual(result["queued"], 1)
+        self.assertEqual(next((self.bridge / "queue").glob("*.epub")).read_bytes(), original)
+        self.assertEqual(new.read_bytes(), original)
+
+    def test_invalid_zip_seek_is_held_without_blocking_other_acquisitions(self):
+        bad, good = self.source / "bad.epub", self.source / "good.epub"
+        epub(bad, title="Bad Archive")
+        epub(good, title="Good Archive")
+        self.scan()
+        original_identity = stage.identity
+
+        def read_identity(path):
+            if path.name == "bad.epub":
+                raise OSError(errno.EINVAL, "Invalid ZIP seek")
+            return original_identity(path)
+
+        with patch.object(stage, "identity", side_effect=read_identity):
+            result = self.scan(61)
+        self.assertEqual(result["invalid_or_unstable"], 1)
+        self.assertEqual(result["queued"], 1)
+        self.assertTrue(bad.exists())
 
     def test_consumption_without_library_acknowledgement_has_bounded_retries(self):
         book = self.source / "book.epub"

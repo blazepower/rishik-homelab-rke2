@@ -284,7 +284,8 @@ class CalibreVendorDockerTests(unittest.TestCase):
         ], ["-c", (
             "python3 -B /ca-hardening/harden-certifi.py; result=$?; "
             # Allow the host runner to remove files owned by the image's UID.
-            "if [ -d /ca-output/certifi ]; then chmod 0777 /ca-output/certifi; fi; "
+            "for dir in certifi pip-certifi system-certs; do "
+            'if [ -d "/ca-output/$dir" ]; then chmod 0777 "/ca-output/$dir"; fi; done; '
             'exit "$result"'
         )])
         self.docker("start", "--attach", initializer)
@@ -293,6 +294,8 @@ class CalibreVendorDockerTests(unittest.TestCase):
                          Counter(der for _, spki, der in before if spki not in denied))
         main = self.create([
             "--cap-drop=ALL", "--cap-add=CHOWN", "--cap-add=SETUID", "--cap-add=SETGID",
+            "--cap-add=DAC_OVERRIDE",
+            "--cap-add=FOWNER",
             "--env=PUID=1000", "--env=PGID=1000",
             "--volume", str(output / "certifi") + ":" + str(guard.PACKAGE) + ":ro",
             "--volume", str(output / "pip-certifi") + ":" + str(guard.PIP_PACKAGE) + ":ro",

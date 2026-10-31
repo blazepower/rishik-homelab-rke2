@@ -1,5 +1,6 @@
 """Copy stable NAS EPUBs to CWA's consumer queue, never changing source books."""
 import argparse
+import errno
 from collections import Counter
 from contextlib import closing
 import fcntl
@@ -37,7 +38,7 @@ def normalized(value):
 
 def identity(path):
     with zipfile.ZipFile(path) as book:
-        if book.read("mimetype") != b"application/epub+zip":
+        if book.read("mimetype").rstrip(b"\r\n") != b"application/epub+zip":
             raise ValueError("Invalid EPUB mimetype")
         container_info = book.getinfo("META-INF/container.xml")
         if container_info.file_size > 1024 * 1024:
@@ -148,7 +149,7 @@ def run_once(source, library, bridge, now=None, stable_seconds=60, max_pending=4
                     if previous and previous["signature"] == before:
                         observed = previous
                     current_observations[key] = observed
-                    if now - observed["first_seen"] < stable_seconds or now - before[1] / 1e9 < stable_seconds:
+                    if now - observed["first_seen"] < stable_seconds:
                         counts["waiting_for_stable_source"] += 1
                         continue
                     checksum = observed.get("sha256") or digest(book)
@@ -193,7 +194,9 @@ def run_once(source, library, bridge, now=None, stable_seconds=60, max_pending=4
                     }
                     pending += 1
                     counts["queued"] += 1
-                except (ValueError, KeyError, zipfile.BadZipFile, ET.ParseError) as error:
+                except (ValueError, KeyError, zipfile.BadZipFile, ET.ParseError, OSError) as error:
+                    if isinstance(error, OSError) and error.errno != errno.EINVAL:
+                        raise
                     if "sha256" in current_observations.get(str(book.relative_to(source)), {}):
                         checksum = current_observations[str(book.relative_to(source))]["sha256"]
                         ledger[checksum] = {"status": "invalid", "source": str(book.relative_to(source))}

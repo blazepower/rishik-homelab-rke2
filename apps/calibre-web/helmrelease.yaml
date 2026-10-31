@@ -191,6 +191,8 @@ spec:
                   - CHOWN
                   - SETUID
                   - SETGID
+                  - DAC_OVERRIDE
+                  - FOWNER
             resources:
               requests:
                 cpu: "100m"

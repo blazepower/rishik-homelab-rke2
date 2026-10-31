@@ -50,6 +50,8 @@ under its NAS root, `stage-books.py` scans every 120 seconds. It requires an
 unchanged size/mtime across scans and at least 60 seconds of stability, validates
 the EPUB package, copies and SHA256-verifies it, and publishes it with an atomic
 rename. Source originals are never moved, rewritten, or deleted.
+Trailing CR/LF in the EPUB mimetype is tolerated because seven existing reader
+files use it; those bytes are preserved, not repaired.
 
 The sidecar inventories the managed library read-only. Existing SHA256 matches
 are skipped; differing EPUBs with the same normalized title/authors are held
@@ -78,6 +80,11 @@ snapshot/backup policies. This avoids filling the 1Gi config volume with a secon
 copy of every imported EPUB. Certifi, pip's vendored certifi, and OpenSSL's CA bundle/hashed fallback
 are hardened against the existing eleven-SPKI deny policy, preserving all other
 anchors. Image updates require approval and matching pinned trust-store audits.
+Native CWA startup needs `DAC_OVERRIDE` to update its UID-1000-owned `dirs.json`
+and `FOWNER` to set permissions after assigning processed directories to that
+UID. Without these, initialization reports permission failures and can leave
+the watcher with an empty path. The staging sidecar and init containers still drop all
+capabilities, and read-only trust-store mounts prevent root replacement.
 
 The CWA migration has pre-cutover Longhorn snapshots
 `calibre-library-before-cwa-20261031` and `calibre-config-before-cwa-20261031`
