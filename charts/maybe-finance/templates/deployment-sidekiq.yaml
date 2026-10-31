@@ -18,6 +18,15 @@ spec:
         {{- include "maybe-finance.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: sidekiq
     spec:
+      {{- if .Values.runtimeCaHardening.enabled }}
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      initContainers:
+        {{- include "maybe-finance.runtimeCaInit" . | nindent 8 }}
+      volumes:
+        {{- include "maybe-finance.runtimeCaVolumes" (dict "root" . "persistentStorage" false) | nindent 8 }}
+      {{- end }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -27,7 +36,17 @@ spec:
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command: ["bundle", "exec", "sidekiq"]
+          {{- if .Values.runtimeCaHardening.enabled }}
+          securityContext:
+            {{- include "maybe-finance.runtimeCaSecurity" . | nindent 12 }}
+          volumeMounts:
+            {{- include "maybe-finance.runtimeCaMounts" (dict "root" . "persistentStorage" false) | nindent 12 }}
+          {{- end }}
           env:
+            {{- if .Values.runtimeCaHardening.enabled }}
+            - name: TMPDIR
+              value: /rails/tmp
+            {{- end }}
             - name: RAILS_ENV
               value: production
             - name: DB_HOST

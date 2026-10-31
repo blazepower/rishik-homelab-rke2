@@ -12,17 +12,15 @@ Hardcover Sync is a custom Go microservice that automatically synchronizes books
 
 ## Owned image maintenance
 
-The Hardcover Sync, Cooklang and Cook Sync workflows always pull their base
+The Hardcover Sync workflow always pulls its base
 images. After the workflow changes are available on the selected ref, explicitly
 request an uncached rebuild with:
 
 ```powershell
 gh workflow run build-hardcover-sync.yaml --ref master -f force_rebuild=true
-gh workflow run cooklang-build.yaml --ref master -f version=0.21.0 -f force_rebuild=true
-gh workflow run cook-sync-build.yaml --ref master -f version=0.2.5 -f force_rebuild=true
 ```
 
-Each workflow first publishes only a unique
+The workflow first publishes only a unique
 `ca-candidate-<run-id>-<run-attempt>` quarantine tag, then checks that image's
 system CA bundle on every built platform without starting the application.
 After every check succeeds, the run summary reports `PASSED CANDIDATE` with
@@ -41,23 +39,16 @@ not establish eMudhra incident remediation.
 
 For deployment, first merge the workflow and runtime fixes to the default
 branch and let all required production builds and CA checks finish. Then pin
-the production digests reported in those runs in the Cooklang HelmRelease,
-Cooklang chart defaults and Hardcover CronJob. A passed feature-branch
+the production digest reported in that run in the Hardcover CronJob. A passed feature-branch
 candidate is not a production promotion; do not pin its digest as a shortcut.
 Preserve those production manifests in the registry while deployments or
 rollback revisions reference them.
 
-Hardcover uses Go 1.27.3. Both Hardcover and Cooklang require Debian Bookworm
+Hardcover uses Go 1.27.3 and requires Debian Bookworm
 `ca-certificates` at least `20250419~deb12u2` and replace the distroless
 filesystem's entire certificate and hashed-trust directories, not just its
-bundle. Cook Sync retains Cook Desktop 0.2.5 on supported Ubuntu 22.04,
-matching the deployed application's native `libwebkit2gtk-4.0-37` ABI, and
-requires `ca-certificates` at least `20260816ubuntu0.22.04.1`. Ubuntu 26.04
-does not supply that ABI. The build checks the installed app version and
-rejects unresolved shared libraries instead of mixing distribution packages
-or substituting incompatible library symlinks.
-Cook Sync's distro-provided Python certifi bundle follows the patched system
-bundle, and its workflow independently checks both paths before promotion.
+bundle. Cooklang and Cook Desktop have been retired, including their build
+workflows. Shared recipes and the archived desktop configuration PVC are retained.
 
 References: [Debian DSA-6572](https://www.debian.org/security/2026/dsa-6572),
 [Ubuntu incident guidance](https://ubuntu.com/blog/emudhra-ca-compromise-fixes-available),

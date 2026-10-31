@@ -1,0 +1,113 @@
+{
+  "created_utc": "2026-10-29",
+  "status": "SUSPENDED_PREPARATION_NOT_RUNTIME_OR_ROLLOUT_CLEARANCE",
+  "subsequent_github_linux_acceptance": {
+    "head": "93c0ffa0050e695d6cc938954c70cb66e1f0adde",
+    "run_id": 40951095423,
+    "job_id": 123719104843,
+    "conclusion": "success",
+    "tests_run": 16,
+    "skipped": 0,
+    "seconds": 98.278,
+    "executed_modes": ["registry", "docker", "render"],
+    "evidence": "Actual job invocation and complete unittest result; detailed per-profile JSON is in the GitHub step summary, not reconstructed from stdout.",
+    "scope": "Exact-image public-store filtering and strict read-only barriers, original isolated Bookshelf/qBittorrent/Seerr startup, and Seerr native Node system/default/bundled root inventory.",
+    "gluetun": "Public store and read-only protection accepted only; no real VPN startup, credentialed integration or compiled Go clearance.",
+    "supersedes_pending_ci_gate_only": true,
+    "rollout_clearance": false,
+    "remaining_limits": [".NET/Qt/custom native chain validation", "Gluetun Go1.25.11 below policy floor", "Credentialed VPN startup/integration", "External storage maintenance and separately authorized serial activation"]
+  },
+  "base_commit": "2508a6c",
+  "scope": ["bookshelf", "qbittorrent", "qbittorrent/gluetun", "overseerr SYSTEM"],
+  "rollout_clearance": false,
+  "cluster_changes": false,
+  "publication_or_deployment": false,
+  "policy": {
+    "source": ".github/security/emudhra-2026.json",
+    "exact_spki_keys": 11,
+    "shared_guard": "apps/_shared/media-ca-hardening",
+    "method": "Stock-image snapshot to emptyDir; exact-SPKI removal before all normal containers; complete public trust trees mounted read-only"
+  },
+  "immutable_images": {
+    "bookshelf": {
+      "index": "ghcr.io/pennydreadful/bookshelf@sha256:fd6183d0eacf1cac6ce3a0c8ff2b0d5af9ddf2101141f6c86c928a136c9b2d95",
+      "amd64": "ghcr.io/pennydreadful/bookshelf@sha256:eb2cb4a291e5f755e76d68c2be7e1da11f23724d6b9a5934b00388bd2e4212c6",
+      "original_tag": "hardcover-v0.4.20.91",
+      "runtime": ".NET self-contained Readarr/Bookshelf",
+      "public_tree_layout": ["etc/ssl", "usr/share/ca-certificates", "usr/local/share/ca-certificates"]
+    },
+    "qbittorrent": {
+      "index": "lscr.io/linuxserver/qbittorrent@sha256:1ea873647c43d566f251a7122aee330b184509c57ee3257ed19f62dac0f8f24b",
+      "amd64": "lscr.io/linuxserver/qbittorrent@sha256:a0fdb188c5c9f70e4e123e542ad005f818a6f73b6449364a634fffcfd45b9834",
+      "original_tag": "5.2.4_v2.0.15-ls481",
+      "runtime": "qBittorrent/Qt and separately bundled qbt .NET helper",
+      "public_tree_layout": ["etc/ssl", "usr/share/ca-certificates", "usr/local/share/ca-certificates"]
+    },
+    "gluetun": {
+      "index": "qmcgaw/gluetun@sha256:fa19cc76b2af13d57a8d3dc3066f2ada061b1c761b8aecf989b3877c0486e027",
+      "amd64": "qmcgaw/gluetun@sha256:1baa76576dea1dfbafbd62bb635daf40fd87171f63273c2fdfe630418783011e",
+      "original_tag": "v3",
+      "runtime": "Go1.25.11",
+      "public_tree_layout": ["etc/ssl", "usr/share/ca-certificates", "usr/local/share/ca-certificates"]
+    },
+    "overseerr": {
+      "index": "ghcr.io/seerr-team/seerr@sha256:d8fab675b55ad293ded98fd71efcfd46054cbad9746534ae1cc4794a88c0b3be",
+      "amd64": "ghcr.io/seerr-team/seerr@sha256:2636191726a315dbd75228537f7be74b2fa7498998bb22e37b5b5c8756018fba",
+      "original_tag": "v3.5.1",
+      "runtime": "Node22.23.4",
+      "public_tree_layout": ["etc/ssl"],
+      "source_trees": "Verified absent in exact immutable image; copy guard rejects unexpected source trees rather than silently making empty replacements"
+    }
+  },
+  "source_layout": {
+    "method": "Read-only export of exact matching immutable public amd64 images; no application execution, credentials, user PVCs or cluster access",
+    "bundle": "etc/ssl/certs/ca-certificates.crt",
+    "alias": "etc/ssl/cert.pem -> certs/ca-certificates.crt",
+    "protection": "Mount entire /etc/ssl, including alias and openssl configuration, plus actual source trees read-only; do not override openssl settings or user/private trust",
+    "missing_required_layout": "Fail closed, including missing native source directories, missing or different alias and malformed bundles",
+    "baseline": ".github/security/fleet-application-ca-report.json",
+    "baseline_status": "All four original public system PEM stores DENIED; unchanged original application versions"
+  },
+  "seerr_node": {
+    "scope": "SYSTEM_ONLY_DEFAULT_AND_BUNDLED_ALREADY_CLEAR",
+    "baseline_version": "v22.23.4",
+    "baseline_default_roots": 116,
+    "baseline_default_and_bundled_denied_keys": 0,
+    "behavior": "No NODE_OPTIONS, NODE_EXTRA_CA_CERTS, certifi or application-store overrides added"
+  },
+  "gluetun_go": {
+    "compiled_version": "go1.25.11",
+    "policy_floors": ["go1.26.10", "go1.27.3"],
+    "status": "BLOCKED_BELOW_POLICY_FLOOR",
+    "warning": "Filtering public native PEM stores does not update Go's compiled denylist or certify custom/private VPN TLS behavior"
+  },
+  "safety": {
+    "helm_releases_suspended": ["bookshelf", "qbittorrent", "overseerr"],
+    "init_user_pvc_mounts": false,
+    "runtime_downloads_added": false,
+    "application_entrypoints_changed": false,
+    "vpn_credentials_or_network_used": false,
+    "vpn_caps_dependencies_sidecars_auth_probes_preserved": true,
+    "existing_python315_and_app_template530_preserved": true
+  },
+  "validation": {
+    "local": "Fixture, wiring, public immutable export and secret-free Kustomize/Helm render tests passed; see worktree-root fleet-native-app-ca-report.json session evidence",
+    "local_native_tests": {"run": 15, "passed": 13, "skipped": 2},
+    "local_skips": ["Linux absolute-alias fixture on Windows", "Original-startup/read-only/native-Node Docker checks"],
+    "shared_helper_regression": "Existing media-runtime CA suite passed: 14 tests, 3 expected skips; existing codec suite passed: 19 tests",
+    "baseline_behavior_comparison": "Against 2508a6c, normal containers are identical after original-tag/digest normalization; original environment, entrypoints, dependencies, auth, probes, resources, Service, pod options and application PVC mount semantics are unchanged",
+    "linux_docker": "REQUIRED_NOT_RUN_LOCALLY",
+    "ci_command": "python .github/scripts/test-native-app-ca-hardening.py --registry --docker --render --evidence fleet-native-app-ca-ci.json",
+    "dependencies": "Python with cryptography and PyYAML; crane; Linux/amd64 Docker with volume-subpath support; helm; kustomize or kubectl",
+    "network": "Public registry/chart preparation only; all image execution uses --network none; no privileged, host-network or real VPN tests",
+    "limits": "Synthetic TLS fixtures prove helper behavior only. Original startup readiness and read-only protection are not .NET/Qt/Go/custom chain certification."
+  },
+  "remaining_blockers": [
+    "Run exact-image Linux/Docker isolation checks in parent-owned CI; no Docker daemon is available locally.",
+    "Bookshelf .NET and qBittorrent Qt/qbt .NET native/default/custom chain rejection are not certified by PEM exports or Python fixture tests.",
+    "Gluetun Go1.25.11 is below the compiled-policy floor even after public system PEM filtering.",
+    "Full credentialed VPN startup/private-provider trust and integration cannot be certified within the isolated credential-free scope; no bypass or relaxed gating is introduced.",
+    "Application startup may need local dependencies: CI must fail rather than add outbound execution networking.",
+    "No serial rollout or publication is authorized by this preparation; coordinator owns future activation after all gates."
+  ]
+}
