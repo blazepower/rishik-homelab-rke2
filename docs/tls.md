@@ -61,11 +61,13 @@ The registry/Docker/render suite passed at `93c0ffa` (16 tests, zero skips,
 Gluetun's public-store barrier passed, but its Go 1.25.11 remains below the
 incident floor; no real VPN startup was attempted.
 
-The owned Kindle Sender has a pinned Go 1.27.3 rebuild and non-publishing
+The retired Kindle Sender has a pinned Go 1.27.3 rebuild and non-publishing
 Linux acceptance workflow. Native tests use the exact eight public SPKIs and
 require certificate-policy rejection, not an arbitrary handshake failure.
 The maintained static-CGO/SQLite image must pass before publication and a
-separately reviewed immutable release pin. Its deployed image is unchanged.
+separately reviewed immutable release pin if reactivation is ever authorized.
+The active kustomization retains only the historical data PVC; this preparation
+does not restore the sender runtime, publish its image or reactivate it.
 The isolated acceptance passed again at `93c0ffa` in
 [run 40951095407](https://github.com/blazepower/rishik-homelab-rke2/actions/runs/40951095407),
 with the same accepted binary and public bundle hashes as `7ee1cf9`.

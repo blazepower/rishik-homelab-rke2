@@ -1,6 +1,6 @@
-# Historical malformed header-only fixture; no key body or end marker exists.
-5603bfdbb3ca4d833b8bf1e3a313c3ed1d61e892:.github/scripts/test-media-runtime-ca-hardening.py:private-key:211
-00e19431bfa048669da15b31d91701743664a36f:.github/scripts/test-native-app-ca-hardening.py:private-key:280
-# Public redaction canary and disposable database fixture, never real credentials.
+# Historical sanitizer canary, disposable database fixture, and malformed PEM tests.
+# Exact fingerprints only; no production values or path-wide exclusions.
 7ee1cf90f8b7a1eabe80fc44e24a5a28a0156e38:.github/scripts/test-media-runtime-ca-hardening.py:generic-password:785
 947627d7e25c9125dd55447deaa409f534a29ffe:.github/scripts/test-sure-runtime-ca-hardening.py:generic-password:251
+00e19431bfa048669da15b31d91701743664a36f:.github/scripts/test-native-app-ca-hardening.py:private-key:280
+5603bfdbb3ca4d833b8bf1e3a313c3ed1d61e892:.github/scripts/test-media-runtime-ca-hardening.py:private-key:211

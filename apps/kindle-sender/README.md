@@ -1,5 +1,14 @@
 # Kindle Sender
 
+**Retired:** CrossPoint on the X3 and KOReader on the Kindle now download
+unchanged EPUBs from Calibre-Web's authenticated OPDS catalog. The active
+kustomization retains only `kindle-sender-data`, with Flux pruning disabled for
+that claim. The sent-history database and NAS books are preserved; Flux removes
+the sender release, scaler, configuration, network policy, and SMTP Secret
+managed by its SealedSecret. Deployment manifests below are historical and are
+not active resources. Do not re-enable the sender without reviewing its queue
+and configuring fresh credentials.
+
 Kindle Sender is a custom Go microservice that automatically watches for new eBooks and sends them to your Kindle device via email.
 
 ## Overview
@@ -145,8 +154,8 @@ Kindle Sender is designed to be extremely lightweight and efficient.
 
 ## Building the Docker Image
 
-The maintained application source is in `src/`, not a separate repository inferred
-from the GHCR username. The current immutable `v1.0.0` amd64 artifact
+The archived application source is in `src/`, not a separate repository inferred
+from the GHCR username. The historical immutable `v1.0.0` amd64 artifact
 (`sha256:4ecbbe85df4075286e3c5b2bab081abbd9b784e23856258b586d33e860754177`)
 has no OCI source/revision labels and its native build-info reports Go 1.21.13.
 Changing a CA bundle alone cannot patch that compiled runtime.
@@ -211,7 +220,9 @@ This candidate was **not published or deployed**; local Docker image/config IDs
 are not registry manifest digests and must not be used as Helm image pins.
 A publishing build must repeat acceptance on the exact artifact it pushes,
 use a non-mutating release tag, and undergo separate immutable-pin review.
-The live image remains unchanged.
+The sender is now retired from the active kustomization. These build artifacts
+and checks are retained for historical reference; neither publication nor
+reactivation is part of the CA preparation.
 
 ## Troubleshooting
 

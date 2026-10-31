@@ -1,6 +1,14 @@
 # Book Management Stack
 
-Complete production-quality book management ecosystem for personal library automation, reading, and Kindle delivery.
+Book management ecosystem for acquisition, browser uploads, and shared EPUB
+downloads to CrossPoint and KOReader.
+
+**Current reader delivery:** Upload each canonical EPUB to Calibre-Web and use
+`http://192.168.1.153:8083/opds` with the download-only `ereaders` account on both
+devices. The same EPUB bytes are used for hosted CrossPoint reading-position
+sync. The Kindle Sender is retired; its history PVC and NAS source books are
+retained. The sender deployment and email instructions below are historical,
+not the active reader workflow.
 
 ## Overview
 
@@ -9,7 +17,7 @@ The book management stack provides end-to-end automation for managing an eBook l
 1. **Bookshelf** - Acquisition and organization (Readarr fork)
 2. **rreading-glasses** - Enhanced metadata via Hardcover.app
 3. **Calibre-Web** - Web-based reading and browsing
-4. **Kindle Sender** - Automatic delivery to Kindle devices
+4. **OPDS clients** - CrossPoint and KOReader download the same EPUBs
 5. **Hardcover Sync** - Automatic sync from Hardcover "Want-To-Read" to Bookshelf
 
 All components are deployed in the `media` namespace on `rishik-worker1` node.
@@ -120,7 +128,7 @@ validates rather than overwrites an existing destination. See
 [Calibre-Web cutover and upload procedure](../apps/calibre-web/README.md#first-longhorn-cutover)
 before rollout. Keep hosted CrossPoint Sync for Xteink/KOReader reading progress.
 
-### 4. Kindle Sender
+### 4. Kindle Sender (retired; historical configuration)
 
 **Purpose**: Automatic Kindle delivery
 

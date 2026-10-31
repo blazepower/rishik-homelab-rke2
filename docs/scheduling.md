@@ -182,7 +182,6 @@ The following applications are configured with KEDA for automatic scaling:
 |-------------|----------|---------|
 | `calibre-web` | 10 min | HTTP requests in last 10 min |
 | `homebox` | 10 min | HTTP requests in last 10 min |
-| `kindle-sender` | 15 min | Pending files metric |
 
 Calibre-Web keeps a minimum of one replica for always-on OPDS and browser uploads.
 The other apps can scale to zero when there's no traffic/activity.
