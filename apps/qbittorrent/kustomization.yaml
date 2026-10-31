@@ -1,6 +1,8 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
+namespace: media
 resources:
+  - ca-guard
   - configmap.yaml
   - sealedsecret-vpn.yaml
   - sealedsecret-mam-credentials.yaml
@@ -9,3 +11,5 @@ resources:
   - certificate.yaml
   - ingress.yaml
   - ingress-qbittorrent-tailscale.yaml
+configurations:
+  - kustomize-ca.json

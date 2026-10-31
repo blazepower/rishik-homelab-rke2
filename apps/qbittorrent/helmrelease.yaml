@@ -5,6 +5,7 @@ metadata:
   name: qbittorrent
   namespace: media
 spec:
+  suspend: true
   interval: 30m
   chart:
     spec:
@@ -35,11 +36,55 @@ spec:
         pod:
           terminationGracePeriodSeconds: 60
 
+        initContainers:
+          ca-copy:
+            image:
+              repository: lscr.io/linuxserver/qbittorrent
+              tag: "5.2.4_v2.0.15-ls481@sha256:1ea873647c43d566f251a7122aee330b184509c57ee3257ed19f62dac0f8f24b"
+            command: ["/bin/sh", "/ca-guard/copy-ca-overlay.sh", "qbittorrent"]
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop: ["ALL"]
+          ca-copy-gluetun:
+            image:
+              repository: qmcgaw/gluetun
+              tag: "v3@sha256:fa19cc76b2af13d57a8d3dc3066f2ada061b1c761b8aecf989b3877c0486e027"
+            command: ["/bin/sh", "/ca-guard/copy-ca-overlay.sh", "gluetun"]
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop: ["ALL"]
+          ca-filter:
+            image:
+              repository: lscr.io/linuxserver/bazarr
+              tag: "v1.6.2-ls369@sha256:946dc8c5bb5331418eac60050cf40a63cb8f66ac039841dda493870e3559799c"
+            command: ["python3", "-B", "/ca-guard/ca-overlay.py"]
+            args: ["--root", "/ca-store", "--app", "qbittorrent", "--policy", "/ca-guard/blocked-spkis.sha256"]
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop: ["ALL"]
+          ca-filter-gluetun:
+            image:
+              repository: lscr.io/linuxserver/bazarr
+              tag: "v1.6.2-ls369@sha256:946dc8c5bb5331418eac60050cf40a63cb8f66ac039841dda493870e3559799c"
+            command: ["python3", "-B", "/ca-guard/ca-overlay.py"]
+            args: ["--root", "/ca-store", "--app", "gluetun", "--policy", "/ca-guard/blocked-spkis.sha256"]
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop: ["ALL"]
+
         containers:
           gluetun:
             image:
               repository: qmcgaw/gluetun
-              tag: v3
+              tag: "v3@sha256:fa19cc76b2af13d57a8d3dc3066f2ada061b1c761b8aecf989b3877c0486e027"
             env:
               - name: VPN_SERVICE_PROVIDER
                 value: "protonvpn"
@@ -145,7 +190,7 @@ spec:
             dependsOn: gluetun
             image:
               repository: curlimages/curl
-              tag: "8.23.0@sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac"
+              tag: "8.23.0@sha256:3fb7e13e5d179a845c97d78204f3f1064d1907037f26a3ebf91710571151fd93"
             env:
               - name: MAM_ID
                 valueFrom:
@@ -286,6 +331,62 @@ spec:
             port: 8080
 
     persistence:
+      ca-guard:
+        type: configMap
+        name: ca-guard
+        defaultMode: 0444
+        advancedMounts:
+          qbittorrent:
+            ca-copy:
+              - path: /ca-guard
+                readOnly: true
+            ca-copy-gluetun:
+              - path: /ca-guard
+                readOnly: true
+            ca-filter:
+              - path: /ca-guard
+                readOnly: true
+            ca-filter-gluetun:
+              - path: /ca-guard
+                readOnly: true
+      ca-store:
+        type: emptyDir
+        sizeLimit: 32Mi
+        advancedMounts:
+          qbittorrent:
+            ca-copy:
+              - path: /ca-store
+            ca-filter:
+              - path: /ca-store
+            app:
+              - path: /etc/ssl
+                subPath: etc/ssl
+                readOnly: true
+              - path: /usr/share/ca-certificates
+                subPath: usr/share/ca-certificates
+                readOnly: true
+              - path: /usr/local/share/ca-certificates
+                subPath: usr/local/share/ca-certificates
+                readOnly: true
+      gluetun-ca-store:
+        type: emptyDir
+        sizeLimit: 32Mi
+        advancedMounts:
+          qbittorrent:
+            ca-copy-gluetun:
+              - path: /ca-store
+            ca-filter-gluetun:
+              - path: /ca-store
+            gluetun:
+              - path: /etc/ssl
+                subPath: etc/ssl
+                readOnly: true
+              - path: /usr/share/ca-certificates
+                subPath: usr/share/ca-certificates
+                readOnly: true
+              - path: /usr/local/share/ca-certificates
+                subPath: usr/local/share/ca-certificates
+                readOnly: true
       config:
         existingClaim: qbittorrent-config
         advancedMounts:

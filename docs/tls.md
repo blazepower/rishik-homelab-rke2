@@ -1,5 +1,104 @@
 # TLS Certificate Management
 
+## Application runtime trust incident coverage
+
+The scoped October 26, 2026 application evidence is recorded in
+`.github/security/fleet-application-ca-report.json`. Its status is **blocked**:
+PEM-only clearance, a patched runtime version, and a clean Node default store
+must not be mistaken for complete application trust clearance. The report
+distinguishes image indexes from exact amd64 manifests, Calibre-Web's denied
+packaged certifi from its clean OS bundle, and Seerr's clean default Node roots
+from its denied system roots. It contains no deployment authorization; the
+coordinator's failed storage baseline remains a separate rollout gate.
+
+Run `python .github/scripts/test-fleet-application-ca.py` to validate the evidence
+and non-clearance invariants. Existing separately verified Plex runtime
+hardening and unchanged owned application images are outside this report.
+
+### Calibre-Web certifi overlay preparation
+
+`apps/calibre-web/harden-certifi.py` prepares a dedicated ephemeral copy of the
+exact pinned image's public certifi package, removing only the eleven-policy
+SPKIs and preserving every other certificate and the original Python modules.
+The entire package is mounted read-only, rather than redirecting only Requests
+or replacing just one writable file. The existing library bootstrap remains
+first; a failed hardening initializer prevents the unmodified vendor `/init`
+from starting. The guard has no mounts of user configuration or library PVCs.
+No custom init hook, runtime package installation, or user trust-store rewrite
+is introduced. A vendor image refresh must revalidate and update the package
+fingerprints; an unknown package intentionally blocks startup.
+
+Preparation evidence and subsequent isolated acceptance are in
+`.github/security/fleet-application-runtime-ca-hardening-report.json`.
+Run 40943923000 at `fc33b2d` passed all thirteen Calibre checks without skips,
+including the strict filesystem barriers and selected app-template 5.3.0.
+This is **not deployed or live-cleared**; the storage and serial activation
+gates still apply. Run
+`python .github/scripts/test-application-runtime-ca-hardening.py` on a Linux
+Docker runner, together with
+`python .github/scripts/test-calibre-library-bootstrap.py`. Docker executions
+use the exact pinned image with networking disabled and no user configuration
+or media. Windows-only passes with Docker tests skipped are not clearance.
+
+### Additional held preparations
+
+Sure has a same-image Ruby initializer for both Rails and Sidekiq, with
+read-only default/OS, AWS and Skylight public trust overlays. It preserves
+the original commands and requires exact-image Linux startup with disposable
+loopback-only PostgreSQL/Redis before acceptance. No real database or
+credentials are used. See `test-sure-runtime-ca-hardening.py` and its scoped
+preparation report. The corrected Bundler-aware Sidekiq registration probe
+and full Linux suite passed at `93c0ffa` (14 tests, zero skips,
+[job 123719104946](https://github.com/blazepower/rishik-homelab-rke2/actions/runs/40951095423/job/123719104946)).
+This is isolated acceptance, not deployment clearance.
+
+Bookshelf, qBittorrent/Gluetun and Seerr system stores reuse the shared media
+guard. Their separate Linux gate checks original isolated startup and
+read-only public stores; Seerr also checks native default/bundled/system root
+inventories. This is not .NET/Qt/custom TLS or credentialed VPN clearance.
+The registry/Docker/render suite passed at `93c0ffa` (16 tests, zero skips,
+[job 123719104843](https://github.com/blazepower/rishik-homelab-rke2/actions/runs/40951095423/job/123719104843)).
+Gluetun's public-store barrier passed, but its Go 1.25.11 remains below the
+incident floor; no real VPN startup was attempted.
+
+The retired Kindle Sender has a pinned Go 1.27.3 rebuild and non-publishing
+Linux acceptance workflow. Native tests use the exact eight public SPKIs and
+require certificate-policy rejection, not an arbitrary handshake failure.
+The maintained static-CGO/SQLite image must pass before publication and a
+separately reviewed immutable release pin if reactivation is ever authorized.
+The active kustomization retains only the historical data PVC; this preparation
+does not restore the sender runtime, publish its image or reactivate it.
+The isolated acceptance passed again at `93c0ffa` in
+[run 40951095407](https://github.com/blazepower/rishik-homelab-rke2/actions/runs/40951095407),
+with the same accepted binary and public bundle hashes as `7ee1cf9`.
+Explicit custom TLS contexts and other compiled Go gaps remain outside
+these overlays. Historical audits remain timestamped pre-deployment baselines.
+
+On October 29, RKE2 published
+[`v1.34.13-rc1+rke2r1`](https://github.com/rancher/rke2/releases/tag/v1.34.13-rc1%2Brke2r1)
+with release notes declaring Go 1.26.10. The checked official v1.34 stable
+channel still resolves to `v1.34.12+rke2r1`. Read-only ELF inspection of the
+checksum-verified public amd64 RKE2 server binary confirms
+`go1.26.10-X:boringcrypto`. This does not verify kube-apiserver, kubelet,
+containerd, native CA behavior or any deployed node. The RC is not an accepted
+stable upgrade; no node changes or prerelease deployment are authorized.
+
+### Controlled activation
+
+Radarr is the first separately authorized serial activation, using the already
+audited same-application-version vendor rebuild. Verify its actual running image,
+public trust stores, authentication and storage before activating another release.
+
+The remaining prepared Calibre-Web, Bazarr, Prowlarr, SABnzbd, Sure, Bookshelf,
+qBittorrent and Seerr releases are explicitly suspended in Git. This prevents
+starting eight remaining independent stateful rollouts
+together. Do not remove these
+holds during external storage maintenance. After the storage owner confirms
+completion and a fresh sustained safety check passes, activate one release at
+a time through Git, update its CI hold assertion, and verify actual startup,
+trust rejection, authentication and storage before activating the next.
+Preparation reports and passing CI do not authorize deployment.
+
 ## cert-manager
 
 [cert-manager](https://cert-manager.io/) is deployed to automate TLS certificate management for services exposed via Ingress.
