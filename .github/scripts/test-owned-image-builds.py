@@ -21,7 +21,7 @@ SPEC = importlib.util.spec_from_file_location(
 )
 CA = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(CA)
-WORKFLOWS = ("cooklang-build.yaml", "cook-sync-build.yaml", "build-hardcover-sync.yaml")
+WORKFLOWS = ("cooklang-build.yaml", "build-hardcover-sync.yaml")
 CERTIFICATE = b"-----BEGIN CERTIFICATE-----\nfixture\n-----END CERTIFICATE-----\n"
 
 
@@ -45,40 +45,33 @@ class OwnedBuildTests(unittest.TestCase):
 
     def test_fixed_toolchain_and_package_floors(self):
         hardcover = (ROOT / "apps" / "hardcover-sync" / "src" / "Dockerfile").read_text()
-        sync = (ROOT / "apps" / "cooklang" / "Dockerfile.sync").read_text()
         self.assertIn("FROM golang:1.27.3-bookworm AS build", hardcover)
         self.assertIn("ge 20250419~deb12u2", hardcover)
-        self.assertIn("FROM ubuntu:22.04", sync)
-        self.assertIn("ge 20260816ubuntu0.22.04.1", sync)
 
-    def test_cook_sync_preserves_supported_native_abi_and_app_version(self):
-        sync = (ROOT / "apps" / "cooklang" / "Dockerfile.sync").read_text()
-        self.assertLess(sync.index("ge 20260816ubuntu0.22.04.1"), sync.index("RUN curl"))
-        self.assertIn("ARG COOK_DESKTOP_VERSION=0.2.5", sync)
-        self.assertIn("    libwebkit2gtk-4.0-37 \\", sync)
-        self.assertIn("apt-get install -y --no-install-recommends /opt/cook-desktop.deb", sync)
-        self.assertIn('test "$(dpkg-query -W -f=\'${Version}\' cook-desktop)" = "${COOK_DESKTOP_VERSION}"', sync)
-        self.assertIn("ldd /usr/bin/cook-desktop > /opt/cook-desktop.ldd", sync)
-        self.assertIn("! grep -q 'not found' /opt/cook-desktop.ldd", sync)
-        self.assertNotIn("apt-get install -f", sync)
-        self.assertNotIn("; apt-get", sync)
-        self.assertNotRegex(sync, r"ln -s[^\n]*(?:libwebkit|libjavascriptcore|\.so)")
-        self.assertNotIn("/tmp/", sync)
-        self.assertNotRegex(sync, r"(?:noble|resolute|add-apt-repository|sources\.list)")
-
-    def test_cook_sync_certifi_uses_and_checks_patched_system_roots(self):
-        sync = (ROOT / "apps" / "cooklang" / "Dockerfile.sync").read_text()
-        bundle = "/usr/lib/python3/dist-packages/certifi/cacert.pem"
-        self.assertIn("    python3-certifi \\", sync)
-        self.assertIn("test -f " + bundle, sync)
-        self.assertIn("ln -sf /etc/ssl/certs/ca-certificates.crt " + bundle, sync)
-        self.assertIn("pathlib.Path(certifi.where()).resolve()", sync)
-        self.assertIn("ssl.create_default_context(cafile=certifi.where())", sync)
-        self.assertLess(sync.index("apt-get install -y --no-install-recommends /opt/cook-desktop.deb"),
-                        sync.index("ln -sf"))
-        workflow = (ROOT / ".github" / "workflows" / "cook-sync-build.yaml").read_text()
-        self.assertIn('verify-owned-image-ca.py "$IMAGE" --bundle-path ' + bundle, workflow)
-        self.assertLess(workflow.index("--bundle-path"), workflow.index("id: promote"))
+    def test_retired_desktop_does_not_remove_recipe_server_or_stored_configuration(self):
+        release = (ROOT / "apps/cooklang/helmrelease.yaml").read_text()
+        self.assertNotRegex(release, r"(?m)^\s*sync:")
+        self.assertIn("existingClaim: media-root", release)
+        self.assertIn("subPath: recipes", release)
+        values = (ROOT / "charts/cooklang/values.yaml").read_text()
+        self.assertNotRegex(values, r"(?m)^\s*sync:")
+        deployment = (ROOT / "charts/cooklang/templates/deployment.yaml").read_text()
+        self.assertNotIn("cook-sync", deployment)
+        self.assertNotIn("sync-config", deployment)
+        self.assertIn('args: ["server", "/recipes"', deployment)
+        retained = (ROOT / "charts/cooklang/templates/pvc-sync-config.yaml").read_text()
+        self.assertIn("helm.sh/resource-policy: keep", retained)
+        self.assertIn("kustomize.toolkit.fluxcd.io/prune: disabled", retained)
+        self.assertNotIn("{{- if", retained)
+        self.assertIn("storage: 100Mi", retained)
+        endpoint = (ROOT / "apps/cooklang/ingress-novnc.yaml").read_text()
+        self.assertEqual(re.findall(r"(?m)^kind: (\S+)", endpoint), ["Certificate"])
+        for path in (
+            ".github/workflows/cook-sync-build.yaml", "apps/cooklang/Dockerfile.sync",
+            "apps/cooklang/entrypoint-sync.sh", "charts/cooklang/templates/service-vnc.yaml",
+            "charts/cooklang/templates/service-novnc.yaml",
+        ):
+            self.assertFalse((ROOT / path).exists(), path)
 
     def test_distroless_replaces_entire_trust_directories_before_final_runtime(self):
         cases = (

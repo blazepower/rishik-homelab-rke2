@@ -1,4 +1,4 @@
-{{- if .Values.sync.enabled }}
+# Retain the retired desktop's configuration; no workload mounts this claim.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -6,11 +6,13 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "cooklang.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+    kustomize.toolkit.fluxcd.io/prune: disabled
 spec:
   accessModes:
-    - {{ .Values.sync.persistence.accessMode }}
-  storageClassName: {{ .Values.sync.persistence.storageClass }}
+    - ReadWriteOnce
+  storageClassName: longhorn
   resources:
     requests:
-      storage: {{ .Values.sync.persistence.size }}
-{{- end }}
+      storage: 100Mi
