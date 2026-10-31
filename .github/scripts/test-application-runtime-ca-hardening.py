@@ -46,7 +46,7 @@ class CalibreWiringTests(unittest.TestCase):
         self.assertNotIn("command", controller["containers"]["app"])
         self.assertNotIn("args", controller["containers"]["app"])
         self.assertEqual(image["tag"],
-                         "0.6.27@sha256:470b4ed9a7d6ea1475fef17dbcf957cb60880910296d226bd0dca652c05f68ca")
+                         "v4.0.8@sha256:5e00373854247750cc3e4479b492ae09293ff5e06ed10177f226634d97888679")
         self.assertEqual(controller["initContainers"]["harden-certifi"]["command"],
                          ["python3", "-B", "/ca-hardening/harden-certifi.py"])
         self.assertTrue(controller["initContainers"]["harden-certifi"]
@@ -57,6 +57,8 @@ class CalibreWiringTests(unittest.TestCase):
         self.assertEqual(overlay["type"], "emptyDir")
         self.assertEqual(overlay["advancedMounts"]["calibre-web"]["app"], [{
             "path": guard.PACKAGE.as_posix(), "subPath": "certifi", "readOnly": True,
+        }, {
+            "path": "/etc/ssl/certs", "subPath": "system-certs", "readOnly": True,
         }])
         self.assertEqual(overlay["advancedMounts"]["calibre-web"]["harden-certifi"],
                          [{"path": "/ca-output"}])
@@ -90,8 +92,8 @@ class CalibreWiringTests(unittest.TestCase):
         self.assertEqual(pod["securityContext"]["fsGroup"], 1000)
         self.assertEqual(pod["securityContext"]["fsGroupChangePolicy"], "OnRootMismatch")
         self.assertEqual([container["name"] for container in pod["initContainers"]],
-                         ["bootstrap-library", "harden-certifi"])
-        initializer = pod["initContainers"][1]
+                         ["bootstrap-library", "configure-ingest", "harden-certifi"])
+        initializer = pod["initContainers"][2]
         self.assertEqual({mount["name"] for mount in initializer["volumeMounts"]},
                          {"ca-hardening", "certifi-overlay"})
         app = pod["containers"][0]
@@ -172,6 +174,24 @@ class CalibreFilterTests(unittest.TestCase):
     def test_certificate_only_bundle_cannot_shrink_to_an_empty_trust_store(self):
         with self.assertRaises(ValueError):
             guard.sanitize(self.certs[0], self.denied)
+
+    def test_system_bundle_and_hashed_fallback_remove_denied_key_without_hash_gaps(self):
+        source = self.base / "system"
+        source.mkdir()
+        bundle = b"".join(self.certs)
+        (source / "ca-certificates.crt").write_bytes(bundle)
+        for index, content in enumerate(self.certs):
+            (source / f"1234abcd.{index}").write_bytes(content)
+        expected = hashlib.sha256(bundle).hexdigest()
+        counts = guard.build_system_overlay(source, self.output, self.denied, expected)
+        self.assertEqual(counts["removed"], 1)
+        hardened = self.output / "system-certs"
+        self.assertEqual((hardened / "1234abcd.0").read_bytes(), self.certs[1])
+        self.assertTrue((hardened / "1234abcd.10").exists())
+        self.assertFalse((hardened / "1234abcd.11").exists())
+        for path in hardened.iterdir():
+            self.assertTrue(all(spki not in self.denied for _, spki, _ in
+                                guard.certificates(path.read_bytes())))
 
     def test_guard_process_exits_nonzero_before_startup_when_policy_is_missing(self):
         script = self.base / "harden-certifi.py"
@@ -293,7 +313,7 @@ from pathlib import Path
 from cryptography import x509
 from cryptography.hazmat.primitives.serialization import Encoding,PublicFormat
 blocked=BLOCKED
-assert certifi.where()=='/lsiopy/lib/python3.12/site-packages/certifi/cacert.pem'
+assert certifi.where()=='/lsiopy/lib/python3.13/site-packages/certifi/cacert.pem'
 assert requests.certs.where()==certifi.where()
 contexts=[ssl.create_default_context()]
 contexts += [ssl.create_default_context(cafile=module.where()) for module in
