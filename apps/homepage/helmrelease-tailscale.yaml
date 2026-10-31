@@ -139,13 +139,6 @@ spec:
                 server: homepage-kubernetes
                 namespace: media
                 app: bookshelf
-            - Kindle-sender:
-                icon: mdi-book-arrow-right
-                href: https://kindle.tail4217c.ts.net
-                description: Send to Kindle
-                server: homepage-kubernetes
-                namespace: media
-                app: kindle-sender
             - RReading-glasses:
                 icon: mdi-glasses
                 href: https://rreading.tail4217c.ts.net

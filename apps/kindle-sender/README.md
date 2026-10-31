@@ -1,5 +1,14 @@
 # Kindle Sender
 
+**Retired:** CrossPoint on the X3 and KOReader on the Kindle now download
+unchanged EPUBs from Calibre-Web's authenticated OPDS catalog. The active
+kustomization retains only `kindle-sender-data`, with Flux pruning disabled for
+that claim. The sent-history database and NAS books are preserved; Flux removes
+the sender release, scaler, configuration, network policy, and SMTP Secret
+managed by its SealedSecret. Deployment manifests below are historical and are
+not active resources. Do not re-enable the sender without reviewing its queue
+and configuring fresh credentials.
+
 Kindle Sender is a custom Go microservice that automatically watches for new eBooks and sends them to your Kindle device via email.
 
 ## Overview
