@@ -85,9 +85,13 @@ stable upgrade; no node changes or prerelease deployment are authorized.
 
 ### Controlled activation
 
-The prepared Radarr, Calibre-Web, Bazarr, Prowlarr, SABnzbd, Sure, Bookshelf,
+Radarr is the first separately authorized serial activation, using the already
+audited same-application-version vendor rebuild. Verify its actual running image,
+public trust stores, authentication and storage before activating another release.
+
+The remaining prepared Calibre-Web, Bazarr, Prowlarr, SABnzbd, Sure, Bookshelf,
 qBittorrent and Seerr releases are explicitly suspended in Git. This prevents
-merging the preparation from starting nine independent stateful rollouts
+starting eight remaining independent stateful rollouts
 together. Do not remove these
 holds during external storage maintenance. After the storage owner confirms
 completion and a fresh sustained safety check passes, activate one release at
