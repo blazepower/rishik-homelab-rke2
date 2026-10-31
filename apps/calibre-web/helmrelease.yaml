@@ -279,6 +279,9 @@ spec:
               - path: /etc/ssl/certs
                 subPath: system-certs
                 readOnly: true
+              - path: /lsiopy/lib/python3.13/site-packages/pip/_vendor/certifi
+                subPath: pip-certifi
+                readOnly: true
       config:
         existingClaim: calibre-web-config
         advancedMounts:

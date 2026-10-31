@@ -75,7 +75,7 @@ settings default off; this is not an email-delivery pipeline.
 Native processed-book backup duplication is disabled: unchanged source originals
 are retained on the NAS, and the library/config/ingest volumes have Longhorn
 snapshot/backup policies. This avoids filling the 1Gi config volume with a second
-copy of every imported EPUB. Both certifi and OpenSSL's CA bundle/hashed fallback
+copy of every imported EPUB. Certifi, pip's vendored certifi, and OpenSSL's CA bundle/hashed fallback
 are hardened against the existing eleven-SPKI deny policy, preserving all other
 anchors. Image updates require approval and matching pinned trust-store audits.
 

@@ -59,6 +59,8 @@ class CalibreWiringTests(unittest.TestCase):
             "path": guard.PACKAGE.as_posix(), "subPath": "certifi", "readOnly": True,
         }, {
             "path": "/etc/ssl/certs", "subPath": "system-certs", "readOnly": True,
+        }, {
+            "path": guard.PIP_PACKAGE.as_posix(), "subPath": "pip-certifi", "readOnly": True,
         }])
         self.assertEqual(overlay["advancedMounts"]["calibre-web"]["harden-certifi"],
                          [{"path": "/ca-output"}])
@@ -248,8 +250,7 @@ class CalibreVendorDockerTests(unittest.TestCase):
         return name
 
     def test_pinned_full_vendor_init_cannot_restore_certifi_and_native_rejects_bad_root(self):
-        report = json.loads((ROOT / ".github/security/fleet-application-runtime-ca-hardening-report.json").read_text())
-        expected_startup = report["vendor_startup"]["sha256"]
+        expected_startup = guard.VENDOR_STARTUP_HASHES
         self.assertEqual(json.loads(self.docker("image", "inspect", "--format={{json .Config.Entrypoint}}",
                                                 self.image)), ["/init"])
         self.assertIsNone(json.loads(self.docker("image", "inspect", "--format={{json .Config.Cmd}}",
@@ -269,7 +270,7 @@ class CalibreVendorDockerTests(unittest.TestCase):
         before = guard.certificates(original)
         denied = guard.policy(APP / "blocked-spkis.sha256")
         clean, counts = guard.sanitize(original, denied)
-        self.assertEqual(counts, {"before": 119, "after": 118, "removed": 1})
+        self.assertEqual(counts, {"before": 121, "after": 120, "removed": 1})
         (self.base / "denied.pem").write_bytes(next(pem for pem, spki, _ in before if spki in denied))
         (self.base / "allowed.pem").write_bytes(next(pem for pem, spki, _ in before if spki not in denied))
         output = self.base / "output"
@@ -294,6 +295,8 @@ class CalibreVendorDockerTests(unittest.TestCase):
             "--cap-drop=ALL", "--cap-add=CHOWN", "--cap-add=SETUID", "--cap-add=SETGID",
             "--env=PUID=1000", "--env=PGID=1000",
             "--volume", str(output / "certifi") + ":" + str(guard.PACKAGE) + ":ro",
+            "--volume", str(output / "pip-certifi") + ":" + str(guard.PIP_PACKAGE) + ":ro",
+            "--volume", str(output / "system-certs") + ":/etc/ssl/certs:ro",
             "--volume", str(self.base) + ":/public-fixtures:ro",
         ])
         self.docker("start", main)
