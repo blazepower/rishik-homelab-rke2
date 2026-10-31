@@ -2,9 +2,21 @@
 
 Bookshelf is a Readarr fork optimized for book management in the homelab environment.
 
+## Suspended public CA guard preparation
+
+The HelmRelease is staged with `spec.suspend: true`. Before the unchanged
+Bookshelf entrypoint runs, stock-image init snapshots public trust into an
+`emptyDir`; the shared exact-SPKI guard removes the eleven policy keys.
+The complete `/etc/ssl` (including the bundle alias) and both vendor source
+directories are mounted read-only. Guard init containers never mount user PVCs.
+Private/custom application trust is not rewritten. This is public PEM mitigation,
+not certification of Bookshelf's .NET/custom chain handling or rollout approval.
+See `.github/security/fleet-native-app-ca-report.json` and the isolated checks:
+`python .github/scripts/test-native-app-ca-hardening.py --registry --docker --render`.
+
 ## Overview
 
-- **Image**: `ghcr.io/pennydreadful/bookshelf:hardcover-v0.4.10.2765`
+- **Image**: `ghcr.io/pennydreadful/bookshelf:hardcover-v0.4.20.91` (original build pinned by digest)
 - **Port**: 8787
 - **Access URL**: https://bookshelf.homelab
 - **Namespace**: media

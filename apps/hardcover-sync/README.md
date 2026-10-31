@@ -12,14 +12,13 @@ Hardcover Sync is a custom Go microservice that automatically synchronizes books
 
 ## Owned image maintenance
 
-The Hardcover Sync, Cooklang and Cook Sync workflows always pull their base
+The Hardcover Sync and Cooklang workflows always pull their base
 images. After the workflow changes are available on the selected ref, explicitly
 request an uncached rebuild with:
 
 ```powershell
 gh workflow run build-hardcover-sync.yaml --ref master -f force_rebuild=true
 gh workflow run cooklang-build.yaml --ref master -f version=0.21.0 -f force_rebuild=true
-gh workflow run cook-sync-build.yaml --ref master -f version=0.2.5 -f force_rebuild=true
 ```
 
 Each workflow first publishes only a unique
@@ -50,14 +49,8 @@ rollback revisions reference them.
 Hardcover uses Go 1.27.3. Both Hardcover and Cooklang require Debian Bookworm
 `ca-certificates` at least `20250419~deb12u2` and replace the distroless
 filesystem's entire certificate and hashed-trust directories, not just its
-bundle. Cook Sync retains Cook Desktop 0.2.5 on supported Ubuntu 22.04,
-matching the deployed application's native `libwebkit2gtk-4.0-37` ABI, and
-requires `ca-certificates` at least `20260816ubuntu0.22.04.1`. Ubuntu 26.04
-does not supply that ABI. The build checks the installed app version and
-rejects unresolved shared libraries instead of mixing distribution packages
-or substituting incompatible library symlinks.
-Cook Sync's distro-provided Python certifi bundle follows the patched system
-bundle, and its workflow independently checks both paths before promotion.
+bundle. The unused Cook Desktop sync sidecar and its build workflow have been
+retired; Cooklang continues serving recipes from the existing shared storage.
 
 References: [Debian DSA-6572](https://www.debian.org/security/2026/dsa-6572),
 [Ubuntu incident guidance](https://ubuntu.com/blog/emudhra-ca-compromise-fixes-available),

@@ -5,6 +5,7 @@ metadata:
   name: overseerr
   namespace: media
 spec:
+  suspend: true
   interval: 30m
   chart:
     spec:
@@ -42,6 +43,35 @@ spec:
         annotations:
           reloader.stakater.com/auto: "true"
 
+        initContainers:
+          ca-copy:
+            image:
+              repository: ghcr.io/seerr-team/seerr
+              tag: "v3.5.1@sha256:d8fab675b55ad293ded98fd71efcfd46054cbad9746534ae1cc4794a88c0b3be"
+            command: ["/bin/sh", "/ca-guard/copy-ca-overlay.sh", "overseerr"]
+            securityContext:
+              runAsUser: 0
+              runAsGroup: 0
+              runAsNonRoot: false
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop: ["ALL"]
+          ca-filter:
+            image:
+              repository: lscr.io/linuxserver/bazarr
+              tag: "v1.6.2-ls369@sha256:946dc8c5bb5331418eac60050cf40a63cb8f66ac039841dda493870e3559799c"
+            command: ["python3", "-B", "/ca-guard/ca-overlay.py"]
+            args: ["--root", "/ca-store", "--app", "overseerr", "--policy", "/ca-guard/blocked-spkis.sha256"]
+            securityContext:
+              runAsUser: 0
+              runAsGroup: 0
+              runAsNonRoot: false
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop: ["ALL"]
+
         containers:
           app:
             image:
@@ -75,7 +105,34 @@ spec:
             port: 5055
 
     persistence:
+      ca-guard:
+        type: configMap
+        name: ca-guard
+        defaultMode: 0444
+        advancedMounts:
+          overseerr:
+            ca-copy:
+              - path: /ca-guard
+                readOnly: true
+            ca-filter:
+              - path: /ca-guard
+                readOnly: true
+      ca-store:
+        type: emptyDir
+        sizeLimit: 32Mi
+        advancedMounts:
+          overseerr:
+            ca-copy:
+              - path: /ca-store
+            ca-filter:
+              - path: /ca-store
+            app:
+              - path: /etc/ssl
+                subPath: etc/ssl
+                readOnly: true
       config:
         existingClaim: overseerr-config
-        globalMounts:
-          - path: /app/config
+        advancedMounts:
+          overseerr:
+            app:
+              - path: /app/config

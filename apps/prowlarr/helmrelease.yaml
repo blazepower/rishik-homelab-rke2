@@ -5,6 +5,7 @@ metadata:
   name: prowlarr
   namespace: media
 spec:
+  suspend: true
   interval: 30m
   chart:
     spec:
@@ -31,6 +32,29 @@ spec:
       prowlarr:
         annotations:
           reloader.stakater.com/auto: "true"
+
+        initContainers:
+          ca-copy:
+            image:
+              repository: lscr.io/linuxserver/prowlarr
+              tag: "2.6.5.5623-ls165@sha256:b3b00047ed20f6ce2b16780145cb6a0acb51c9e28ea6aa6f5dcd33c7034f1797"
+            command: ["/bin/sh", "/ca-guard/copy-ca-overlay.sh", "prowlarr"]
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop: ["ALL"]
+          ca-filter:
+            image:
+              repository: lscr.io/linuxserver/bazarr
+              tag: "v1.6.2-ls369@sha256:946dc8c5bb5331418eac60050cf40a63cb8f66ac039841dda493870e3559799c"
+            command: ["python3", "-B", "/ca-guard/ca-overlay.py"]
+            args: ["--root", "/ca-store", "--app", "prowlarr", "--policy", "/ca-guard/blocked-spkis.sha256"]
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop: ["ALL"]
 
         containers:
           app:
@@ -69,7 +93,40 @@ spec:
             port: 9696
 
     persistence:
+      ca-guard:
+        type: configMap
+        name: prowlarr-ca-guard
+        defaultMode: 0444
+        advancedMounts:
+          prowlarr:
+            ca-copy:
+              - path: /ca-guard
+                readOnly: true
+            ca-filter:
+              - path: /ca-guard
+                readOnly: true
+      ca-store:
+        type: emptyDir
+        sizeLimit: 32Mi
+        advancedMounts:
+          prowlarr:
+            ca-copy:
+              - path: /ca-store
+            ca-filter:
+              - path: /ca-store
+            app:
+              - path: /etc/ssl/certs
+                subPath: etc/ssl/certs
+                readOnly: true
+              - path: /usr/share/ca-certificates
+                subPath: usr/share/ca-certificates
+                readOnly: true
+              - path: /usr/local/share/ca-certificates
+                subPath: usr/local/share/ca-certificates
+                readOnly: true
       config:
         existingClaim: prowlarr-config
-        globalMounts:
-          - path: /config
+        advancedMounts:
+          prowlarr:
+            app:
+              - path: /config
