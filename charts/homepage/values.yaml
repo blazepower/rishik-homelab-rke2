@@ -167,13 +167,6 @@ config:
             app: rreading-glasses
 
     - Productivity:
-        - Cooklang:
-            icon: mdi-chef-hat
-            href: https://cooklang.homelab
-            description: Recipe Manager
-            server: homepage-kubernetes
-            namespace: media
-            app: cooklang
         - Kaneo:
             icon: mdi-kangaroo
             href: https://kaneo.homelab

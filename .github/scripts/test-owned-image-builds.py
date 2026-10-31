@@ -21,7 +21,7 @@ SPEC = importlib.util.spec_from_file_location(
 )
 CA = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(CA)
-WORKFLOWS = ("cooklang-build.yaml", "build-hardcover-sync.yaml")
+WORKFLOWS = ("build-hardcover-sync.yaml",)
 CERTIFICATE = b"-----BEGIN CERTIFICATE-----\nfixture\n-----END CERTIFICATE-----\n"
 
 
@@ -40,32 +40,40 @@ class OwnedBuildTests(unittest.TestCase):
                 self.assertIn('verify-owned-image-ca.py "$IMAGE"', text)
                 self.assertIn("Test owned image build guardrails", text)
                 self.assertIn("'.github/scripts/verify-owned-image-ca.py'", text)
-        cooklang = (ROOT / ".github" / "workflows" / WORKFLOWS[0]).read_text()
-        self.assertIn("--platform linux/arm64", cooklang)
 
     def test_fixed_toolchain_and_package_floors(self):
         hardcover = (ROOT / "apps" / "hardcover-sync" / "src" / "Dockerfile").read_text()
         self.assertIn("FROM golang:1.27.3-bookworm AS build", hardcover)
         self.assertIn("ge 20250419~deb12u2", hardcover)
 
-    def test_retired_desktop_does_not_remove_recipe_server_or_stored_configuration(self):
-        release = (ROOT / "apps/cooklang/helmrelease.yaml").read_text()
-        self.assertNotRegex(release, r"(?m)^\s*sync:")
-        self.assertIn("existingClaim: media-root", release)
-        self.assertIn("subPath: recipes", release)
-        values = (ROOT / "charts/cooklang/values.yaml").read_text()
-        self.assertNotRegex(values, r"(?m)^\s*sync:")
-        deployment = (ROOT / "charts/cooklang/templates/deployment.yaml").read_text()
-        self.assertNotIn("cook-sync", deployment)
-        self.assertNotIn("sync-config", deployment)
-        self.assertIn('args: ["server", "/recipes"', deployment)
-        retained = (ROOT / "charts/cooklang/templates/pvc-sync-config.yaml").read_text()
+    def test_retired_cooklang_preserves_archived_configuration_and_certificates(self):
+        resources = (ROOT / "apps/cooklang/kustomization.yaml").read_text()
+        self.assertNotIn("helmrelease.yaml", resources)
+        self.assertNotIn("ingress.yaml", resources)
+        self.assertNotIn("ingress-cooklang-tailscale.yaml", resources)
+        self.assertIn("pvc-sync-config.yaml", resources)
+        retained = (ROOT / "apps/cooklang/pvc-sync-config.yaml").read_text()
         self.assertIn("helm.sh/resource-policy: keep", retained)
-        self.assertNotIn("{{- if", retained)
+        self.assertIn("kustomize.toolkit.fluxcd.io/prune: disabled", retained)
+        self.assertIn("name: cooklang-sync-config", retained)
+        self.assertIn("storageClassName: longhorn", retained)
         self.assertIn("storage: 100Mi", retained)
-        endpoint = (ROOT / "apps/cooklang/ingress-novnc.yaml").read_text()
-        self.assertEqual(re.findall(r"(?m)^kind: (\S+)", endpoint), ["Certificate"])
+        for filename, secret in (
+            ("certificate.yaml", "cooklang-tls"),
+            ("ingress-novnc.yaml", "cooklang-vnc-tls"),
+        ):
+            certificate = (ROOT / "apps/cooklang" / filename).read_text()
+            self.assertEqual(re.findall(r"(?m)^kind: (\S+)", certificate), ["Certificate"])
+            self.assertIn(f"secretName: {secret}", certificate)
+            self.assertIn("kustomize.toolkit.fluxcd.io/prune: disabled", certificate)
+            self.assertIn(filename, resources)
+        self.assertFalse((ROOT / "charts/cooklang/Chart.yaml").exists())
+        homepage = (ROOT / "charts/homepage/values.yaml").read_text()
+        self.assertNotIn("cooklang.homelab", homepage)
         for path in (
+            ".github/workflows/cooklang-build.yaml", "apps/cooklang/Dockerfile",
+            "apps/cooklang/helmrelease.yaml", "apps/cooklang/ingress.yaml",
+            "apps/cooklang/ingress-cooklang-tailscale.yaml",
             ".github/workflows/cook-sync-build.yaml", "apps/cooklang/Dockerfile.sync",
             "apps/cooklang/entrypoint-sync.sh", "charts/cooklang/templates/service-vnc.yaml",
             "charts/cooklang/templates/service-novnc.yaml",
@@ -74,7 +82,6 @@ class OwnedBuildTests(unittest.TestCase):
 
     def test_distroless_replaces_entire_trust_directories_before_final_runtime(self):
         cases = (
-            ("apps/cooklang/Dockerfile", "certificates", "/usr/local/bin/cook"),
             ("apps/hardcover-sync/src/Dockerfile", "build", "/app/hardcover-sync"),
         )
         for path, stage, executable in cases:
@@ -98,8 +105,6 @@ class OwnedBuildTests(unittest.TestCase):
                 self.assertIn("ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt", final)
                 self.assertIn(f'ENTRYPOINT ["{executable}"]', final)
                 self.assertNotIn("gcr.io/distroless/", final)
-        cooklang = (ROOT / "apps" / "cooklang" / "Dockerfile").read_text()
-        self.assertLess(cooklang.index("ge 20250419~deb12u2"), cooklang.index("curl -fsSL"))
 
     def test_quarantine_check_then_branch_gated_promotion(self):
         for name in WORKFLOWS:
