@@ -2,6 +2,13 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: media
+configurations:
+  - kustomizeconfig.json
+configMapGenerator:
+  - name: calibre-web-ca-hardening
+    files:
+      - harden-certifi.py
+      - blocked-spkis.sha256
 resources:
   - configmap.yaml
   - pvc.yaml

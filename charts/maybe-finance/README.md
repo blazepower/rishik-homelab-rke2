@@ -15,6 +15,40 @@ This chart deploys:
 - Longhorn storage class available
 - Sealed Secrets operator (for credentials)
 
+## Sure public CA runtime hardening
+
+The Sure release opts into `runtimeCaHardening` with its existing
+`0.7.2-alpha.2` image pinned immutably. A credential-free, non-root Ruby/OpenSSL
+initializer verifies the exact factory public CA manifest, removes only the
+eleven canonical policy SPKIs, and preserves every other certificate identity
+and multiplicity. Both Rails and Sidekiq mount read-only overlays for the OS
+certificate directory, public OS sources, AWS SDK bundle and Skylight bundle.
+Private keys, custom/user stores and application data are not guard inputs.
+
+The factory gem directories are writable by UID 1000. Consequently, a read-only
+CA file alone would not prevent replacement of its parent directory. Opted-in
+application containers therefore also have read-only root filesystems, with
+dedicated writable `/rails/tmp`, `/rails/log` and `/rails/storage` volumes.
+`TMPDIR` selects `/rails/tmp` for ordinary application temporary files.
+Existing optional Rails storage PVCs remain mounted unchanged; the guard never
+mounts them. The original Rails entrypoint (including `db:prepare`) and the
+existing Sidekiq command are not replaced.
+
+Run `python3 .github/scripts/test-sure-runtime-ca-hardening.py` on the approved
+GitHub-hosted Linux Docker runner before accepting this preparation. It checks
+real startup against disposable PostgreSQL/Redis in a network namespace whose
+owner has `--network=none`, native public-root rejection and positive controls,
+and file/ancestor replacement barriers. No user DB or credentials are used.
+The report `.github/security/fleet-sure-runtime-ca-hardening-report.json`
+distinguishes completed read-only evidence from pending full-startup acceptance.
+The runner is available; publication, CI wiring and its invocation belong to
+the coordinator. No deployment clearance is implied.
+
+Image refreshes require a re-audited factory manifest and successful acceptance;
+input drift deliberately prevents application startup. Explicit custom TLS
+contexts and compiled-runtime incident guarantees are not certified by these
+public-store overlays.
+
 ## Installation
 
 ```bash

@@ -9,6 +9,11 @@ image:
 ## Replica count
 replicaCount: 1
 
+## Opt in only with the audited same-image policy ConfigMap.
+runtimeCaHardening:
+  enabled: false
+  configMapName: ""
+
 ## Service configuration
 service:
   type: ClusterIP

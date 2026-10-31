@@ -2,6 +2,23 @@
 
 qBittorrent torrent client running behind ProtonVPN WireGuard VPN via gluetun sidecar.
 
+## Suspended public CA guard preparation
+
+The HelmRelease is staged with `spec.suspend: true`. Separate stock-image
+snapshots and shared eleven-key SPKI filtering protect qBittorrent and Gluetun
+before **any** normal container starts. Separate `emptyDir` stores mount each
+image's complete `/etc/ssl` and both source directories read-only; no user PVC is
+mounted into guard init. Original versions, VPN dependencies, credentials
+references, capabilities, probes, sidecars and entrypoints remain unchanged.
+
+Public PEM mitigation is **not** Qt/qbt-.NET/Go/custom/VPN chain certification.
+Gluetun's Go1.25.11 compiled policy remains below the required Go1.26.10/1.27.3
+floor. Credentialed VPN startup is not tested, weakened or bypassed. All isolated
+image execution has no outbound networking; no real configs or media are used.
+See `.github/security/fleet-native-app-ca-report.json`; preparation checks:
+`python .github/scripts/test-native-app-ca-hardening.py --registry --docker --render`.
+Activation remains coordinator-owned and blocked on the recorded gates.
+
 ## Architecture
 
 - **gluetun**: VPN container providing WireGuard tunnel to ProtonVPN
