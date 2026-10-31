@@ -1,0 +1,168 @@
+{
+  "state": "PREPARED_NOT_RUNTIME_VALIDATED",
+  "deployment_approved_by_this_report": false,
+  "subsequent_direct_registry_fix": {
+    "preceding_head": "93c0ffa0050e695d6cc938954c70cb66e1f0adde",
+    "preceding_run_id": 40951095423,
+    "preceding_job_id": 123719104907,
+    "preceding_failure": "HTTP303 readiness passed, but only the APK architecture query ran. Expected mod marker/cache and ffmpeg transaction were absent; fixed startup classification included mod_offline_cache_missing.",
+    "status": "SOURCE_AND_PUBLIC_REGISTRY_REPRODUCTION_COMPLETE_HOSTED_BOOTSTRAP_PENDING",
+    "stock_loader_sha256": "53123a7f0449fe59b5111a4d96d70407beff77e8120ce06111a0b84cbeaae705",
+    "root_cause": "The pinned stock loader selects LSCR by default, including for GHCR-qualified linuxserver names unless DOCKER_MODS_FORCE_REGISTRY=true. An independent TLS-verified public-registry reproduction observed cross-host redirect authorization stripping: LSCR route HTTP401/curl22, direct GHCR route HTTP200. Failed manifest resolution explains the offline-cache fallback.",
+    "fix": "GHCR-qualify the existing exact mod reference and set the stock vendor-supported DOCKER_MODS_FORCE_REGISTRY=true in both Helm values and the actual acceptance environment.",
+    "mod_index_sha256": "ae68d698c8745c48cd634e807eca41a57a2aacb142bee4ca6a2c3b2b6c64afaf",
+    "unchanged_mod_layer": "sha256:88067519a35c23252461641dbace3f7349cee70a7085fe99c57a4afa409b8262",
+    "limits": "Source trace and public registry reproduction are not complete hosted-Linux mod/package acceptance or native CA-trigger compatibility proof. No read-only CA-trigger conflict is inferred from this failure.",
+    "host_regressions": {"tests_run": 36, "passed": 33, "skipped": 3},
+    "strict_requirements_preserved": ["Exact immutable mod/layer and fresh marker", "Actual ffmpeg APK transaction and ffmpeg/ffprobe execution", "Paired successful package/APK/CA stages", "Verified network disconnection before trust checks", "Read-only canonical public stores"],
+    "deployment_clearance": false,
+    "storage_or_node_changes": false
+  },
+  "subsequent_linux_diagnostics": {
+    "head": "7ee1cf90f8b7a1eabe80fc44e24a5a28a0156e38",
+    "run_id": 40947138014,
+    "job_id": 123705362068,
+    "status": "FAILED_ACCEPTANCE_NOT_A_PROVEN_APPLICATION_OUTAGE",
+    "sab_http_status": 303,
+    "sab_container_running": true,
+    "paired_stage_exits": "mod, package and one non-ffmpeg APK call all exited zero; no unmatched or unfinished events",
+    "missing_required_evidence": "No observed ffmpeg_add=true APK transaction; complete pinned mod/ffmpeg acceptance is not established.",
+    "fixed_error_classes": ["startup_executable_unavailable"],
+    "conclusion": "The readiness allowlist omitted a legitimate HTTP303 redirect. Correct the harness, but do not weaken package/CA/native success requirements or infer a read-only CA-trigger conflict without evidence.",
+    "deployment_clearance": false
+  },
+  "subsequent_linux_acceptance": {
+    "head": "fc33b2d0b720cd3536e813361cd74dd5b1c64e9f",
+    "run_id": 40943923000,
+    "job_id": 123694161871,
+    "status": "FAILED_SAB_ORIGINAL_BOOTSTRAP_READINESS",
+    "tests_run": 24,
+    "failures": 1,
+    "observations": "The only failing subcase was SABnzbd original /init not reaching an HTTP/auth endpoint. Bazarr and Prowlarr isolated startup/read-only checks and all other cases did not fail. This is not .NET/custom chain clearance.",
+    "sab_root_cause": "Not yet established. Safe bootstrap exit journals and termination diagnostics are required before changing production behavior; do not infer a CA-trigger conflict from readiness failure alone.",
+    "deployment_clearance": false,
+    "original_preparation_fields": "The remaining preparation and local-validation fields below describe the historical capture, not a later successful SAB run."
+  },
+  "scope": ["bazarr", "prowlarr", "sabnzbd"],
+  "policy_binding": {
+    "method": "Each app's eleven unique uppercase SPKI SHA-256 values must exactly equal the canonical policy key set; tests compare keys, not checkout bytes.",
+    "canonical_path": ".github/security/emudhra-2026.json",
+    "canonical_utf8_lf_sha256": "1c6149e9b7a0e2c962b6a779ed58d773d6e4a2149b55f7539a6a680061ae820e"
+  },
+  "design": {
+    "ca-copy": "Runs only /bin/sh in the exact original pinned application image, copying public OS trust trees and complete known certifi packages into a fresh emptyDir. No user config/media mounts.",
+    "ca-filter": "Runs stock Python with bytecode disabled against that isolated snapshot. Bazarr and SABnzbd use their original application images; Prowlarr uses the already pinned Bazarr vendor image because Prowlarr has neither Python nor OpenSSL CLI.",
+    "fail_closed": "Kubernetes must complete the ordinary ca-copy and ca-filter init containers before any original application container starts. No custom-cont-init.d hook, s6 failure propagation assumption or fallback is used.",
+    "main": "Original vendor /init, application image/version, environment, auth/data initialization, probes, PVC mounts and SAB codec configuration command are retained. Main container receives only read-only trust overlays.",
+    "immutability": "Mount whole OS source directories, hash directory/bundle, and entire application/pip certifi packages read-only. Do not use environment-only CA redirection or file-only certifi mounts that leave package replacement unguarded.",
+    "hash_directories": "Remove denied aliases and compact surviving vendor subject-hash sequences to avoid OpenSSL lookup gaps. Preserve unaffected certificate DER identities; reject escaping/dangling/cyclic/unsupported aliases.",
+    "updates": "One shared base at apps/_shared/media-ca-hardening generates ca-guard from the sole script/copy/policy files. Each app's ca-guard child Kustomization prefixes only that base. App-specific hashed ConfigMap names are transformed into HelmRelease persistence references, so script/policy changes alter pod volume references without prefixing application resources.",
+    "dependencies": "Guard uses only stock Python standard-library ssl/base64/hashlib and a bounded DER SubjectPublicKeyInfo parser. No newly built/maintained images, package installs, downloads, TLS bypass or compiled helpers.",
+    "sab_codec_init": "Original codec-config command/image/data mounts are unchanged; it runs after the two CA init containers and receives the same read-only sanitized trust overlays."
+  },
+  "immutable_platform_evidence": {
+    "bazarr": {
+      "index": "lscr.io/linuxserver/bazarr@sha256:946dc8c5bb5331418eac60050cf40a63cb8f66ac039841dda493870e3559799c",
+      "amd64": "lscr.io/linuxserver/bazarr@sha256:7f086a154470936463db52ad1fb9ea77cbcd2ee962ab08f08dad13540dde41e1",
+      "python": "3.12",
+      "certifi_packages": [
+        "/app/bazarr/bin/libs/certifi",
+        "/lsiopy/lib/python3.12/site-packages/pip/_vendor/certifi"
+      ]
+    },
+    "prowlarr": {
+      "index": "lscr.io/linuxserver/prowlarr@sha256:b3b00047ed20f6ce2b16780145cb6a0acb51c9e28ea6aa6f5dcd33c7034f1797",
+      "amd64": "lscr.io/linuxserver/prowlarr@sha256:9ad6d7c7f1334a879b1d8aa488539c8cad5d19e7a876bb2ca2f6fd47b23fbc81",
+      "filter_helper": "Exact same Bazarr index/amd64 child recorded above; it never runs vendor /init or makes network requests.",
+      "native_runtime": ".NET 8.0.27; stock native OpenSSL library; no Python/OpenSSL CLI"
+    },
+    "sabnzbd": {
+      "index": "lscr.io/linuxserver/sabnzbd@sha256:3ac1c9ea03bafa2588dd8acdcb809857bae305e71d2d90e11d689c78076a9c01",
+      "amd64": "lscr.io/linuxserver/sabnzbd@sha256:93e23ba7dd20c4a00da1bdeb9adf9d622890a11caed4f5468892f48eef7b0c0c",
+      "python": "3.14",
+      "certifi_packages": [
+        "/lsiopy/lib/python3.14/site-packages/certifi",
+        "/lsiopy/lib/python3.14/site-packages/pip/_vendor/certifi"
+      ]
+    }
+  },
+  "vendor_init_findings": [
+    "All stock image entrypoints are /init. Default /etc/ssl/cert.pem is a relative alias to certs/ca-certificates.crt, covered by the read-only cert-directory overlay.",
+    "Public pinned-image s6 init/service/dependency scripts, docker-mods, migration/preinit scripts and known trust paths were inspected without executing images.",
+    "init-custom-files/run echoes the custom script exit code and continues, so it cannot gate original application startup.",
+    "Existing init-mods-package-install/run can invoke apk/apt/pip and regenerate packages/trust. No such installers are added or invoked by either CA initializer.",
+    "SAB's existing pinned universal-package-install mod and INSTALL_PACKAGES=ffmpeg are preserved. Their real interaction with read-only trust directories remains an explicit deployment blocker until isolated Linux validation.",
+    "Read-only whole-directory/package overlays are intended to prevent later init/mod stages from overwriting or replacing sanitized stores; actual Linux mount enforcement and complete vendor bootstrap are not yet verified."
+  ],
+  "verified_preparation": [
+    "Independent cryptography SPKI hashes match the stdlib parser across all inspected real vendor PEM stores: Bazarr 124 stores / 3 baseline denied copies, Prowlarr 122 / 2, SABnzbd 121 / 1.",
+    "Fixture tests cover exact-key rather than subject matching, malformed/partial policies and bundles, source/bundle/application filtering, unaffected-root preservation, hash-sequence compaction and idempotent read-only verification.",
+    "Native Windows Python/OpenSSL memory-BIO TLS controls accept an unaffected synthetic fixture root after filtering and reject the removed synthetic fixture root. This does not certify stock Linux application/native/custom TLS.",
+    "Helm app-template 5.2.1 renders ca-copy then ca-filter, before original codec-config where present. New CA initializers have no config/media PVC mounts.",
+    "Hashed ConfigMap references render correctly for all three app Kustomizations.",
+    "Existing SAB codec/bootstrap, shared media codec policy and Servarr HTTPS regressions pass."
+  ],
+  "remaining_blockers": [
+    "Local Windows execution lacks Docker/WSL. Coordinator has an authorized GitHub-hosted Linux/Docker runner through held draft PR326; media execution there is pending, not permanently unavailable. Real pinned-image execution, Linux absolute-alias tests, mount enforcement and stock /init readiness tests are NOT run in this worktree.",
+    "Run the explicit --docker suite on isolated linux/amd64 Docker 26+ (volume-subpath support). All execution stays network-none except explicitly authorized disposable SAB main bootstrap with --allow-sab-bootstrap-network. No user config/media; images may be pulled before execution.",
+    "Complete SAB pinned mod/ffmpeg replay is implemented behind the opt-in flag but NOT executed locally. Require actual Linux CI success, including stage exit evidence and network disconnection, before any readiness/deployment claim.",
+    "No .NET cached/user-added/custom/compiled certificate-store or chain-validation certification is claimed. Actual live public-store and native/application rejection verification is still required after separately authorized deployment.",
+    "Another session owns Longhorn repair. No storage diagnosis/changes or deployment is part of this preparation."
+  ],
+  "sab_complete_mod_acceptance": {
+    "status": "REQUIRED_NOT_RUN",
+    "execution_networking_added": true,
+    "bootstrap_network_default": false,
+    "required_flag": "--allow-sab-bootstrap-network",
+    "runtime_executed_in_this_worktree": false,
+    "preserve_environment": {
+      "DOCKER_MODS": "linuxserver/mods:universal-package-install@sha256:ae68d698c8745c48cd634e807eca41a57a2aacb142bee4ca6a2c3b2b6c64afaf",
+      "INSTALL_PACKAGES": "ffmpeg"
+    },
+    "existing_docker_suite_limit": "Without --allow-sab-bootstrap-network, --docker tests only stock base SAB /init without the mod/package stage and explicitly labels that limitation. With the opt-in flag, SAB receives the exact Helm DOCKER_MODS/INSTALL_PACKAGES values and public PUID/PGID/TZ, while Bazarr/Prowlarr and all helpers remain network-none.",
+    "stock_offline_mod_path": "Captured /docker-mods lines 383-410 support offline fallback to an existing /modcache/${FILENAME}.tar.xz. For this pin FILENAME is linuxserver.mods.universal-package-install.ae68d698c8745c48cd634e807eca41a57a2aacb142bee4ca6a2c3b2b6c64afaf. The offline branch accepts an existing valid tar without fetching/verifying a remote layer digest, so a prepared blob would need independent binding to the exact pinned mod manifest/layer before use.",
+    "offline_package_limit": "The captured init-mods-package-install/run uses apk add --no-cache with the requested ffmpeg package. A cached mod tar does not provide signed APK repository indexes, ffmpeg or the complete dependency closure. No such prepared package input set is supplied here; simply mounting an ordinary apk cache does not establish offline operation for --no-cache.",
+    "network_requirement": "User approved temporary outbound networking on 2026-10-29 for isolated CI SAB dependency bootstrap only. The explicit flag requires --docker and creates a uniquely labeled disposable bridge for SAB main only; it never uses host networking or publishes ports. The bridge is disconnected and NetworkSettings.Networks must be empty before public-store/native/read-only checks. The local Windows session has not executed this path.",
+    "exit_observation": "Before the first /init start, copy only public stock executables into the disposable container and install status-preserving test observers for /docker-mods, /sbin/apk, /usr/sbin/update-ca-certificates and the package-stage use of /usr/bin/with-contenv. Non-package with-contenv calls exec the original directly, preserving service supervision. Observers call original bytes with unchanged argv/environment/stdout/stderr, return the original status, and record only fixed stage names, process IDs, a public ffmpeg-transaction predicate and exit codes. They do not stub installers or alter production files.",
+    "success_requirements": "A network-none stock-image preflight rejects any preinstalled ffmpeg/ffprobe shortcut. Require successful paired mod/package events, an actual successful exact apk add --no-cache ffmpeg transaction within the original package stage, and no failed observed APK or CA refresh operation. Bind a fresh installed-mod marker to the exact pinned amd64 manifest's single layer, verify observers were not overwritten, verify APK installed state, and run both ffmpeg -version and ffprobe -version. HTTP/auth readiness alone cannot hide installer failures. The later offline update-ca-certificates negative probe is deliberately required to fail and is outside bootstrap-stage success evidence.",
+    "runtime_fidelity": "Explicitly pull/create/run linux/amd64 children of the immutable image pins. Keep the original image /init, stock authentication/bootstrap and public identity/timezone values. Apply Helm CPU/memory limits, keep normal Docker image user/default application capabilities without privileged/cap-add/host-device/socket access, and use only ephemeral empty config. Trust-overlay scripts, read-only mounts, policies, HelmRelease resources and production ffmpeg/mod behavior are unchanged.",
+    "cleanup": "All main/helper containers, volume and optional bridge carry a unique per-run ownership label. Finally remove only resources selected by that exact label, containers before networks/volumes. Container removal also removes only its attached anonymous volumes; named volumes are separately label-selected. Helpers mount empty tmpfs config instead of image-declared anonymous config volumes. Attempt remaining kinds after cleanup errors/timeouts, and surface cleanup failures rather than ignoring them.",
+    "conditional_ca_conflict": "The Alpine ca-certificates refresh executable /usr/sbin/update-ca-certificates rewrites /etc/ssl/certs/ca-certificates.crt and subject-hash aliases; apk trigger invocation would conflict with the read-only cert-directory mount. Installing/upgrading CA source packages could also write the read-only /usr/share/ca-certificates tree. The actual ffmpeg dependency transaction and trigger invocation have not been captured, so this report does not assert that ffmpeg always triggers CA regeneration.",
+    "required_observations": [
+      "Exact pinned vendor SAB image and exact pinned universal-package-install mod; original /init and both existing environment values, with ephemeral empty config and no user media/config.",
+      "No pre-applied mod marker, preinstalled-ffmpeg shortcut, skipped mod, stubbed package installer, altered application startup or removed ffmpeg requirement.",
+      "Capture actual package/trigger exit statuses and bounded public initialization evidence, without secrets; demonstrate ffmpeg and ffprobe available and working.",
+      "Verify original HTTP/auth readiness and unchanged codec/bootstrap behavior; verify canonical eleven SPKIs absent from all public OS/application stores, native Python and certifi contexts after the entire mod/package stage.",
+      "Test whether any CA package trigger/update-ca-certificates operation fails against the read-only trust mounts and whether vendor bootstrap wrongly continues after package failure. Any such incompatibility remains a blocker, not permission to make trust writable or ignore errors.",
+      "Use only the explicitly approved opt-in disposable SAB bootstrap network; verify zero network attachments before trust checks. No cluster/storage/deployment/publication operations."
+    ],
+    "evidence": "Previously captured public pinned-image /docker-mods SHA256 53123a7f0449fe59b5111a4d96d70407beff77e8120ce06111a0b84cbeaae705 and etc/s6-overlay/s6-rc.d/init-mods-package-install/run; no new vendor downloads."
+  },
+  "bootstrap_harness_validation": {
+    "scope": "Offline unit/fixture validation only, not stock-image execution",
+    "focused_tests_total": 24,
+    "focused_tests_passed": 21,
+    "focused_tests_skipped": [
+      "Linux absolute CA-directory aliases unavailable on Windows",
+      "Explicit Docker stock-image execution not run locally",
+      "Explicit registry scan not repeated for this test-only follow-up"
+    ],
+    "existing_regressions_passed": {
+      "test-sab-codec-guard.py": 22,
+      "test-media-codec-policy.py": 19,
+      "test-servarr-https.py": 4
+    },
+    "observer_shell_syntax": "All four generated observers pass Git Bash -n; syntax only",
+    "actual_bootstrap_network_execution": "NOT_RUN",
+    "production_manifests_guard_policy_modified": false
+  },
+  "ci_commands": [
+    "python -B .github/scripts/test-media-runtime-ca-hardening.py",
+    "python -B .github/scripts/test-media-runtime-ca-hardening.py --registry --crane <verified-crane>",
+    "python -B .github/scripts/test-media-runtime-ca-hardening.py --registry --crane <verified-crane> --docker",
+    "python -B .github/scripts/test-media-runtime-ca-hardening.py --registry --crane <verified-crane> --docker --allow-sab-bootstrap-network",
+    "python -B .github/scripts/test-sab-codec-guard.py",
+    "python -B .github/scripts/test-media-codec-policy.py",
+    "python -B .github/scripts/test-servarr-https.py"
+  ]
+}
