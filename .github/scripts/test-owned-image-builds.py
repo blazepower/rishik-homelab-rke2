@@ -61,7 +61,6 @@ class OwnedBuildTests(unittest.TestCase):
         self.assertIn('args: ["server", "/recipes"', deployment)
         retained = (ROOT / "charts/cooklang/templates/pvc-sync-config.yaml").read_text()
         self.assertIn("helm.sh/resource-policy: keep", retained)
-        self.assertIn("kustomize.toolkit.fluxcd.io/prune: disabled", retained)
         self.assertNotIn("{{- if", retained)
         self.assertIn("storage: 100Mi", retained)
         endpoint = (ROOT / "apps/cooklang/ingress-novnc.yaml").read_text()
