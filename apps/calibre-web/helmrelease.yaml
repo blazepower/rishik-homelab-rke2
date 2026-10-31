@@ -38,8 +38,8 @@ spec:
         initContainers:
           harden-certifi:
             image:
-              repository: lscr.io/linuxserver/calibre-web
-              tag: "0.6.27@sha256:470b4ed9a7d6ea1475fef17dbcf957cb60880910296d226bd0dca652c05f68ca"
+              repository: docker.io/crocodilestick/calibre-web-automated
+              tag: "v4.0.8@sha256:5e00373854247750cc3e4479b492ae09293ff5e06ed10177f226634d97888679"
             command: ["python3", "-B", "/ca-hardening/harden-certifi.py"]
             securityContext:
               allowPrivilegeEscalation: false
@@ -59,8 +59,8 @@ spec:
                 memory: "128Mi"
           bootstrap-library:
             image:
-              repository: lscr.io/linuxserver/calibre-web
-              tag: "0.6.27@sha256:470b4ed9a7d6ea1475fef17dbcf957cb60880910296d226bd0dca652c05f68ca"
+              repository: docker.io/crocodilestick/calibre-web-automated
+              tag: "v4.0.8@sha256:5e00373854247750cc3e4479b492ae09293ff5e06ed10177f226634d97888679"
             command: ["python3", "-c"]
             args:
               - |
@@ -133,20 +133,36 @@ spec:
                 cpu: "250m"
                 memory: "128Mi"
 
+          configure-ingest:
+            image:
+              repository: docker.io/crocodilestick/calibre-web-automated
+              tag: "v4.0.8@sha256:5e00373854247750cc3e4479b492ae09293ff5e06ed10177f226634d97888679"
+            command: ["python3", "-B", "/ingest-code/configure-ingest.py"]
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              runAsNonRoot: true
+              runAsUser: 1000
+              runAsGroup: 1000
+              capabilities:
+                drop:
+                  - ALL
+            resources:
+              requests:
+                cpu: "25m"
+                memory: "64Mi"
+              limits:
+                cpu: "250m"
+                memory: "128Mi"
+
         containers:
           app:
             image:
-              repository: lscr.io/linuxserver/calibre-web
-              # Pinned to 0.6.x — see docs/renovate-guardrails.md.
-              # LinuxServer's real calibre-web release stream is 0.6.x
-              # (current 0.6.26). The 5.x tags are orphaned 2021 pushes
-              # with a broken OCI config (no ENTRYPOINT/CMD, amd64-only).
-              # Semver-wise 5.x > 0.6.x so Renovate has re-selected them
-              # twice already (PR #146 and PR #185). The
-              # `allowedVersions: "<1.0.0"` rule in renovate.json now
-              # prevents recurrence.
-              tag: "0.6.27@sha256:470b4ed9a7d6ea1475fef17dbcf957cb60880910296d226bd0dca652c05f68ca"
+              repository: docker.io/crocodilestick/calibre-web-automated
+              tag: "v4.0.8@sha256:5e00373854247750cc3e4479b492ae09293ff5e06ed10177f226634d97888679"
             env:
+              - name: CWA_WATCH_MODE
+                value: poll
               - name: PUID
                 valueFrom:
                   configMapKeyRef:
@@ -175,13 +191,36 @@ spec:
                   - CHOWN
                   - SETUID
                   - SETGID
+                  - DAC_OVERRIDE
+                  - FOWNER
             resources:
               requests:
                 cpu: "100m"
-                memory: "256Mi"
+                memory: "384Mi"
               limits:
                 cpu: "500m"
-                memory: "512Mi"
+                memory: "1Gi"
+          stage-books:
+            image:
+              repository: docker.io/crocodilestick/calibre-web-automated
+              tag: "v4.0.8@sha256:5e00373854247750cc3e4479b492ae09293ff5e06ed10177f226634d97888679"
+            command: ["python3", "-B", "/ingest-code/stage-books.py"]
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              runAsNonRoot: true
+              runAsUser: 1000
+              runAsGroup: 1000
+              capabilities:
+                drop:
+                  - ALL
+            resources:
+              requests:
+                cpu: "25m"
+                memory: "64Mi"
+              limits:
+                cpu: "250m"
+                memory: "128Mi"
 
     service:
       app:
@@ -191,6 +230,36 @@ spec:
             port: 8083
 
     persistence:
+      ingest-code:
+        type: configMap
+        name: calibre-web-ingest-code
+        advancedMounts:
+          calibre-web:
+            configure-ingest:
+              - path: /ingest-code
+                readOnly: true
+            stage-books:
+              - path: /ingest-code
+                readOnly: true
+      ingest:
+        existingClaim: calibre-web-ingest
+        advancedMounts:
+          calibre-web:
+            configure-ingest:
+              - path: /bridge
+            stage-books:
+              - path: /bridge
+            app:
+              - path: /cwa-book-ingest
+                subPath: queue
+      acquisition:
+        existingClaim: media-root
+        advancedMounts:
+          calibre-web:
+            stage-books:
+              - path: /source/books
+                subPath: books
+                readOnly: true
       ca-hardening:
         type: configMap
         name: calibre-web-ca-hardening
@@ -206,8 +275,14 @@ spec:
             harden-certifi:
               - path: /ca-output
             app:
-              - path: /lsiopy/lib/python3.12/site-packages/certifi
+              - path: /lsiopy/lib/python3.13/site-packages/certifi
                 subPath: certifi
+                readOnly: true
+              - path: /etc/ssl/certs
+                subPath: system-certs
+                readOnly: true
+              - path: /lsiopy/lib/python3.13/site-packages/pip/_vendor/certifi
+                subPath: pip-certifi
                 readOnly: true
       config:
         existingClaim: calibre-web-config
@@ -217,14 +292,21 @@ spec:
               - path: /config
             bootstrap-library:
               - path: /config
+            configure-ingest:
+              - path: /config
       library:
         existingClaim: calibre-web-library
         advancedMounts:
           calibre-web:
             app:
-              - path: /media/books/calibre-library
+              - path: /calibre-library
             bootstrap-library:
               - path: /library
+            configure-ingest:
+              - path: /library
+            stage-books:
+              - path: /library
+                readOnly: true
       legacy-library:
         existingClaim: media-root
         advancedMounts:
