@@ -91,6 +91,12 @@ class CalibreWiringTests(unittest.TestCase):
         deployment = next(doc for doc in yaml.safe_load_all(rendered.stdout)
                           if doc and doc["kind"] == "Deployment")
         pod = deployment["spec"]["template"]["spec"]
+        nas_volumes = [volume for volume in pod["volumes"]
+                       if volume["name"] in ("acquisition", "legacy-library")]
+        self.assertEqual(len(nas_volumes), 2)
+        for volume in nas_volumes:
+            self.assertEqual(volume["persistentVolumeClaim"],
+                             {"claimName": "media-root", "readOnly": True})
         self.assertEqual(pod["securityContext"]["fsGroup"], 1000)
         self.assertEqual(pod["securityContext"]["fsGroupChangePolicy"], "OnRootMismatch")
         self.assertEqual([container["name"] for container in pod["initContainers"]],
