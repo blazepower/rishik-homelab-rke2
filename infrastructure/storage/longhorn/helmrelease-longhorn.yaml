@@ -72,6 +72,7 @@ spec:
         jobList: '[{"name":"snapshot-weekly","isGroup":false},{"name":"backup-daily","isGroup":false}]'
     defaultSettings:
       defaultDataPath: "/var/lib/longhorn"
+      engineReplicaTimeout: '{"v1":"15","v2":"8"}'
       guaranteedInstanceManagerCPU: 5
       concurrentAutomaticEngineUpgradePerNodeLimit: 1
       concurrentReplicaRebuildPerNodeLimit: 1
