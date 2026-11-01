@@ -12,15 +12,36 @@ from cryptography import x509
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 
-PACKAGE = Path("/lsiopy/lib/python3.12/site-packages/certifi")
+PACKAGE = Path("/lsiopy/lib/python3.13/site-packages/certifi")
 PACKAGE_HASHES = {
-    "__init__.py": "fbc96373bc3b7f28b92b28b4e9cd7f2f4946fe40ff27416f6d44daf261297734",
+    "__init__.py": "7a52e5f4205f9b3d12a31898ceaa7e3f6837d19cc230700bcae1a9d91d1486c1",
     "__main__.py": "c410688fdd394d45812d118034e71fee88ba7beddd30fe1c1281bd3b232cd758",
-    "cacert.pem": "7cef540c6af3bf0a3c7d0070bd3fd7aae34f8aa805b408d1c27a01c8aeb305df",
+    "cacert.pem": "9cc2a774b5198dcff14d9be1e66091f538975d867ce029a96bce15a55dfd730f",
     "core.py": "5c55f2727746e697f7edac9e17c377d8752e0da7ecca191531b3b80403d61dad",
     "py.typed": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
 }
+PIP_PACKAGE = Path("/lsiopy/lib/python3.13/site-packages/pip/_vendor/certifi")
+PIP_PACKAGE_HASHES = {
+    "__init__.py": "f96d51ff2f1609a4a44f5b5d8eec47ff34c1658d581fac5081d3759db05a8ce1",
+    "__main__.py": "d64dc2afde6f0b1c464460e58eb5b7c0c76965d2f73617f4bb59fe936a9db026",
+    "LICENSE": "e93716da6b9c0d5a4a1df60fe695b370f0695603d21f6f83f053e42cfc10caf7",
+    "cacert.pem": "bbc7e9c01d7551bb8a159b5dedd989b8ee3ce105aff522b68eb1b01bf854cab0",
+    "core.py": "82efc40952359b746ad32b69b0d13ad6181019c29a380b7d46cf46f0ab1308e2",
+    "py.typed": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+}
+VENDOR_STARTUP_HASHES = {
+    "etc/s6-overlay/s6-rc.d/cwa-init/run":
+        "b8cffb33376ea7f92b374742987faff7a6d104fded3d1110fbc10853894d2357",
+    "etc/s6-overlay/s6-rc.d/svc-calibre-web-automated/run":
+        "44bf6a134eb02bd59b3ab3a1e63c06b5c245be737e6aae75956e965bfc2c4f6e",
+    "etc/s6-overlay/s6-rc.d/calibre-binaries-setup/run":
+        "a02ff2265a48d66153d5c008c230bd89038a766e7994874a2adcb12f37e77c8b",
+    "etc/s6-overlay/s6-rc.d/cwa-auto-library/run":
+        "0f740e2eb03007d35998752f9ac0c6a146537bad3d0e2b02669023353a433df7",
+}
 PEM = re.compile(rb"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----", re.S)
+SYSTEM_BUNDLE_HASH = "9481fcd95f41b221f02f14d896535fe500bec539bc563c4cdca1acee483a8bdd"
+HASH_NAME = re.compile(r"([0-9a-f]{8})\.([0-9]+)")
 
 
 def policy(path):
@@ -64,7 +85,7 @@ def sanitize(content, denied):
     return output, {"before": len(before), "after": len(after), "removed": len(before) - len(after)}
 
 
-def build_overlay(source, destination, denied, expected_hashes):
+def build_overlay(source, destination, denied, expected_hashes, package_name="certifi"):
     if source.is_symlink() or not source.is_dir():
         raise ValueError("unsupported certifi package directory")
     if {path.name for path in source.iterdir() if path.is_file()} != set(expected_hashes):
@@ -80,7 +101,7 @@ def build_overlay(source, destination, denied, expected_hashes):
     content["cacert.pem"], counts = sanitize(content["cacert.pem"], denied)
     if destination.is_symlink() or not destination.is_dir():
         raise ValueError("overlay output must be the dedicated mounted directory")
-    target = destination / "certifi"
+    target = destination / package_name
     if target.is_symlink():
         raise ValueError("symlinked overlay package")
     target.mkdir(exist_ok=True)
@@ -100,10 +121,52 @@ def build_overlay(source, destination, denied, expected_hashes):
     return counts
 
 
+def build_system_overlay(source, destination, denied, expected_hash):
+    original = (source / "ca-certificates.crt").read_bytes()
+    if hashlib.sha256(original).hexdigest() != expected_hash:
+        raise ValueError("system CA bundle differs from audited pinned image")
+    bundle, counts = sanitize(original, denied)
+    expected = Counter(der for _, spki, der in certificates(original) if spki not in denied)
+    groups = {}
+    actual = Counter()
+    for path in source.iterdir():
+        match = HASH_NAME.fullmatch(path.name)
+        if not match:
+            continue
+        content = path.read_bytes()
+        records = certificates(content)
+        if len(records) != 1:
+            raise ValueError("system subject-hash input must contain one certificate")
+        _, spki, der = records[0]
+        if spki not in denied:
+            groups.setdefault(match[1], []).append((int(match[2]), content))
+            actual[der] += 1
+    if actual != expected:
+        raise ValueError("hashed CA directory differs from audited bundle")
+    target = destination / "system-certs"
+    if target.exists() or target.is_symlink():
+        raise ValueError("unexpected system CA overlay output")
+    target.mkdir()
+    (target / "ca-certificates.crt").write_bytes(bundle)
+    for subject, group in groups.items():
+        for index, (_, content) in enumerate(sorted(group)):
+            (target / f"{subject}.{index}").write_bytes(content)
+    return counts
+
+
 def main():
     denied = policy(Path(__file__).with_name("blocked-spkis.sha256"))
+    for name, expected in VENDOR_STARTUP_HASHES.items():
+        if hashlib.sha256(Path("/" + name).read_bytes()).hexdigest() != expected:
+            raise ValueError("vendor startup differs from audited pinned CWA image")
     counts = build_overlay(PACKAGE, Path("/ca-output"), denied, PACKAGE_HASHES)
-    print(json.dumps({"calibre_certifi_overlay_verified": True, **counts}), flush=True)
+    pip = build_overlay(PIP_PACKAGE, Path("/ca-output"), denied, PIP_PACKAGE_HASHES, "pip-certifi")
+    system = build_system_overlay(
+        Path("/etc/ssl/certs"), Path("/ca-output"), denied, SYSTEM_BUNDLE_HASH,
+    )
+    print(json.dumps({
+        "calibre_certifi_overlay_verified": True, **counts, "system_ca": system, "pip_certifi": pip,
+    }), flush=True)
 
 
 if __name__ == "__main__":
