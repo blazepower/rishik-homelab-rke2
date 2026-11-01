@@ -4,6 +4,8 @@ kind: Certificate
 metadata:
   name: cooklang-tls
   namespace: media
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
 spec:
   secretName: cooklang-tls
   issuerRef:
