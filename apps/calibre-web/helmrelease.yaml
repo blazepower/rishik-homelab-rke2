@@ -260,6 +260,10 @@ spec:
             readOnly: true
         advancedMounts:
           calibre-web:
+            bootstrap-library:
+              - path: /legacy-library
+                subPath: books/calibre-library
+                readOnly: true
             stage-books:
               - path: /source/books
                 subPath: books
@@ -311,19 +315,6 @@ spec:
             stage-books:
               - path: /library
                 readOnly: true
-      legacy-library:
-        type: custom
-        volumeSpec:
-          persistentVolumeClaim:
-            claimName: media-root
-            readOnly: true
-        advancedMounts:
-          calibre-web:
-            bootstrap-library:
-              - path: /legacy-library
-                subPath: books/calibre-library
-                readOnly: true
-
     defaultPodOptions:
       securityContext:
         fsGroup: 1000
