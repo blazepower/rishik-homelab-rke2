@@ -3,7 +3,9 @@
 Book management ecosystem for acquisition, browser uploads, and shared EPUB
 downloads to CrossPoint and KOReader.
 
-**Current reader delivery:** Upload each canonical EPUB to Calibre-Web and use
+**Current reader delivery:** Bookshelf EPUB acquisitions are copied safely from
+the NAS into Calibre-Web Automated's native importer. Browser uploads remain
+available for independent canonical EPUBs. Use
 `http://192.168.1.153:8083/opds` with the download-only `ereaders` account on both
 devices. The same EPUB bytes are used for hosted CrossPoint reading-position
 sync. The Kindle Sender is retired; its history PVC and NAS source books are
@@ -108,8 +110,8 @@ All components are deployed in the `media` namespace on `rishik-worker1` node.
 - **Type**: Web application
 - **Access**: https://calibre.homelab
 - **Port**: 8083
-- **Storage**: 1Gi Longhorn config PVC + 2Gi writable `longhorn-retain` library PVC
-- **Resources**: 100m-500m CPU, 256Mi-512Mi memory
+- **Storage**: 1Gi config + 2Gi managed library + 1Gi persistent ingest/state
+- **Resources**: App 100m-500m CPU, 384Mi-1Gi memory; staging 25m-250m CPU, 64Mi-128Mi memory
 
 **Features**:
 - Online reading (EPUB, PDF, etc.)
@@ -118,15 +120,16 @@ All components are deployed in the `media` namespace on `rishik-worker1` node.
 - User management
 - Metadata editing
 
-**Library Path**: `/media/books/calibre-library`
+**Library Path**: `/calibre-library`
 
-Calibre-Web is the always-on OPDS/browser-upload library. Its SQLite database and
-book files are separate from the shared NFS books used by Bookshelf, Syncthing,
-and Kindle Sender; those services do not automatically import into this library.
-The init container safely bootstraps only the existing empty NFS database, then
-validates rather than overwrites an existing destination. See
-[Calibre-Web cutover and upload procedure](../apps/calibre-web/README.md#first-longhorn-cutover)
-before rollout. Keep hosted CrossPoint Sync for Xteink/KOReader reading progress.
+Calibre-Web Automated is the always-on OPDS/browser-upload library. Its SQLite
+database and EPUBs remain together on Longhorn. A read-only NAS staging sidecar
+copies stable EPUB acquisitions into a separate consumer queue, skips existing
+hashes, and holds metadata conflicts without overwriting established books.
+CWA's native importer registers books; all automatic EPUB rewriting is disabled.
+See [automatic acquisition bridge](../apps/calibre-web/README.md#automatic-acquisition-bridge)
+for failure handling, volume retention, and migration precautions. Keep hosted
+CrossPoint Sync for Xteink/KOReader reading progress.
 
 ### 4. Kindle Sender (retired; historical configuration)
 
@@ -390,19 +393,19 @@ kubectl logs -n media -l app.kubernetes.io/name=hardcover-sync -f
 2. **Acquisition**: Bookshelf downloads books to `/media/books/`
 3. **Metadata**: Bookshelf enriches metadata via rreading-glasses
 4. **Organization**: Books are organized in Calibre library format
-5. **Import**: Upload selected book files to Calibre-Web at https://calibre.homelab
+5. **Import**: Stable NAS EPUBs are staged automatically into CWA; independent EPUBs can be uploaded at https://calibre.homelab
 6. **Reading**: Read online via Calibre-Web interface
-7. **Delivery**: Kindle Sender automatically emails new books to Kindle
+7. **Delivery**: Select the EPUB in OPDS on CrossPoint or KOReader; no email conversion
 
 ### Automated Book Management (via Hardcover Sync)
 1. **Discovery on Hardcover**: Browse and add books to "Want-To-Read" on Hardcover.app
-2. **Automatic Sync**: Hardcover Sync periodically picks up new additions (hourly)
+2. **Automatic Sync**: Hardcover Sync picks up new additions every two hours
 3. **Metadata Resolution**: rreading-glasses enhances book information
 4. **Bookshelf Addition**: Books are automatically added to Bookshelf
 5. **Acquisition**: Bookshelf handles downloading and organizing
-6. **Import**: Upload selected book files to Calibre-Web at https://calibre.homelab
+6. **Import**: Stable NAS EPUBs are copied to CWA's native importer automatically
 7. **Reading**: Read online via Calibre-Web interface
-8. **Delivery**: Kindle Sender automatically emails new books to Kindle
+8. **Delivery**: Select the unchanged EPUB in OPDS on either reader
 
 ## Troubleshooting
 

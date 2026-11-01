@@ -9,6 +9,10 @@ configMapGenerator:
     files:
       - harden-certifi.py
       - blocked-spkis.sha256
+  - name: calibre-web-ingest-code
+    files:
+      - configure-ingest.py
+      - stage-books.py
 resources:
   - configmap.yaml
   - pvc.yaml

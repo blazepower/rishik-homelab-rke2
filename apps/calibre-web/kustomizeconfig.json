@@ -8,6 +8,11 @@
           "group": "helm.toolkit.fluxcd.io",
           "kind": "HelmRelease",
           "path": "spec/values/persistence/ca-hardening/name"
+        },
+        {
+          "group": "helm.toolkit.fluxcd.io",
+          "kind": "HelmRelease",
+          "path": "spec/values/persistence/ingest-code/name"
         }
       ]
     }

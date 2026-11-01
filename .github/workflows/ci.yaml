@@ -152,6 +152,9 @@ jobs:
       - name: Test Calibre library bootstrap
         run: python3 .github/scripts/test-calibre-library-bootstrap.py
 
+      - name: Test canonical EPUB ingestion
+        run: python3 .github/scripts/test-ebook-ingest.py
+
       - name: Test monitoring admission network policy
         run: python3 .github/scripts/test-monitoring-admission-policy.py
 

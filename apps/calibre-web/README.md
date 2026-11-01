@@ -4,7 +4,7 @@ Calibre-Web is a web-based eBook library browser that provides a clean interface
 
 ## Overview
 
-- **Image**: `lscr.io/linuxserver/calibre-web:0.6.27` (digest pinned in the HelmRelease)
+- **Image**: `crocodilestick/calibre-web-automated:v4.0.8` (digest pinned in the HelmRelease)
 - **Port**: 8083
 - **Access URL**: https://calibre.homelab
 - **Namespace**: media
@@ -23,17 +23,80 @@ Calibre-Web provides:
 
 - **Config PVC**: `calibre-web-config`, 1Gi Longhorn, mounted at `/config`.
 - **Library PVC**: `calibre-web-library`, 2Gi RWO `longhorn-retain`, mounted
-  read-write at `/media/books/calibre-library`. The Calibre SQLite database and
+  read-write at `/calibre-library`. The Calibre SQLite database and
   book files stay together on this filesystem, not NFS.
 - **Legacy source**: `media-root` NFS `books/calibre-library`, mounted read-only
   at `/legacy-library` in the bootstrap init container only. Other applications
   retain their existing NFS mounts.
-- Browser uploads go directly through Calibre-Web; no ingest directory, desktop
-  sync, or second library/progress-sync service is required.
+- **Ingest PVC**: `calibre-web-ingest`, 1Gi RWO `longhorn-retain`. Its `queue`
+  subdirectory is mounted at CWA's `/cwa-book-ingest`; persistent staging state
+  remains outside that destructive consumer directory.
+- **Acquisition source**: the staging sidecar alone reads `media-root` NFS
+  `books` at `/source/books`, read-only. Bookshelf keeps its existing writable
+  `/media/books` root. Neither application writes the other's managed library.
+- Browser uploads remain available. Bookshelf acquisitions are copied
+  automatically to native CWA ingestion; desktop library/database sync is not used.
 - Keep **Admin > Database Configuration > Separate Book Files from Library**
-  unchecked. Only `/media/books/calibre-library` is mounted as library storage;
+  unchecked. Only `/calibre-library` is mounted as library storage;
   `/media/books` outside that mount is not persistent. Verify an actual EPUB
   download after importing, not just the book count or OPDS feed.
+
+### Automatic acquisition bridge
+
+`Hardcover Want-To-Read -> Bookshelf -> NAS EPUB -> staging copy -> CWA -> OPDS`
+
+Hardcover acquisition runs every two hours. Once Bookshelf has placed an EPUB
+under its NAS root, `stage-books.py` scans every 120 seconds. It requires an
+unchanged size/mtime across scans and at least 60 seconds of stability, validates
+the EPUB package, copies and SHA256-verifies it, and publishes it with an atomic
+rename. Source originals are never moved, rewritten, or deleted.
+Trailing CR/LF in the EPUB mimetype is tolerated because seven existing reader
+files use it; those bytes are preserved, not repaired.
+
+The sidecar inventories the managed library read-only. Existing SHA256 matches
+are skipped; differing EPUBs with the same normalized title/authors are held
+as `metadata_duplicate`, never merged over an established edition. Hidden
+directories, symlinks, the legacy `calibre-library` directory, and non-EPUB files
+are ignored. Non-EPUB acquisitions require a deliberate conversion outside this
+bridge before they can reach the X3.
+
+At most four unacknowledged books are queued at once, with free-space reserves
+on both volumes. A file consumed by CWA is only acknowledged after its exact hash
+appears in the managed library. Unacknowledged processing retries after 15
+minutes, at most three times; failures and metadata conflicts remain in
+`/bridge/state/staging.json` for inspection. CWA alone registers books using
+`calibredb`; the bridge never edits `metadata.db`.
+
+`configure-ingest.py` runs before native startup and preserves accounts while
+setting the consolidated library path. Conversion, Kindle EPUB fixing, automatic
+metadata enforcement/fetching, automatic duplicate resolution, archive cleanup,
+download-time metadata embedding, and CWA's own KOReader sync are disabled. Leave these features disabled to retain
+the document identity shared with CrossPoint. Newly added auto-send account
+settings default off; this is not an email-delivery pipeline.
+
+Native processed-book backup duplication is disabled: unchanged source originals
+are retained on the NAS, and the library/config/ingest volumes have Longhorn
+snapshot/backup policies. This avoids filling the 1Gi config volume with a second
+copy of every imported EPUB. Certifi, pip's vendored certifi, and OpenSSL's CA bundle/hashed fallback
+are hardened against the existing eleven-SPKI deny policy, preserving all other
+anchors. Image updates require approval and matching pinned trust-store audits.
+Native CWA startup needs `DAC_OVERRIDE` to update its UID-1000-owned `dirs.json`
+and `FOWNER` to set permissions after assigning processed directories to that
+UID. Without these, initialization reports permission failures and can leave
+the watcher with an empty path. The staging sidecar and init containers still drop all
+capabilities, and read-only trust-store mounts prevent root replacement.
+
+The CWA migration has pre-cutover Longhorn snapshots
+`calibre-library-before-cwa-20261031` and `calibre-config-before-cwa-20261031`
+in namespace `storage`. Restore the library and configuration as a pair before
+returning to the stock image; changing the image alone does not undo schema/path
+migration. Do not export credential-bearing configuration databases.
+
+```bash
+kubectl logs -n media deployment/calibre-web -c stage-books --tail=20
+kubectl logs -n media deployment/calibre-web -c configure-ingest
+kubectl get pvc -n media calibre-web-config calibre-web-library calibre-web-ingest
+```
 
 ### First Longhorn cutover
 
@@ -77,8 +140,9 @@ books; restore the Longhorn library and configuration together instead.
 ### Uploads and device OPDS
 
 The shared library is populated with the canonical EPUBs, and authenticated
-downloads have been confirmed on both readers. For each new book, upload the
-unchanged EPUB through the browser and download that same format on both devices.
+downloads have been confirmed on both readers. New Bookshelf EPUB acquisitions
+are imported automatically; independent EPUBs can still be uploaded unchanged
+through the browser. Download that same format on both devices.
 Do not use Amazon Send to Kindle or convert/optimize one device's copy: changed
 bytes can break the document identity used by hosted reading-progress sync.
 
@@ -156,7 +220,7 @@ For Kindle email delivery, you'll need the following information:
 
 1. Access https://calibre.homelab
 2. Default credentials: `admin` / `admin123` (change immediately!)
-3. Keep Calibre library path: `/media/books/calibre-library` (bootstrapped as above)
+3. Keep Calibre library path: `/calibre-library` (existing Longhorn library)
 4. Configure email settings for Kindle delivery via **Admin > Email Server** in the web UI
 
 ## SMTP Setup
