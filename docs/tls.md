@@ -89,9 +89,18 @@ Radarr is the first separately authorized serial activation, using the already
 audited same-application-version vendor rebuild. Verify its actual running image,
 public trust stores, authentication and storage before activating another release.
 
-The remaining prepared Calibre-Web, Bazarr, Prowlarr, SABnzbd, Sure, Bookshelf,
+Calibre is separately authorized after storage-owner clearance as CWA v4.0.8.
+Its migration preserves the existing library/accounts and OPDS URLs. The pinned
+CWA certifi, pip-certifi, native OpenSSL bundle/hashed-directory overlays and
+vendor startup are audited in `apps/calibre-web/harden-certifi.py`; isolated
+native ingestion and unchanged OPDS bytes were verified, and CI 41180623130
+passed. The historical stock-image report is not CWA live-clearance evidence.
+Live activation must still verify running trust stores, accounts, library hashes,
+and a new NAS-to-OPDS import. See the Calibre acquisition-bridge procedure.
+
+The remaining prepared Bazarr, Prowlarr, SABnzbd, Sure, Bookshelf,
 qBittorrent and Seerr releases are explicitly suspended in Git. This prevents
-starting eight remaining independent stateful rollouts
+starting seven remaining independent stateful rollouts
 together. Do not remove these
 holds during external storage maintenance. After the storage owner confirms
 completion and a fresh sustained safety check passes, activate one release at
