@@ -73,6 +73,7 @@ spec:
     defaultSettings:
       defaultDataPath: "/var/lib/longhorn"
       engineReplicaTimeout: '{"v1":"15","v2":"8"}'
+      disableSnapshotPurge: true
       guaranteedInstanceManagerCPU: 5
       concurrentAutomaticEngineUpgradePerNodeLimit: 1
       concurrentReplicaRebuildPerNodeLimit: 1
