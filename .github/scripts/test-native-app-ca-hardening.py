@@ -152,6 +152,10 @@ class WiringTests(unittest.TestCase):
         self.assertEqual(containers["vpn-sync"]["dependsOn"], "gluetun")
         self.assertEqual(containers["seed-policy"]["dependsOn"], "app")
         self.assertEqual(containers["gluetun"]["securityContext"]["capabilities"]["add"], ["NET_ADMIN"])
+        port_sync = containers["vpn-sync"]["command"][-1]
+        self.assertIn(r'\"current_network_interface\":\"tun0\"', port_sync)
+        self.assertIn(r'\"current_interface_name\":\"tun0\"', port_sync)
+        self.assertIn(r'\"listen_port\":$PORT', port_sync)
         env = {e["name"]: e for e in containers["gluetun"]["env"]}
         self.assertEqual(env["WIREGUARD_PRIVATE_KEY"]["valueFrom"]["secretKeyRef"]["name"], "qbittorrent-vpn")
         self.assertEqual(env["VPN_TYPE"]["value"], "wireguard")
