@@ -137,6 +137,8 @@ postgresql:
         - ALL
 
 ## Probes
+startupProbe: {}
+
 livenessProbe:
   httpGet:
     path: /
