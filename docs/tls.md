@@ -98,18 +98,24 @@ passed. The historical stock-image report is not CWA live-clearance evidence.
 Live activation must still verify running trust stores, accounts, library hashes,
 and a new NAS-to-OPDS import. See the Calibre acquisition-bridge procedure.
 
-Bazarr, Prowlarr, SABnzbd, Bookshelf, Seerr and qBittorrent/Gluetun are enabled
-through separate serial activations of their accepted public-CA startup guards. Verify the running
-digest, completed guard, read-only public
-trust overlays, authentication behavior and data mounts before proceeding.
-Public-store filtering does not certify every native or custom TLS context.
+Bazarr, Prowlarr, SABnzbd, Bookshelf, Seerr, qBittorrent/Gluetun and Sure are
+enabled through separate serial activations of their accepted public-CA startup
+guards. Each activation requires storage-owner clearance, a fresh safety check,
+exact-head CI, and verification of the running immutable image, completed guard,
+actual read-only public trust overlays, startup, authentication behavior and
+data mounts before proceeding. Sure applies to both Rails and Sidekiq; verify
+the current Sidekiq process registration and fresh heartbeat, not just HTTP.
+Public-store filtering does not certify every .NET, Qt, compiled-Go or custom
+TLS context. Preparation reports and passing CI alone do not prove live safety.
 
-Sure is the remaining prepared release explicitly suspended in Git.
-Do not remove its hold during external storage maintenance. After the storage owner confirms
-completion and a fresh sustained safety check passes, activate one release at
-a time through Git, update its CI hold assertion, and verify actual startup,
-trust rejection, authentication and storage before activating the next.
-Preparation reports and passing CI do not authorize deployment.
+The November 5 release refresh still finds the supported RKE2 v1.34 channel at
+`v1.34.12+rke2r1`; GitHub marks `v1.34.13+rke2r1` as a prerelease, so it is not
+deployed. Fresh public-image ELF inspection still finds Gluetun v3 on Go 1.25.11,
+Stash v0.32.0 on Go 1.25.9 and rreading-glasses hardcover on Go 1.26.0, below
+the incident floors. Official `syncthing/syncthing:2.1.7` is a same-vendor
+candidate with Go 1.27.3 and clear public PEM stores, not an accepted or deployed
+major-version migration. Compiler versions and PEM inventories are not native
+or custom-context chain-rejection certification.
 
 ## cert-manager
 

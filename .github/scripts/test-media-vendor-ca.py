@@ -88,32 +88,17 @@ def release(app):
 
 
 class MediaVendorPinTests(unittest.TestCase):
-    def test_prepared_releases_remain_held_for_serial_activation(self):
-        held = (
-            "sure-finance",
+    def test_release_activation_states_are_explicit(self):
+        active = (
+            "radarr", "calibre-web", "bazarr", "prowlarr", "sabnzbd",
+            "bookshelf", "overseerr", "qbittorrent", "sure-finance",
         )
-        for app in held:
+        for app in active:
             with self.subTest(app=app):
                 manifest = yaml.safe_load(
                     (ROOT / "apps" / app / "helmrelease.yaml").read_text()
                 )
-                self.assertIs(manifest["spec"]["suspend"], True)
-        radarr = yaml.safe_load((ROOT / "apps" / "radarr" / "helmrelease.yaml").read_text())
-        self.assertIs(radarr["spec"]["suspend"], False)
-        calibre = yaml.safe_load((ROOT / "apps" / "calibre-web" / "helmrelease.yaml").read_text())
-        self.assertIs(calibre["spec"]["suspend"], False)
-        bazarr = yaml.safe_load((ROOT / "apps" / "bazarr" / "helmrelease.yaml").read_text())
-        self.assertIs(bazarr["spec"]["suspend"], False)
-        prowlarr = yaml.safe_load((ROOT / "apps" / "prowlarr" / "helmrelease.yaml").read_text())
-        self.assertIs(prowlarr["spec"]["suspend"], False)
-        sabnzbd = yaml.safe_load((ROOT / "apps" / "sabnzbd" / "helmrelease.yaml").read_text())
-        self.assertIs(sabnzbd["spec"]["suspend"], False)
-        bookshelf = yaml.safe_load((ROOT / "apps" / "bookshelf" / "helmrelease.yaml").read_text())
-        self.assertIs(bookshelf["spec"]["suspend"], False)
-        overseerr = yaml.safe_load((ROOT / "apps" / "overseerr" / "helmrelease.yaml").read_text())
-        self.assertIs(overseerr["spec"]["suspend"], False)
-        qbittorrent = yaml.safe_load((ROOT / "apps" / "qbittorrent" / "helmrelease.yaml").read_text())
-        self.assertIs(qbittorrent["spec"]["suspend"], False)
+                self.assertIs(manifest["spec"]["suspend"], False)
 
     def test_manifest_pins_match_the_recorded_immutable_audits(self):
         evidence = json.loads(EVIDENCE.read_text())
