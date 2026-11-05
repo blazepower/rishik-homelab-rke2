@@ -271,12 +271,13 @@
       "allowedVersions": "/^0\\.36\\.\\d+$/"
     },
     {
-      "description": "Require recovery/admission approval for Grafana and held Kyverno; track release criteria in issue #359 without blocking unrelated monitoring charts",
+      "description": "Require Grafana recovery, held Kyverno admission and MetalLB schema/election review; see issue #359 without blocking unrelated charts",
       "matchDatasources": ["helm"],
-      "matchPackageNames": ["kube-prometheus-stack", "kyverno"],
+      "matchPackageNames": ["kube-prometheus-stack", "kyverno", "metallb"],
       "matchFileNames": [
         "infrastructure/monitoring/helmrelease-kube-prometheus-stack.yaml",
-        "infrastructure/policies/kyverno-install/helmrelease-kyverno.yaml"
+        "infrastructure/policies/kyverno-install/helmrelease-kyverno.yaml",
+        "infrastructure/networking/metallb/helmrelease-metallb.yaml"
       ],
       "dependencyDashboardApproval": true,
       "groupName": null
@@ -321,6 +322,13 @@
         "apps/media-codec-policy/cronjob.yaml",
         "apps/sonarr/cleanup-cronjob.yaml"
       ],
+      "dependencyDashboardApproval": true
+    },
+    {
+      "description": "Require AdGuard native configuration recovery and local chart version/appVersion updates before changing the DNS image default; see issue #359",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["adguard/adguardhome", "docker.io/adguard/adguardhome"],
+      "matchFileNames": ["charts/adguard-home/values.yaml"],
       "dependencyDashboardApproval": true
     }
   ],

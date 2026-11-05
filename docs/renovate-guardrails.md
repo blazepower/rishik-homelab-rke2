@@ -113,7 +113,7 @@ Consider a per-package rule whenever an image:
 The owner requested a merge-or-close decision for the entire backlog. Deferred
 upgrades are **not deployed** and are not assertions of upstream defects.
 [Issue #359](https://github.com/blazepower/rishik-homelab-rke2/issues/359)
-retains the work and release criteria. The five final approval rules match only
+retains the work and release criteria. The six final approval rules match only
 the affected packages and manifest paths, across the existing managers. They
 require Dependency Dashboard approval rather than disabling discovery, changing
 the PR limit, or adding dependencies to `ignoreDeps`.
@@ -134,6 +134,7 @@ gate is completed.
 |---|---|---|
 | #354 | Merge | Exact old/new Ubuntu images execute only the existing completed-marker path on all three nodes; script, host configuration, GPU allocation and Plex identities must remain unchanged. |
 | #356 | Merge | Maintenance kubectl patch stays on the server's 1.34 minor; validate native client/tool compatibility, unchanged handler script/RBAC and the actual scheduled job. |
+| #362 | Merge | The scheduled maintenance check exposed a preexisting false restart of native CWA at `/media`. Remove that obsolete target, retain all other checks and verify the next scheduled job preserves CWA uptime; repair the stale source-readonly wiring test without weakening the bootstrap guards. |
 | #291 | Defer/close | Newer Plex image needs its own fresh consistent library/configuration backup, isolated restore, exact CA/runtime audit and controlled GPU/media-preserving rollout. Current Plex is stable, not proven safe to migrate. |
 | #336 | Defer/close | PostgreSQL 18 chart defaults require separate Maybe/Paperless native recovery proofs and local chart version bumps; changing defaults alone can leave Flux using a cached chart. Keep Paperless paused. |
 | #337 | Defer/close | rreading-glasses needs its own native database backup and candidate restore; successful Kaneo recovery does not prove this database's contents or extensions. |
@@ -142,6 +143,8 @@ gate is completed.
 | #342 | Defer/close | Kyverno HelmRelease and policy reconciliation are intentionally held. Review admission behavior, capacity and rollback before explicitly releasing either hold; preserve active policies. |
 | #351 | Defer/close | The rolling Whisparr target changed during review and requires a fresh exact-image CA/runtime and recovery audit. Its live HelmRelease is not suspended; this is a new review gate, not a claim of an existing rollout hold. |
 | #352 | Defer/close | This combined Python proposal also changes qBittorrent's suspended desired template, which cannot complete a runtime upgrade until the deliberate CA cutover. Require exact Linux/script compatibility and recovery/rollout review; a validated CronJob-only split can be reviewed independently. |
+| #358 | Defer/close | AdGuard 0.107.80 contains security fixes, but this proposal changes only a local chart default while leaving chart version/appVersion at 1.0.2/0.107.79. Coordinate a fresh native DNS configuration recovery proof, chart metadata bump and actual rollout instead of claiming a cached-chart no-op is deployed. |
+| #360 | Defer/close | MetalLB 0.16.2 is not merely an image rebuild: the upstream comparison contains L2 election and CRD/schema changes. Review current pool/advertisement validation, upgrade's existing CRD `Create` policy and address/election continuity before replacing the load-balancer components. This is a new review gate, not a reported live outage. |
 
 ### Earlier unmerged closures in this upgrade campaign
 
