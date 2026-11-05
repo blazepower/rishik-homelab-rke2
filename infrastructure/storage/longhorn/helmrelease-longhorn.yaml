@@ -87,7 +87,7 @@ spec:
       replicaAutoBalance: "best-effort"
       storageMinimalAvailablePercentage: 15
       orphanAutoDeletion: true
-      autoCleanupSystemGeneratedSnapshot: true
+      autoCleanupSystemGeneratedSnapshot: false
       autoCleanupRecurringJobBackupSnapshot: true
       snapshotHeavyTaskConcurrentLimit: 1
       backupConcurrentLimit: 1
