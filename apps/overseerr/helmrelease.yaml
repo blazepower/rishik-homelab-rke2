@@ -107,7 +107,7 @@ spec:
     persistence:
       ca-guard:
         type: configMap
-        name: ca-guard
+        name: overseerr-ca-guard
         defaultMode: 0444
         advancedMounts:
           overseerr:

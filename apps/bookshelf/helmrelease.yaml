@@ -106,7 +106,7 @@ spec:
     persistence:
       ca-guard:
         type: configMap
-        name: ca-guard
+        name: bookshelf-ca-guard
         defaultMode: 0444
         advancedMounts:
           bookshelf:

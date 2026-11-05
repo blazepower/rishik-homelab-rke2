@@ -333,7 +333,7 @@ spec:
     persistence:
       ca-guard:
         type: configMap
-        name: ca-guard
+        name: qbittorrent-ca-guard
         defaultMode: 0444
         advancedMounts:
           qbittorrent:
