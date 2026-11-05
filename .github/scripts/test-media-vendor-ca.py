@@ -90,7 +90,7 @@ def release(app):
 class MediaVendorPinTests(unittest.TestCase):
     def test_prepared_releases_remain_held_for_serial_activation(self):
         held = (
-            "bazarr", "prowlarr", "sabnzbd",
+            "prowlarr", "sabnzbd",
             "sure-finance", "bookshelf", "qbittorrent", "overseerr",
         )
         for app in held:
@@ -103,6 +103,8 @@ class MediaVendorPinTests(unittest.TestCase):
         self.assertIs(radarr["spec"]["suspend"], False)
         calibre = yaml.safe_load((ROOT / "apps" / "calibre-web" / "helmrelease.yaml").read_text())
         self.assertIs(calibre["spec"]["suspend"], False)
+        bazarr = yaml.safe_load((ROOT / "apps" / "bazarr" / "helmrelease.yaml").read_text())
+        self.assertIs(bazarr["spec"]["suspend"], False)
 
     def test_manifest_pins_match_the_recorded_immutable_audits(self):
         evidence = json.loads(EVIDENCE.read_text())
