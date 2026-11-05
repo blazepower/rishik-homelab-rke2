@@ -269,6 +269,59 @@
       "matchDatasources": ["helm"],
       "matchPackageNames": ["descheduler"],
       "allowedVersions": "/^0\\.36\\.\\d+$/"
+    },
+    {
+      "description": "Require recovery/admission approval for Grafana and held Kyverno; track release criteria in issue #359 without blocking unrelated monitoring charts",
+      "matchDatasources": ["helm"],
+      "matchPackageNames": ["kube-prometheus-stack", "kyverno"],
+      "matchFileNames": [
+        "infrastructure/monitoring/helmrelease-kube-prometheus-stack.yaml",
+        "infrastructure/policies/kyverno-install/helmrelease-kyverno.yaml"
+      ],
+      "dependencyDashboardApproval": true,
+      "groupName": null
+    },
+    {
+      "description": "Require application-specific native backup/restore and local chart version review for persistent database updates; see issue #359",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": [
+        "postgres",
+        "docker.io/library/postgres",
+        "redis",
+        "docker.io/library/redis"
+      ],
+      "matchFileNames": [
+        "apps/rreading-glasses/postgresql.yaml",
+        "charts/maybe-finance/values.yaml",
+        "charts/paperless-ngx/values.yaml"
+      ],
+      "dependencyDashboardApproval": true
+    },
+    {
+      "description": "Require native Plex library recovery and exact runtime/CA review before proposing another image rollout; see issue #359",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["plexinc/pms-docker", "docker.io/plexinc/pms-docker"],
+      "matchFileNames": ["apps/plex/helmrelease.yaml"],
+      "dependencyDashboardApproval": true
+    },
+    {
+      "description": "Require exact rolling-image CA/runtime and recovery review for Whisparr without holding other arr updates; see issue #359",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["ghcr.io/hotio/whisparr"],
+      "matchFileNames": ["apps/phantom/helmrelease.yaml"],
+      "dependencyDashboardApproval": true,
+      "groupName": null
+    },
+    {
+      "description": "Review Linux Python/script compatibility and held qBittorrent recovery before this media runtime batch; see issue #359",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["python", "docker.io/library/python"],
+      "matchFileNames": [
+        "apps/qbittorrent/helmrelease.yaml",
+        "apps/media-codec-policy/cronjob.yaml",
+        "apps/sonarr/cleanup-cronjob.yaml"
+      ],
+      "dependencyDashboardApproval": true
     }
   ],
   "ignoreDeps": [

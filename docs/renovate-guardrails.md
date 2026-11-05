@@ -108,6 +108,68 @@ Consider a per-package rule whenever an image:
   `pinDigests: true` on those so architecture/entrypoint drift shows up as
   a sha256 change in the PR diff.
 
+## November 2026 PR dispositions
+
+The owner requested a merge-or-close decision for the entire backlog. Deferred
+upgrades are **not deployed** and are not assertions of upstream defects.
+[Issue #359](https://github.com/blazepower/rishik-homelab-rke2/issues/359)
+retains the work and release criteria. The five final approval rules match only
+the affected packages and manifest paths, across the existing managers. They
+require Dependency Dashboard approval rather than disabling discovery, changing
+the PR limit, or adding dependencies to `ignoreDeps`.
+
+The dashboard is [#164](https://github.com/blazepower/rishik-homelab-rke2/issues/164).
+After satisfying the relevant gate, select its approval or Closed/Ignored
+checkbox to request a fresh PR for the current target. Do not select all pending
+updates indiscriminately. Approval does not release any live maintenance or CA
+hold. Grafana and Whisparr are removed from their broad update groups so their
+approval requirements do not delay Loki/Promtail or other arr applications.
+Unrelated paths, the accepted worn SSD, and all existing architecture/version
+guards are unchanged. Reassess these approval rules as each recovery/rollout
+gate is completed.
+
+### This backlog
+
+| PR | Disposition | Justification and next gate |
+|---|---|---|
+| #354 | Merge | Exact old/new Ubuntu images execute only the existing completed-marker path on all three nodes; script, host configuration, GPU allocation and Plex identities must remain unchanged. |
+| #356 | Merge | Maintenance kubectl patch stays on the server's 1.34 minor; validate native client/tool compatibility, unchanged handler script/RBAC and the actual scheduled job. |
+| #291 | Defer/close | Newer Plex image needs its own fresh consistent library/configuration backup, isolated restore, exact CA/runtime audit and controlled GPU/media-preserving rollout. Current Plex is stable, not proven safe to migrate. |
+| #336 | Defer/close | PostgreSQL 18 chart defaults require separate Maybe/Paperless native recovery proofs and local chart version bumps; changing defaults alone can leave Flux using a cached chart. Keep Paperless paused. |
+| #337 | Defer/close | rreading-glasses needs its own native database backup and candidate restore; successful Kaneo recovery does not prove this database's contents or extensions. |
+| #344 | Defer/close | Persistent Redis is not disposable cache. Back up and restore its durable state/queues, verify consumers and bump the local charts before rollout. |
+| #341 | Defer/close | Complete Grafana provisioning-parity recovery proof. Empty scratch provisioning orphan-deleted dashboards in both versions; the later 127 MB capture timed out. These are test limitations, not production loss or proof of a 13.3 defect. Preserve canonical dashboards/resources/users/datasources/permissions, Prometheus history and silences. |
+| #342 | Defer/close | Kyverno HelmRelease and policy reconciliation are intentionally held. Review admission behavior, capacity and rollback before explicitly releasing either hold; preserve active policies. |
+| #351 | Defer/close | The rolling Whisparr target changed during review and requires a fresh exact-image CA/runtime and recovery audit. Its live HelmRelease is not suspended; this is a new review gate, not a claim of an existing rollout hold. |
+| #352 | Defer/close | This combined Python proposal also changes qBittorrent's suspended desired template, which cannot complete a runtime upgrade until the deliberate CA cutover. Require exact Linux/script compatibility and recovery/rollout review; a validated CronJob-only split can be reviewed independently. |
+
+### Earlier unmerged closures in this upgrade campaign
+
+These are separate from successfully merged upgrades. Existing PR comments
+retain detailed evidence; the table supplies a justification for every unmerged
+closure since October 25, including Renovate's automatic closures.
+
+| PR | Closure justification | Renovate handling |
+|---|---|---|
+| #353 | Verified redundant Hardcover rebuild: application and every changed layer's file contents/permissions/configuration match the deployed image; only build timestamps/OCI metadata differ. | No blanket suppression: future application or trust-store updates must remain eligible. |
+| #338 | Owner retired a completed one-shot Grafana preservation helper update; not a live monitoring image upgrade. | No blanket sidecar exclusion; chart/runtime updates remain independently reviewable. |
+| #328 | Ubuntu major bump targeted the unused Cook Desktop sync component, subsequently retired while preserving recipes/archive data. | Removed component is no longer extracted; do not constrain unrelated Ubuntu images. |
+| #101 | Owner closed the stale, conflicted calibre-converter feature proposal; do not merge obsolete architecture over the current native EPUB ingestion path. | Not a dependency update; no Renovate rule applies. |
+| #102 | Owner closed the stale, conflicted Tailscale documentation proposal rather than replacing current documentation wholesale. | Not a dependency update; no Renovate rule applies. |
+| #236 | Broad infrastructure bundle was split to avoid coupling incompatible admission/storage/networking changes; cert-manager was reviewed and deployed separately through #329. | Independent infrastructure rules; retain the dedicated Longhorn hold. |
+| #327 | Renovate auto-closed the old `major-infrastructure` Traefik branch during regrouping. Traefik 42 was not deployed by that closure. | Keep independent Traefik review eligible; do not invent an unsupported-version ban. |
+| #331 | Descheduler 0.37's tested Kubernetes range excludes the current 1.34 cluster. | Existing 0.36.x ceiling, reconsidered with a node minor upgrade. |
+| #330 | Superseded by the separately reviewed compatible cert-manager 1.21.3 change in #329. | No additional exclusion; independent cert-manager upgrades remain eligible. |
+| #316 | Individual Flux source-controller bump would bypass coordinated bootstrap/CRD/RBAC upgrades. | Existing generated-bootstrap-only controller rule; official bundle upgraded through #319. |
+| #308 | Individual Flux notification-controller bump would bypass the coordinated release. | Same narrow bootstrap rule; no global Flux-image suppression. |
+| #307 | Individual Flux kustomize-controller bump would bypass the coordinated release. | Same narrow bootstrap rule. |
+| #306 | Individual Flux helm-controller bump would bypass the coordinated release. | Same narrow bootstrap rule. |
+| #270 | kubectl 1.37 violates supported skew against the Kubernetes 1.34 API. | Existing 1.34.x maintenance-client ceiling; compatible #356 patch remains eligible. |
+| #318 | Not a real Calibre upgrade: removed only the bootstrap image digest, breaking immutable app/bootstrap identity equality. | Existing digest pin and equality test; later native CWA migration is separate. |
+| #239 | Independent Kaneo chart update was superseded by the coordinated chart/application/database migration in #309. | No extra exclusion; obsolete references were replaced together. |
+| #240 | Independent Kaneo API update was superseded by the matching coordinated migration in #309. | Same coordinated manifest change, not a permanent package ban. |
+| #241 | Independent Kaneo web update was superseded by the matching coordinated migration in #309. | Same coordinated manifest change. |
+
 ## Recovery: bad tag stuck via helm-controller rollback loop
 
 If a HelmRelease keeps rolling back to a release that itself contains the

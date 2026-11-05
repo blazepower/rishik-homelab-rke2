@@ -175,6 +175,65 @@ def image_parts(image: str) -> tuple[str, str]:
     return package, version
 
 
+def test_deferred_upgrade_approval(config: dict) -> bool:
+    deferred = [
+        ("kube-prometheus-stack", "helm", "flux",
+         "infrastructure/monitoring/helmrelease-kube-prometheus-stack.yaml"),
+        ("kyverno", "helm", "flux",
+         "infrastructure/policies/kyverno-install/helmrelease-kyverno.yaml"),
+        ("plexinc/pms-docker", "docker", "helm-values", "apps/plex/helmrelease.yaml"),
+        ("ghcr.io/hotio/whisparr", "docker", "custom.regex", "apps/phantom/helmrelease.yaml"),
+        ("postgres", "docker", "kubernetes", "apps/rreading-glasses/postgresql.yaml"),
+        ("docker.io/library/postgres", "docker", "helm-values", "charts/paperless-ngx/values.yaml"),
+        ("docker.io/library/redis", "docker", "helm-values", "charts/maybe-finance/values.yaml"),
+        ("python", "docker", "helm-values", "apps/qbittorrent/helmrelease.yaml"),
+        ("python", "docker", "kubernetes", "apps/media-codec-policy/cronjob.yaml"),
+        ("docker.io/library/python", "docker", "custom.regex", "apps/sonarr/cleanup-cronjob.yaml"),
+    ]
+    checks = []
+    for package, datasource, manager, file_path in deferred:
+        options = {"datasource": datasource, "manager": manager, "file_path": file_path}
+        checks.append((
+            f"{package} in {file_path} waits for approval but stays discoverable",
+            effective_option(config, package, "dependencyDashboardApproval", **options) is True
+            and effective_option(config, package, "enabled", **options) is not False
+            and package not in config.get("ignoreDeps", []),
+        ))
+    for package, path in (
+        ("python", "apps/unrelated/cronjob.yaml"),
+        ("postgres", "apps/unrelated/deployment.yaml"),
+        ("redis", "charts/unrelated/values.yaml"),
+        ("nginx", "charts/maybe-finance/values.yaml"),
+    ):
+        checks.append((
+            f"Approval gates do not leak to {package} in {path}",
+            effective_option(config, package, "dependencyDashboardApproval", file_path=path) is not True,
+        ))
+    checks.extend([
+        (
+            "Deferred Grafana does not hold Loki or Promtail in the same branch",
+            effective_option(
+                config, "kube-prometheus-stack", "groupName", datasource="helm", manager="flux",
+                file_path="infrastructure/monitoring/helmrelease-kube-prometheus-stack.yaml",
+            ) is None
+            and all(effective_option(
+                config, package, "groupName", datasource="helm", manager="flux",
+            ) == "monitoring-stack" for package in ("loki", "promtail")),
+        ),
+        (
+            "Deferred Whisparr does not hold independently eligible arr images",
+            effective_option(
+                config, "ghcr.io/hotio/whisparr", "groupName",
+                file_path="apps/phantom/helmrelease.yaml",
+            ) is None
+            and effective_option(config, "lscr.io/linuxserver/sonarr", "groupName") == "arr-stack",
+        ),
+    ])
+    for name, passed in checks:
+        print(f"{'PASS' if passed else 'FAIL'}: {name}")
+    return all(passed for _, passed in checks)
+
+
 def test_sabnzbd_registry_alias(config: dict) -> bool:
     manager = next(
         (
@@ -266,6 +325,8 @@ def main() -> int:
     if not test_upgrade_coordination(config):
         failures += 1
     if not test_sabnzbd_registry_alias(config):
+        failures += 1
+    if not test_deferred_upgrade_approval(config):
         failures += 1
 
     for test in tests:
