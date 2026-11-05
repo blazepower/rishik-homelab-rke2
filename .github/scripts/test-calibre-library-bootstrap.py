@@ -4,6 +4,7 @@ from contextlib import closing, redirect_stdout
 import io
 from pathlib import Path
 import shutil
+import shlex
 import sqlite3
 import unittest
 from unittest import mock
@@ -124,12 +125,32 @@ class BootstrapTests(unittest.TestCase):
         self.assertEqual(CONTROLLER["replicas"], 1)
         self.assertEqual(CONTROLLER["strategy"], "Recreate")
         self.assertEqual(BOOTSTRAP["image"], CONTROLLER["containers"]["app"]["image"])
-        mounts = VALUES["persistence"]["legacy-library"]["advancedMounts"]["calibre-web"]
+        acquisition = VALUES["persistence"]["acquisition"]
+        self.assertTrue(acquisition["volumeSpec"]["persistentVolumeClaim"]["readOnly"])
+        mounts = acquisition["advancedMounts"]["calibre-web"]
         self.assertNotIn("app", mounts)
         self.assertTrue(mounts["bootstrap-library"][0]["readOnly"])
         scaler = yaml.safe_load((ROOT / "apps/calibre-web/scaledobject.yaml").read_text())
         self.assertEqual(scaler["spec"]["minReplicaCount"], 1)
         self.assertEqual(scaler["spec"]["maxReplicaCount"], 1)
+
+    def test_native_cwa_is_not_restarted_for_an_absent_media_mount(self):
+        handler = yaml.safe_load(
+            (ROOT / "infrastructure/node-bootstrap/media-mount-handler/cronjob.yaml").read_text()
+        )["spec"]["jobTemplate"]["spec"]["template"]["spec"]["containers"][0]["command"][2]
+        targets = {
+            tuple(shlex.split(line.strip())[1:3])
+            for line in handler.splitlines() if line.strip().startswith('check_media_mount "')
+        }
+        self.assertNotIn(("media", "calibre-web"), targets)
+        self.assertIn(("media", "sonarr"), targets)
+        mounts = [
+            mount["path"] for volume in VALUES["persistence"].values()
+            for mount in volume.get("advancedMounts", {}).get("calibre-web", {}).get("app", [])
+        ]
+        self.assertNotIn("/media", mounts)
+        self.assertIn("/calibre-library", mounts)
+        self.assertIn("/cwa-book-ingest", mounts)
 
 
 if __name__ == "__main__":
