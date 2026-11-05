@@ -98,12 +98,13 @@ passed. The historical stock-image report is not CWA live-clearance evidence.
 Live activation must still verify running trust stores, accounts, library hashes,
 and a new NAS-to-OPDS import. See the Calibre acquisition-bridge procedure.
 
-Bazarr and Prowlarr are enabled through separate serial activations of their
-accepted public-CA startup guards. Verify the running digest, completed guard, read-only public
+Bazarr, Prowlarr and SABnzbd are enabled through separate serial activations of
+their accepted public-CA startup guards. Verify the running digest, completed
+guard, read-only public
 trust overlays, authentication behavior and data mounts before proceeding.
 Public-store filtering does not certify every native or custom TLS context.
 
-The remaining prepared SABnzbd, Sure, Bookshelf,
+The remaining prepared Sure, Bookshelf,
 qBittorrent and Seerr releases are explicitly suspended in Git. This prevents
 starting the remaining independent stateful rollouts
 together. Do not remove these
