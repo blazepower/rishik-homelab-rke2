@@ -98,17 +98,14 @@ passed. The historical stock-image report is not CWA live-clearance evidence.
 Live activation must still verify running trust stores, accounts, library hashes,
 and a new NAS-to-OPDS import. See the Calibre acquisition-bridge procedure.
 
-Bazarr, Prowlarr, SABnzbd, Bookshelf and Seerr are enabled through separate
-serial activations of their accepted public-CA startup guards. Verify the running
+Bazarr, Prowlarr, SABnzbd, Bookshelf, Seerr and qBittorrent/Gluetun are enabled
+through separate serial activations of their accepted public-CA startup guards. Verify the running
 digest, completed guard, read-only public
 trust overlays, authentication behavior and data mounts before proceeding.
 Public-store filtering does not certify every native or custom TLS context.
 
-The remaining prepared Sure and qBittorrent releases are explicitly suspended
-in Git. This prevents
-starting the remaining independent stateful rollouts
-together. Do not remove these
-holds during external storage maintenance. After the storage owner confirms
+Sure is the remaining prepared release explicitly suspended in Git.
+Do not remove its hold during external storage maintenance. After the storage owner confirms
 completion and a fresh sustained safety check passes, activate one release at
 a time through Git, update its CI hold assertion, and verify actual startup,
 trust rejection, authentication and storage before activating the next.

@@ -116,7 +116,7 @@ class WiringTests(unittest.TestCase):
         for profile in PROFILES:
             app, container, suffix, store = binding(profile)
             doc = release(app)
-            self.assertIs(doc["spec"]["suspend"], app == "qbittorrent")
+            self.assertIs(doc["spec"]["suspend"], False)
             self.assertEqual(doc["spec"]["chart"]["spec"]["version"], "5.3.0")
             values = doc["spec"]["values"]
             controller = values["controllers"][app]
