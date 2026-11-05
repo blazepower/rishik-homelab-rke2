@@ -174,7 +174,8 @@ class WiringTests(unittest.TestCase):
             ref = json.loads((directory / "kustomize-ca.json").read_text())
             self.assertEqual(ref["nameReference"][0]["fieldSpecs"][0]["path"],
                              "spec/values/persistence/ca-guard/name")
-            self.assertEqual(release(app)["spec"]["values"]["persistence"]["ca-guard"]["name"], "ca-guard")
+            self.assertEqual(release(app)["spec"]["values"]["persistence"]["ca-guard"]["name"],
+                             app + "-ca-guard")
 
     def test_preparation_does_not_claim_unexecuted_native_or_vpn_clearance(self):
         evidence = json.loads(EVIDENCE.read_text())
@@ -242,6 +243,19 @@ class WiringTests(unittest.TestCase):
                 if init["name"].startswith("ca-"):
                     self.assertFalse(pvc_names & {v["name"] for v in init["volumeMounts"]})
             RESULTS.append({"app": app, "render": "HASHED_CONFIGMAP_AND_SERIAL_INIT_VALIDATED"})
+        (scratch / "apps" / "kustomization.yaml").write_text(
+            yaml.safe_dump({"resources": list(APPS)}), encoding="utf-8"
+        )
+        combined = list(yaml.safe_load_all(
+            run([*kustomize, str(scratch / "apps")], text=True).stdout
+        ))
+        configmaps = {x["metadata"]["name"] for x in combined if x["kind"] == "ConfigMap"}
+        for manifest in combined:
+            if manifest["kind"] != "HelmRelease":
+                continue
+            reference = manifest["spec"]["values"]["persistence"]["ca-guard"]["name"]
+            self.assertIn(reference, configmaps)
+            self.assertTrue(reference.startswith(manifest["metadata"]["name"] + "-ca-guard-"))
 
 
 class FilterTests(unittest.TestCase):
