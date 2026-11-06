@@ -8,5 +8,4 @@ resources:
   - pdb-loki.yaml
   - pdb-cert-manager.yaml
   - pdb-sealed-secrets.yaml
-  - pdb-kyverno.yaml
   - pdb-flux.yaml
