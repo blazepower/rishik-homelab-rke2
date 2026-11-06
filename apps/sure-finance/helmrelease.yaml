@@ -55,6 +55,8 @@ spec:
     # Enable Redis for Sidekiq background jobs
     redis:
       enabled: true
+      persistence:
+        existingClaim: sure-finance-redis-data
 
     # Sidekiq background worker resources
     sidekiq:
