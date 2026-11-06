@@ -36,12 +36,12 @@ class FluxBootstrapTests(unittest.TestCase):
     def test_all_four_controllers_match_the_stable_bundle(self):
         version = re.search(r"^# Flux Version: (v\S+)$", COMPONENTS_TEXT, re.MULTILINE)
         self.assertIsNotNone(version)
-        self.assertEqual(version.group(1), "v2.9.6")
+        self.assertEqual(version.group(1), "v2.10.0")
         expected = {
-            "source-controller": "v1.9.6",
-            "kustomize-controller": "v1.9.6",
-            "helm-controller": "v1.6.5",
-            "notification-controller": "v1.9.4",
+            "source-controller": "v1.10.1",
+            "kustomize-controller": "v1.10.1",
+            "helm-controller": "v1.7.1",
+            "notification-controller": "v1.10.0",
         }
         deployments = [d for d in COMPONENTS if d["kind"] == "Deployment"]
         self.assertEqual({d["metadata"]["name"] for d in deployments}, set(expected))
