@@ -6,3 +6,5 @@ metadata:
   labels:
     app.kubernetes.io/name: keda
     app.kubernetes.io/component: autoscaling
+    environment: production
+    owner: rishik
