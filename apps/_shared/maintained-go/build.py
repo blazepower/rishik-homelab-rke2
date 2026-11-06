@@ -28,9 +28,10 @@ if settings["app"] == "gluetun":
 else:
     subprocess.run(
         ["make", "flags-release", "flags-static-pie", "stash",
-         "STASH_OUTPUT=/build/application", "GITHASH=" + settings["githash"],
+         "GITHASH=" + settings["githash"],
          "STASH_VERSION=" + settings["version"], "BUILD_DATE=" + settings["build_date"],
          "OFFICIAL_BUILD=" + settings["official_build"]],
+        env={**os.environ, "STASH_OUTPUT": "/build/application"},
         check=True,
     )
 assert module_hashes == {p: hashlib.sha256(Path(p).read_bytes()).hexdigest() for p in module_hashes}
