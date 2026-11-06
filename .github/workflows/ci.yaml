@@ -101,7 +101,7 @@ jobs:
         run: |
           echo '### Native public-store acceptance (not deployment clearance)' >> "$GITHUB_STEP_SUMMARY"
           echo '```json' >> "$GITHUB_STEP_SUMMARY"
-          cat fleet-native-app-ca-ci.json >> "$GITHUB_STEP_SUMMARY"
+          cat fleet-native-app-ca-ci.json | tee -a "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
   sure-runtime-ca-acceptance:

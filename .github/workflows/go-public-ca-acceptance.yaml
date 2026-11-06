@@ -10,6 +10,7 @@ on:
       - .github/scripts/test-native-app-ca-hardening.py
       - .github/security/emudhra-2026.json
       - .github/security/syncthing-v2-runtime.json
+      - .github/security/maintained-go-runtime.json
       - apps/_shared/media-ca-hardening/**
       - apps/_shared/go-ca-hardening/**
       - apps/vault/**
