@@ -79,6 +79,9 @@ sidekiq:
 ## Redis configuration (required for Sidekiq background jobs)
 redis:
   enabled: true
+  persistence:
+    # Preseed and verify the existing claim's appendonlydir before activation.
+    existingClaim: ""
   image:
     repository: docker.io/library/redis
     tag: "8-alpine@sha256:0bf6577d7774e592b29d093e3ac9390eb91e13d72c21e506afce736de5e0eeb0"
