@@ -64,7 +64,7 @@ class CalibreWiringTests(unittest.TestCase):
         }])
         self.assertEqual(overlay["advancedMounts"]["calibre-web"]["harden-certifi"],
                          [{"path": "/ca-output"}])
-        for name in ("config", "library", "legacy-library"):
+        for name in ("config", "library", "acquisition"):
             self.assertNotIn("globalMounts", VALUES["persistence"][name])
             self.assertNotIn("harden-certifi",
                              VALUES["persistence"][name]["advancedMounts"]["calibre-web"])
@@ -91,6 +91,24 @@ class CalibreWiringTests(unittest.TestCase):
         deployment = next(doc for doc in yaml.safe_load_all(rendered.stdout)
                           if doc and doc["kind"] == "Deployment")
         pod = deployment["spec"]["template"]["spec"]
+        nas_volumes = [volume for volume in pod["volumes"]
+                       if volume.get("persistentVolumeClaim", {}).get("claimName") == "media-root"]
+        self.assertEqual(nas_volumes, [{
+            "name": "acquisition",
+            "persistentVolumeClaim": {"claimName": "media-root", "readOnly": True},
+        }])
+        bootstrap = pod["initContainers"][0]
+        stage = next(container for container in pod["containers"]
+                     if container["name"] == "stage-books")
+        for container, path, subpath in (
+            (bootstrap, "/legacy-library", "books/calibre-library"),
+            (stage, "/source/books", "books"),
+        ):
+            self.assertEqual(next(mount for mount in container["volumeMounts"]
+                                  if mount["name"] == "acquisition"), {
+                "name": "acquisition", "mountPath": path,
+                "subPath": subpath, "readOnly": True,
+            })
         self.assertEqual(pod["securityContext"]["fsGroup"], 1000)
         self.assertEqual(pod["securityContext"]["fsGroupChangePolicy"], "OnRootMismatch")
         self.assertEqual([container["name"] for container in pod["initContainers"]],

@@ -34,6 +34,13 @@ Calibre-Web provides:
 - **Acquisition source**: the staging sidecar alone reads `media-root` NFS
   `books` at `/source/books`, read-only. Bookshelf keeps its existing writable
   `/media/books` root. Neither application writes the other's managed library.
+  Both NAS mounts share one volume, read-only at the PVC volume level, not only the
+  container mount. The NFS CSI driver's `File` fsGroup policy must not apply
+  recursive ownership changes to the original media share; app-template's
+  normal `existingClaim` volume omits that read-only flag, so this volume uses
+  its supported custom PVC volume specification. Do not declare the same CSI
+  claim under two volume names: kubelet can mount one name but indefinitely
+  wait for the other before starting any init container.
 - Browser uploads remain available. Bookshelf acquisitions are copied
   automatically to native CWA ingestion; desktop library/database sync is not used.
 - Keep **Admin > Database Configuration > Separate Book Files from Library**

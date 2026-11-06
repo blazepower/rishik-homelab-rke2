@@ -175,6 +175,38 @@ def image_parts(image: str) -> tuple[str, str]:
     return package, version
 
 
+def test_upgrade_visibility(config: dict) -> bool:
+    upgrades = [
+        ("kube-prometheus-stack", "helm", "flux",
+         "infrastructure/monitoring/helmrelease-kube-prometheus-stack.yaml"),
+        ("kyverno", "helm", "flux",
+         "infrastructure/policies/kyverno-install/helmrelease-kyverno.yaml"),
+        ("metallb", "helm", "flux",
+         "infrastructure/networking/metallb/helmrelease-metallb.yaml"),
+        ("adguard/adguardhome", "docker", "helm-values", "charts/adguard-home/values.yaml"),
+        ("plexinc/pms-docker", "docker", "helm-values", "apps/plex/helmrelease.yaml"),
+        ("ghcr.io/hotio/whisparr", "docker", "custom.regex", "apps/phantom/helmrelease.yaml"),
+        ("postgres", "docker", "kubernetes", "apps/rreading-glasses/postgresql.yaml"),
+        ("docker.io/library/postgres", "docker", "helm-values", "charts/paperless-ngx/values.yaml"),
+        ("docker.io/library/redis", "docker", "helm-values", "charts/maybe-finance/values.yaml"),
+        ("python", "docker", "helm-values", "apps/qbittorrent/helmrelease.yaml"),
+        ("python", "docker", "kubernetes", "apps/media-codec-policy/cronjob.yaml"),
+        ("docker.io/library/python", "docker", "custom.regex", "apps/sonarr/cleanup-cronjob.yaml"),
+    ]
+    checks = []
+    for package, datasource, manager, file_path in upgrades:
+        options = {"datasource": datasource, "manager": manager, "file_path": file_path}
+        checks.append((
+            f"{package} in {file_path} remains eligible while verification is completed",
+            effective_option(config, package, "dependencyDashboardApproval", **options) is not True
+            and effective_option(config, package, "enabled", **options) is not False
+            and package not in config.get("ignoreDeps", []),
+        ))
+    for name, passed in checks:
+        print(f"{'PASS' if passed else 'FAIL'}: {name}")
+    return all(passed for _, passed in checks)
+
+
 def test_sabnzbd_registry_alias(config: dict) -> bool:
     manager = next(
         (
@@ -266,6 +298,8 @@ def main() -> int:
     if not test_upgrade_coordination(config):
         failures += 1
     if not test_sabnzbd_registry_alias(config):
+        failures += 1
+    if not test_upgrade_visibility(config):
         failures += 1
 
     for test in tests:
