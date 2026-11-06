@@ -74,6 +74,20 @@ evidence at a fixed policy-test time, not TLS handshakes, intermediate-key
 denial, actual daemon/custom contexts, user-store inventory or .NET 6 support
 and comprehensive security clearance.
 
+The separate `Qt Public Store CA Acceptance` gate uses the unchanged fully
+static qBittorrent executable, not an external Qt helper. Its real HTTPS
+URL-downloader contacts two loopback-only generated CA/server chains in a
+network-disabled disposable profile. Both work before filtering; afterward
+the retained control must still work and the excluded chain must produce an
+actual Qt root-trust diagnostic without an HTTP request. Transport closure,
+timeouts and unrelated SSL errors cannot pass. The fixture extends, never
+replaces, the eleven-key policy with one explicitly synthetic denied key.
+It is a store-selection/actual-daemon-context test, not real-key signing or
+eleven-key native/intermediate rejection proof. No live profiles, tracker/
+libtorrent, RSS/search/plugin contexts, VPN or production authentication are
+cleared. Localhost authentication bypass exists only in the unpublished,
+loopback-bound, network-disabled disposable profile; no real config is used.
+
 The retired Kindle Sender has a pinned Go 1.27.3 rebuild and non-publishing
 Linux acceptance workflow. Native tests use the exact eight public SPKIs and
 require certificate-policy rejection, not an arbitrary handshake failure.
