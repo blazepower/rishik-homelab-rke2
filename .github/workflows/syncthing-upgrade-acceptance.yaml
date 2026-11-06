@@ -41,5 +41,5 @@ jobs:
         run: |
           echo '### Synthetic Syncthing migration (not production clearance)' >> "$GITHUB_STEP_SUMMARY"
           echo '```json' >> "$GITHUB_STEP_SUMMARY"
-          cat syncthing-upgrade-ci.json >> "$GITHUB_STEP_SUMMARY"
+          cat syncthing-upgrade-ci.json | tee -a "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
