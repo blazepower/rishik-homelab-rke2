@@ -94,11 +94,14 @@ jobs:
           python3 -B .github/scripts/test-native-app-ca-hardening.py
           --registry --docker --render --evidence fleet-native-app-ca-ci.json
 
+      - name: Verify the shell-less proxy public CA snapshot against its immutable vendor
+        run: python3 -B .github/scripts/test-rreading-ca.py --registry
+
       - name: Record scoped acceptance evidence
         run: |
           echo '### Native public-store acceptance (not deployment clearance)' >> "$GITHUB_STEP_SUMMARY"
           echo '```json' >> "$GITHUB_STEP_SUMMARY"
-          cat fleet-native-app-ca-ci.json >> "$GITHUB_STEP_SUMMARY"
+          cat fleet-native-app-ca-ci.json | tee -a "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
   sure-runtime-ca-acceptance:

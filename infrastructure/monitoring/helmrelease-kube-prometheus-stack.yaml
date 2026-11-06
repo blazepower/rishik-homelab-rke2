@@ -8,7 +8,7 @@ spec:
   chart:
     spec:
       chart: kube-prometheus-stack
-      version: 92.13.1
+      version: 92.21.2
       sourceRef:
         kind: HelmRepository
         name: prometheus-community
@@ -60,6 +60,9 @@ spec:
                   storage: 10Gi
     grafana:
       priorityClassName: infrastructure-high
+      # The single RWO SQLite volume must detach before a replacement starts.
+      deploymentStrategy:
+        type: Recreate
       persistence:
         enabled: true
         existingClaim: grafana-data

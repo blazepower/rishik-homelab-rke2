@@ -1,0 +1,16 @@
+{
+  "version": "2.1.7",
+  "declared_imageID": "docker.io/syncthing/syncthing@sha256:2b71da7c0d0a91a6ae5285ad079226fecc0a365d08b27720e1f7037b018f7546",
+  "immutable_amd64": "syncthing/syncthing@sha256:c28e86f5173bacc429aef92af915b5c4fac56e1a9dcd3875855fd51f664d0414",
+  "native_go_version": "go1.27.3",
+  "public_store_denied_copies": 0,
+  "application_args": [
+    "serve",
+    "--home=/config",
+    "--gui-address=0.0.0.0:8384",
+    "--db-delete-retention-interval=0"
+  ],
+  "previous_image": "syncthing/syncthing:1.28.1@sha256:289b4ca86d77e4938d3e0af7d11f5c0a0fb786e469d5f697c25ab0f9e1f29f34",
+  "synthetic_migration_evidence": "https://github.com/blazepower/rishik-homelab-rke2/pull/390#issuecomment-6675760932",
+  "scope": "Immutable official candidate binding; actual migration/rollback rehearsal and native compiler accepted. Historical factory audit remains unchanged. Production activation requires fresh quiesced backup and storage preflight."
+}
