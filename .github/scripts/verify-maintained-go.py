@@ -87,7 +87,7 @@ def native_gluetun(image, app):
 
 
 def native_stash(image, app, expected_version, scratch):
-    version = docker("run", "--rm", "--network", "none", image, "--version").stdout.strip()
+    version = docker("run", "--rm", "--network", "none", image, "stash", "--version").stdout.strip()
     assert version == expected_version and app["version"] in version, (version, expected_version)
     config = scratch / "synthetic"
     config.mkdir(exist_ok=True)
@@ -158,7 +158,7 @@ def main():
         settings = {**app, "app": args.app}
         expected_version = None
         if args.app == "stash":
-            expected_version = docker("run", "--rm", "--network", "none", app["vendor"], "--version").stdout.strip()
+            expected_version = docker("run", "--rm", "--network", "none", app["vendor"], "stash", "--version").stdout.strip()
             match = re.search(r"v0\.31\.1 \(([^)]+)\) - (Official|Unofficial) Build - (\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)", expected_version)
             assert match, expected_version
             settings.update(githash=match[1], official_build=str(match[2] == "Official").lower(), build_date=match[3])
