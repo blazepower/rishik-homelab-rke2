@@ -1,0 +1,46 @@
+---
+name: Dotnet Public Store CA Acceptance
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/dotnet-public-ca-acceptance.yaml
+      - .github/scripts/test-dotnet-public-ca.py
+      - .github/scripts/native-dotnet-ca/**
+      - .github/scripts/test-native-app-ca-hardening.py
+      - .github/security/emudhra-2026.json
+      - .github/security/fleet-application-ca-report.json
+      - apps/_shared/media-ca-hardening/**
+      - apps/bookshelf/helmrelease.yaml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  default-roots:
+    name: Stock Bookshelf CLR Public Roots
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install public certificate parser
+        run: pip install cryptography PyYAML
+
+      - name: Verify native default-root behavior without production data or networked runtimes
+        run: >-
+          python3 -B .github/scripts/test-dotnet-public-ca.py
+          --docker --evidence dotnet-public-ca-ci.json
+
+      - name: Record scoped native evidence
+        run: |
+          echo '### Stock CLR root-anchor proof (not daemon/custom TLS or runtime-security clearance)' >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          cat dotnet-public-ca-ci.json >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"

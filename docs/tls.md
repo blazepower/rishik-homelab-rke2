@@ -61,6 +61,19 @@ The registry/Docker/render suite passed at `93c0ffa` (16 tests, zero skips,
 Gluetun's public-store barrier passed, but its Go 1.25.11 remains below the
 incident floor; no real VPN startup was attempted.
 
+The separate `Dotnet Public Store CA Acceptance` gate probes Bookshelf's
+unchanged self-contained .NET 6.0.36 CLR, native apphost, runtime configuration
+and dependency files. Only the managed main assembly is replaced in a disposable
+fixture; nothing is rebuilt, published or deployed as a vendor application.
+The pinned .NET 6.0.428 SDK is an offline-only compiler with no NuGet sources,
+credentials or network access, not an accepted production runtime. Real denied
+public roots must be trusted before filtering and rejected specifically for
+root trust afterward, while ten retained roots remain trusted. Read-only
+overlays use the production filter. This is standard `X509Chain` system-anchor
+evidence at a fixed policy-test time, not TLS handshakes, intermediate-key
+denial, actual daemon/custom contexts, user-store inventory or .NET 6 support
+and comprehensive security clearance.
+
 The retired Kindle Sender has a pinned Go 1.27.3 rebuild and non-publishing
 Linux acceptance workflow. Native tests use the exact eight public SPKIs and
 require certificate-policy rejection, not an arbitrary handshake failure.
