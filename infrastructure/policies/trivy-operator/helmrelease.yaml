@@ -49,6 +49,11 @@ spec:
           cpu: "500m"
           memory: "512Mi"
 
+    # Keep scan scratch I/O off worker1's worn storage-replica disk.
+    trivyOperator:
+      scanJobNodeSelector:
+        kubernetes.io/hostname: rishik-worker2
+
     # Operator resources
     operator:
       replicas: 1
@@ -68,7 +73,7 @@ spec:
       clusterComplianceEnabled: false  # Save resources
 
       # Scan existing workloads on startup
-      scanJobsConcurrentLimit: 2
+      scanJobsConcurrentLimit: 1
       scanJobTTL: 1h
 
       # How often to rescan
