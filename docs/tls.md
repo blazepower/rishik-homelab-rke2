@@ -76,17 +76,25 @@ and comprehensive security clearance.
 
 The separate `Qt Public Store CA Acceptance` gate uses the unchanged fully
 static qBittorrent executable, not an external Qt helper. Its real HTTPS
-URL-downloader contacts two loopback-only generated CA/server chains in a
-network-disabled disposable profile. Both work before filtering; afterward
-the retained control must still work and the excluded chain must produce an
-actual Qt root-trust diagnostic without an HTTP request. Transport closure,
-timeouts and unrelated SSL errors cannot pass. The original CLI first applies
+URL-downloader, RSS reader and independent libtorrent HTTPS tracker stack contact
+two loopback-only generated CA/server chains in a network-disabled disposable
+profile. Both work before filtering; afterward the retained control must still
+work and the excluded chain must produce a native trust diagnostic without an
+HTTP request. RSS acceptance requires parsing the empty synthetic feed, not
+just fetching an icon. Tracker acceptance requires native working/error states;
+negative acceptance combines libtorrent's certificate-verification failure with
+the server's unknown-CA alert. Transport closure, timeouts and unrelated SSL
+errors cannot pass. The original CLI first applies
 its unchanged exactly-eleven-key policy. A separate test-API pass then adds one
 explicitly synthetic denied key while retaining all eleven real keys; the
 production policy loader and shared guard are never modified.
 It is a store-selection/actual-daemon-context test, not real-key signing or
-eleven-key native/intermediate rejection proof. No live profiles, tracker/
-libtorrent, RSS/search/plugin contexts, VPN or production authentication are
+eleven-key native/intermediate rejection proof. Empty feeds disable automatic
+downloads; synthetic magnets receive zero peers and cannot obtain metadata or
+payload. DHT/LSD/PeX remain disabled. SSRF mitigation is disabled only for the
+unpublished loopback tracker fixture; certificate verification remains enabled
+and actual preferences are checked. No live profiles, live trackers, peer/payload
+TLS, search/plugins, other custom contexts, VPN or production authentication are
 cleared. Localhost authentication bypass exists only in the unpublished,
 loopback-bound, network-disabled disposable profile; no real config is used.
 

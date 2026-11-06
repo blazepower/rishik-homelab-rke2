@@ -1,6 +1,7 @@
 """Disposable loopback TLS endpoints and public CA preparation; never real application data."""
 
 import ctypes
+import hashlib
 import http.server
 import importlib.util
 import json
@@ -17,14 +18,20 @@ import urllib.request
 
 
 class Endpoint(http.server.ThreadingHTTPServer):
-    def __init__(self, directory, label):
+    def __init__(self, directory, label, responses=None):
         class Handler(http.server.BaseHTTPRequestHandler):
             def do_GET(handler):
                 with handler.server.lock:
                     handler.server.requests += 1
-                body = b"Isolated TLS fixture, deliberately not a torrent.\n"
-                handler.send_response(200)
-                handler.send_header("Content-Type", "application/x-bittorrent")
+                if responses is None:
+                    status, content_type = 200, "application/x-bittorrent"
+                    body = b"Isolated TLS fixture, deliberately not a torrent.\n"
+                else:
+                    response = responses.get(urllib.parse.urlsplit(handler.path).path)
+                    status = 200 if response else 404
+                    content_type, body = response or ("text/plain", b"")
+                handler.send_response(status)
+                handler.send_header("Content-Type", content_type)
                 handler.send_header("Content-Length", str(len(body)))
                 handler.end_headers()
                 handler.wfile.write(body)
@@ -111,7 +118,9 @@ def filter_fixture(directory):
     return guard.harden(Path("/ca-store"), "qbittorrent", policy | {synthetic})
 
 
-def probe(directory, mode):
+def probe(directory, mode, context="url-download"):
+    if context not in ("url-download", "rss", "tracker"):
+        raise ValueError("Unknown native context")
     base = "http://127.0.0.1:8080"
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
@@ -140,12 +149,43 @@ def probe(directory, mode):
     preferences = json.loads(api("app/preferences"))
     if preferences.get("ignore_ssl_errors") is not False:
         raise ValueError("Actual daemon would ignore SSL errors")
+    if any(preferences.get(key) is not False for key in ("dht", "lsd", "pex")):
+        raise ValueError("Disposable fixture must not discover peers")
+    if context == "rss":
+        api("app/setPreferences", {"json": json.dumps({
+            "rss_processing_enabled": True, "rss_auto_downloading_enabled": False, "rss_fetch_delay": 0,
+        })})
+        preferences = json.loads(api("app/preferences"))
+        assert preferences["rss_processing_enabled"] is True
+        assert preferences["rss_auto_downloading_enabled"] is False
+    elif context == "tracker":
+        if preferences.get("validate_https_tracker_certificate") is not True:
+            raise ValueError("Actual libtorrent tracker verification must be enabled")
+        # Only the unpublished network-none fixture needs to reach a loopback tracker.
+        api("app/setPreferences", {"json": json.dumps({"ssrf_mitigation": False})})
+        preferences = json.loads(api("app/preferences"))
+        assert preferences["ssrf_mitigation"] is False
     build = json.loads(api("app/buildInfo"))
-    endpoints = {label: Endpoint(directory, label) for label in ("good", "bad")}
+    responses = {}
+    for label in ("good", "bad"):
+        if context == "rss":
+            body = ('<?xml version="1.0"?><rss version="2.0"><channel>'
+                    f'<title>Synthetic RSS {label}</title><link>https://127.0.0.1/</link>'
+                    '<description>Empty synthetic TLS fixture</description></channel></rss>').encode()
+            responses[label] = {f"/{label}.xml": ("application/rss+xml", body)}
+        elif context == "tracker":
+            responses[label] = {
+                "/announce": ("text/plain", b"d8:intervali3600e12:min intervali3600e5:peers0:e"),
+            }
+    endpoints = {label: Endpoint(directory, label, responses.get(label)) for label in ("good", "bad")}
     try:
-        urls = {label: f"https://127.0.0.1:{endpoint.server_port}/{label}.torrent"
+        suffixes = {"url-download": "{label}.torrent", "rss": "{label}.xml", "tracker": "announce"}
+        urls = {label: f"https://127.0.0.1:{endpoint.server_port}/" + suffixes[context].format(label=label)
                 for label, endpoint in endpoints.items()}
         native_errors = []
+        application_ready = False
+        state = {}
+        infohashes = {}
         trust_messages = {
             "The root certificate of the certificate chain is self-signed, and untrusted":
                 "SelfSignedCertificateInChain",
@@ -154,13 +194,22 @@ def probe(directory, mode):
             "The issuer certificate could not be found": "UnableToGetIssuerCertificate",
         }
         for label, endpoint in endpoints.items():
-            api("torrents/add", {
-                "urls": urls[label],
-                "stopped": "true", "savepath": "/config/downloads",
-            })
-        deadline = time.monotonic() + 20
+            if context == "rss":
+                api("rss/addFeed", {"url": urls[label], "path": "fixture-" + label})
+            else:
+                url = urls[label]
+                if context == "tracker":
+                    infohashes[label] = hashlib.sha1(("isolated-tls-tracker-" + label).encode()).hexdigest()
+                    url = "magnet:?" + urllib.parse.urlencode({
+                        "xt": "urn:btih:" + infohashes[label], "dn": "synthetic-" + label, "tr": url,
+                    })
+                api("torrents/add", {
+                    "urls": url, "stopped": "false" if context == "tracker" else "true",
+                    "savepath": "/config/downloads",
+                })
+        deadline = time.monotonic() + 30
         while time.monotonic() < deadline:
-            if mode == "filtered":
+            if mode == "filtered" and context != "tracker":
                 entries = json.loads(api("log/main?normal=false&info=false&warning=true&critical=false"))
                 prefix = 'SSL error, URL: "' + urls["bad"] + '", errors: "'
                 for entry in entries:
@@ -169,12 +218,50 @@ def probe(directory, mode):
                         errors = message[len(prefix):-1].split(". ")
                         if all(error in trust_messages for error in errors):
                             native_errors = [trust_messages[error] for error in errors]
+            if context == "rss":
+                feeds = json.loads(api("rss/items?withData=true"))
+                state = {
+                    label: {
+                        "parsed_empty_feed": feeds.get("fixture-" + label, {}).get("title") == f"Synthetic RSS {label}",
+                        "has_error": feeds.get("fixture-" + label, {}).get("hasError"),
+                    } for label in endpoints
+                }
+                application_ready = (
+                    state["good"]["parsed_empty_feed"] and state["good"]["has_error"] is False and
+                    (state["bad"]["parsed_empty_feed"] and state["bad"]["has_error"] is False
+                     if mode == "factory-plus-fixtures" else state["bad"]["has_error"] is True)
+                )
+            elif context == "tracker":
+                state = {}
+                for label in endpoints:
+                    try:
+                        trackers = json.loads(api("torrents/trackers?hash=" + infohashes[label]))
+                    except urllib.error.HTTPError as error:
+                        if error.code == 404:
+                            continue
+                        raise
+                    tracker = next((row for row in trackers if row["url"] == urls[label]), {})
+                    state[label] = {
+                        "status": tracker.get("status"),
+                        "certificate_verify_failed": "certificate verify failed" in tracker.get("msg", "").lower(),
+                    }
+                if (state.get("bad", {}).get("certificate_verify_failed") and
+                        "TLSV1_ALERT_UNKNOWN_CA" in endpoints["bad"].snapshot()["tls_alerts"]):
+                    native_errors = ["LibtorrentCertificateVerifyFailedWithUnknownCA"]
+                application_ready = (
+                    state.get("good", {}).get("status") == 2 and
+                    (state.get("bad", {}).get("status") == 2 if mode == "factory-plus-fixtures"
+                     else state.get("bad", {}).get("status") == 4 and bool(native_errors))
+                )
+            else:
+                application_ready = True
             good, bad = (endpoints[label].snapshot() for label in ("good", "bad"))
-            if good["http_requests"] and (bad["http_requests"] or native_errors):
+            if application_ready and good["http_requests"] and (bad["http_requests"] or native_errors):
                 break
             time.sleep(0.1)
         time.sleep(1)
         result = {label: endpoint.snapshot() for label, endpoint in endpoints.items()}
+        assert application_ready, {"context": context, "application_state": state, "endpoints": result}
         assert result["good"]["http_requests"] > 0 and not result["good"]["tls_alerts"], result
         if mode == "factory-plus-fixtures":
             assert result["bad"]["http_requests"] > 0 and not result["bad"]["tls_alerts"], result
@@ -184,9 +271,12 @@ def probe(directory, mode):
         else:
             raise ValueError("Unknown fixture mode")
         return {
-            "mode": mode, "native_version": "v5.2.4",
+            "mode": mode, "context": context, "native_version": "v5.2.4",
             "build_info": {key: build[key] for key in ("qt", "openssl", "libtorrent", "bitness") if key in build},
             "ignore_ssl_errors": False, "endpoints": result, "native_trust_errors": native_errors,
+            "application_state": state,
+            "tracker_certificate_verification": preferences.get("validate_https_tracker_certificate"),
+            "ssrf_disabled_only_for_isolated_loopback_tracker": context == "tracker",
         }
     finally:
         for endpoint in endpoints.values():
@@ -199,4 +289,5 @@ if __name__ == "__main__":
     elif sys.argv[1] == "filter-fixture":
         print(json.dumps(filter_fixture(Path(sys.argv[2]))))
     else:
-        print(json.dumps(probe(Path(sys.argv[2]), sys.argv[1])))
+        print(json.dumps(probe(Path(sys.argv[2]), sys.argv[1],
+                               sys.argv[3] if len(sys.argv) > 3 else "url-download")))
