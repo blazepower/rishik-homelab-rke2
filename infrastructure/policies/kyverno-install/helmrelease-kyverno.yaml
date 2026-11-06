@@ -4,6 +4,7 @@ metadata:
   name: kyverno
   namespace: kyverno
 spec:
+  suspend: true
   interval: 10m
   chart:
     spec:
