@@ -269,67 +269,6 @@
       "matchDatasources": ["helm"],
       "matchPackageNames": ["descheduler"],
       "allowedVersions": "/^0\\.36\\.\\d+$/"
-    },
-    {
-      "description": "Require Grafana recovery, held Kyverno admission and MetalLB schema/election review; see issue #359 without blocking unrelated charts",
-      "matchDatasources": ["helm"],
-      "matchPackageNames": ["kube-prometheus-stack", "kyverno", "metallb"],
-      "matchFileNames": [
-        "infrastructure/monitoring/helmrelease-kube-prometheus-stack.yaml",
-        "infrastructure/policies/kyverno-install/helmrelease-kyverno.yaml",
-        "infrastructure/networking/metallb/helmrelease-metallb.yaml"
-      ],
-      "dependencyDashboardApproval": true,
-      "groupName": null
-    },
-    {
-      "description": "Require application-specific native backup/restore and local chart version review for persistent database updates; see issue #359",
-      "matchDatasources": ["docker"],
-      "matchPackageNames": [
-        "postgres",
-        "docker.io/library/postgres",
-        "redis",
-        "docker.io/library/redis"
-      ],
-      "matchFileNames": [
-        "apps/rreading-glasses/postgresql.yaml",
-        "charts/maybe-finance/values.yaml",
-        "charts/paperless-ngx/values.yaml"
-      ],
-      "dependencyDashboardApproval": true
-    },
-    {
-      "description": "Require native Plex library recovery and exact runtime/CA review before proposing another image rollout; see issue #359",
-      "matchDatasources": ["docker"],
-      "matchPackageNames": ["plexinc/pms-docker", "docker.io/plexinc/pms-docker"],
-      "matchFileNames": ["apps/plex/helmrelease.yaml"],
-      "dependencyDashboardApproval": true
-    },
-    {
-      "description": "Require exact rolling-image CA/runtime and recovery review for Whisparr without holding other arr updates; see issue #359",
-      "matchDatasources": ["docker"],
-      "matchPackageNames": ["ghcr.io/hotio/whisparr"],
-      "matchFileNames": ["apps/phantom/helmrelease.yaml"],
-      "dependencyDashboardApproval": true,
-      "groupName": null
-    },
-    {
-      "description": "Review Linux Python/script compatibility and held qBittorrent recovery before this media runtime batch; see issue #359",
-      "matchDatasources": ["docker"],
-      "matchPackageNames": ["python", "docker.io/library/python"],
-      "matchFileNames": [
-        "apps/qbittorrent/helmrelease.yaml",
-        "apps/media-codec-policy/cronjob.yaml",
-        "apps/sonarr/cleanup-cronjob.yaml"
-      ],
-      "dependencyDashboardApproval": true
-    },
-    {
-      "description": "Require AdGuard native configuration recovery and local chart version/appVersion updates before changing the DNS image default; see issue #359",
-      "matchDatasources": ["docker"],
-      "matchPackageNames": ["adguard/adguardhome", "docker.io/adguard/adguardhome"],
-      "matchFileNames": ["charts/adguard-home/values.yaml"],
-      "dependencyDashboardApproval": true
     }
   ],
   "ignoreDeps": [
