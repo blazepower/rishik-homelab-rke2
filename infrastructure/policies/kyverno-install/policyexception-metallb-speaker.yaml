@@ -1,0 +1,35 @@
+apiVersion: kyverno.io/v2
+kind: PolicyException
+metadata:
+  name: metallb-speaker-host-network
+  namespace: kyverno
+spec:
+  background: false
+  exceptions:
+    - policyName: block-risky-capabilities
+      ruleNames:
+        - deny-host-network
+        - autogen-deny-host-network
+  match:
+    any:
+      - resources:
+          kinds:
+            - Pod
+            - DaemonSet
+          namespaces:
+            - metallb-system
+          names:
+            - metallb-speaker
+            - metallb-speaker-*
+          selector:
+            matchLabels:
+              app.kubernetes.io/component: speaker
+              app.kubernetes.io/instance: metallb
+              app.kubernetes.io/name: metallb
+  conditions:
+    all:
+      - key: >-
+          {{ request.object.spec.serviceAccountName ||
+          request.object.spec.template.spec.serviceAccountName || '' }}
+        operator: Equals
+        value: metallb-speaker
