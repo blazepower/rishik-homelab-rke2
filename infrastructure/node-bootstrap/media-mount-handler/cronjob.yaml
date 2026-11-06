@@ -89,7 +89,7 @@ spec:
                     check_media_mount "media" "sonarr" "app" "deployment" "sonarr"
                     check_media_mount "media" "bazarr" "app" "deployment" "bazarr"
                     check_media_mount "media" "bookshelf" "app" "deployment" "bookshelf"
-                    check_media_mount "media" "calibre-web" "app" "deployment" "calibre-web"
+                    # Native CWA uses /calibre-library and /cwa-book-ingest, not /media.
                     check_media_mount "media" "syncthing" "app" "deployment" "syncthing"
 
                     # Siloarr namespace apps
