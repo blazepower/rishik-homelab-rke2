@@ -22,6 +22,8 @@ spec:
               rate(node_disk_writes_completed_total{job="node-exporter",device=~"nvme[0-9]+n[0-9]+|sd[a-z]+"}[2m]) > 10
               and on (instance, device)
               rate(node_disk_io_time_weighted_seconds_total{job="node-exporter",device=~"nvme[0-9]+n[0-9]+|sd[a-z]+"}[2m]) > 8
+              and on (instance, device)
+              node_disk_info{job="node-exporter",model!="",model!="VIRTUAL-DISK"}
             )
             * on (instance) group_left (nodename)
             node_uname_info{job="node-exporter"}

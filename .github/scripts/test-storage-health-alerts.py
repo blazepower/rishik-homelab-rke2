@@ -15,15 +15,18 @@ ALERT = "NodePhysicalDiskWriteLatencyHigh"
 
 
 def inputs(instance="node-a:9100", device="nvme0n1", nodename="fixture-nvme",
-           write_time="0+900x10", writes="0+3000x10", queue="0+900x10"):
+           write_time="0+900x10", writes="0+3000x10", queue="0+900x10", model="fixture-physical-disk"):
     labels = f'job="node-exporter",instance="{instance}",device="{device}"'
-    return [
+    series = [
         {"series": f"node_disk_write_time_seconds_total{{{labels}}}", "values": write_time},
         {"series": f"node_disk_writes_completed_total{{{labels}}}", "values": writes},
         {"series": f"node_disk_io_time_weighted_seconds_total{{{labels}}}", "values": queue},
         {"series": f'node_uname_info{{job="node-exporter",instance="{instance}",nodename="{nodename}"}}',
          "values": "1x10"},
     ]
+    if model is not None:
+        series.append({"series": f'node_disk_info{{{labels},model="{model}"}}', "values": "1x10"})
+    return series
 
 
 def expected(instance, device, nodename):
@@ -73,6 +76,11 @@ def main():
         case("zero completions and virtual devices do not page",
              inputs(write_time="0x10", writes="0x10") +
              inputs("node-b:9100", "dm-0", "fixture-mapper"),
+             [("3m", [])]),
+        case("Longhorn iSCSI disks and unknown disk inventory do not page",
+             inputs(device="sdb", model="VIRTUAL-DISK") +
+             inputs("node-b:9100", "sdc", "fixture-unknown", model=None) +
+             inputs("node-c:9100", "sdd", "fixture-empty-model", model=""),
              [("3m", [])]),
         case("counter reset does not turn a brief spike into a sustained stall",
              inputs(write_time="0 900 0 15 30 45 60 75 90 105 120",
