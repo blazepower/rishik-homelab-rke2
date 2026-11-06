@@ -1,0 +1,36 @@
+{
+  "compiler": "go1.27.3",
+  "builder": "docker.io/golang:1.27.3-alpine@sha256:0fd028db9bdd4f01657bc8047c209b04d8ce19b853d776bd6f1e76a41729b936",
+  "applications": {
+    "gluetun": {
+      "repository": "https://github.com/passteque/gluetun.git",
+      "revision": "3d1e20c5551e9cae1f9d938dc7b7214a6987f27e",
+      "version": "v3.41.3",
+      "vendor": "docker.io/qmcgaw/gluetun@sha256:1baa76576dea1dfbafbd62bb635daf40fd87171f63273c2fdfe630418783011e",
+      "binary": "/gluetun-entrypoint",
+      "vendor_binary_sha256": "c5930e42a32c689469016009f2651e1807865a9bba926974cb40119f7b397bd3",
+      "license": "MIT",
+      "created": "2026-07-30T14:53:40.495Z",
+      "commit_label": "3d1e20c"
+    },
+    "stash": {
+      "repository": "https://github.com/stashapp/stash.git",
+      "revision": "4de2351e7cc990d7ccd7cb6c84c275cd53bf6e55",
+      "version": "v0.31.1",
+      "vendor": "docker.io/stashapp/stash@sha256:736e7cd8f61c815c08fd3048792982a61e619735bb1808cd279f0f2fa857c4b0",
+      "binary": "/usr/bin/stash",
+      "license": "AGPL-3.0",
+      "ui_url": "https://github.com/stashapp/stash/releases/download/v0.31.1/stash-ui.zip",
+      "ui_sha256": "353ffa0cac50bb7cd6c0caa7cdc53b426d7244664e8f68295b2d8bce63576aa6"
+    }
+  },
+  "blocked": {
+    "rreading-glasses": {
+      "vendor": "docker.io/blampe/rreading-glasses@sha256:cb2f25fa776f8edd55293909d73d398a0785c6bcf83bc4cd4b096a42b93534a7",
+      "attestation": "sha256:607ff53de9972c9ed33ea5ed629c95ff7d453649cff479502ff6f13c97012859",
+      "repository": "https://github.com/blampe/rreading-glasses.git",
+      "revision": "97dd4a676d435abc400fac93f303a725cde6b0d9",
+      "reason": "Factory OCI provenance binds this unavailable public revision. Git fetch: not our ref; commit API: HTTP 422; codeload: HTTP 404. Do not substitute main or another version."
+    }
+  }
+}
