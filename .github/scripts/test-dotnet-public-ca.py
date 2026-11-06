@@ -127,12 +127,15 @@ class DotnetPublicStoreTests(unittest.TestCase):
                     "run", "--rm", *isolated, "--user", f"{os.getuid()}:{os.getgid()}",
                     "--tmpfs", "/tmp:rw,nosuid,nodev,size=268435456,mode=1777",
                     "--env", "DOTNET_CLI_HOME=/tmp/dotnet-home",
+                    "--env", "HOME=/tmp/dotnet-home",
+                    "--env", "XDG_DATA_HOME=/tmp/dotnet-data",
                     "--env", "DOTNET_CLI_TELEMETRY_OPTOUT=1",
                     "--env", "DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1",
                     "--env", "DOTNET_GENERATE_ASPNET_CERTIFICATE=false",
                     "--volume", str(SOURCE) + ":/probe:ro",
                     "--volume", str(build) + ":/build",
                     "--entrypoint", "/bin/sh", COMPILER, "-ec",
+                    'mkdir -p "$HOME" "$XDG_DATA_HOME"; '
                     'test "$(dotnet --version)" = 6.0.428; '
                     "dotnet restore /probe/Probe.csproj --configfile /probe/NuGet.Config "
                     "-p:BaseIntermediateOutputPath=/build/obj/; "
@@ -152,7 +155,10 @@ class DotnetPublicStoreTests(unittest.TestCase):
                     "--volume", str(fixtures) + ":/fixtures:ro",
                     "--volume", str(build / "out" / "Readarr.dll") + ":/app/readarr/bin/Readarr.dll:ro",
                 ]
-                host = ["--entrypoint", "/app/readarr/bin/Readarr", vendor, "/fixtures"]
+                host = [
+                    "--entrypoint", "/bin/sh", vendor, "-ec",
+                    'mkdir -p "$HOME"; exec /app/readarr/bin/Readarr /fixtures "$1"', "probe",
+                ]
                 before = json.loads(docker(*probe, *host, "factory", text=True).stdout)
                 common = [
                     *isolated, "--user", "0:0", "--volume", str(native.SHARED) + ":/ca-guard:ro",

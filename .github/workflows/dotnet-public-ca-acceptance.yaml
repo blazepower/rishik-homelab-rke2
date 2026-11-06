@@ -31,7 +31,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install public certificate parser
-        run: pip install cryptography PyYAML
+        run: pip install 'cryptography>=42' PyYAML
 
       - name: Verify native default-root behavior without production data or networked runtimes
         run: >-
