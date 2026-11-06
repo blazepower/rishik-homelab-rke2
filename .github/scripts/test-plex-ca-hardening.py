@@ -43,7 +43,7 @@ class PlexCaWiringTests(unittest.TestCase):
     def test_main_and_auth_initializer_use_the_same_pinned_vendor_image(self):
         values = RELEASE["spec"]["values"]
         tag = values["image"]["tag"]
-        self.assertRegex(tag, r"^1\.43\.5\.11029-6bf8af3f0@sha256:[a-f0-9]{64}$")
+        self.assertRegex(tag, r"^1\.43\.7\.11114-4b588ea35@sha256:[a-f0-9]{64}$")
         self.assertEqual(values["extraInitContainers"][0]["name"], "require-plex-auth")
         self.assertEqual(values["extraInitContainers"][0]["image"], "plexinc/pms-docker:" + tag)
         self.assertEqual(values["extraEnv"]["ALLOWED_NETWORKS"], "")
