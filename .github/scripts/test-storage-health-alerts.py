@@ -4,13 +4,14 @@
 import argparse
 import json
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
-IMAGE = "quay.io/prometheus/prometheus@sha256:451a845bae1d51622b41af1780eb2ad911bbb79a9855bc8e9bb67fabbc03f934"
+IMAGE = "quay.io/prometheus/prometheus@sha256:9764044e09eb2c9e1abdb12d0f0188d4efb7384b0262d3c080f0fc59045c89ba"
 ALERT = "NodePhysicalDiskWriteLatencyHigh"
 
 
@@ -107,9 +108,12 @@ def main():
             "--mount", f"type=bind,source={directory},target=/rules,readonly",
             "--workdir", "/rules", "--entrypoint", "/bin/promtool", IMAGE,
         ]
+        version = subprocess.run([*command, "--version"], check=True, capture_output=True, text=True)
+        native_version = re.search(r"\bversion (\d+\.\d+\.\d+)\b", version.stdout + version.stderr)
+        assert native_version and native_version.group(1) == "3.16.0", "Unexpected native promtool version"
         subprocess.run([*command, "check", "rules", "/rules/rules.yaml"], check=True)
         subprocess.run([*command, "test", "rules", "/rules/tests.yaml"], check=True)
-    evidence = {"image": IMAGE, "native_promtool_version": "3.15.1", "test_cases": len(tests),
+    evidence = {"image": IMAGE, "native_promtool_version": native_version.group(1), "test_cases": len(tests),
                 "alert_evaluations": sum(len(test["alert_rule_test"]) for test in tests),
                 "skips": 0, "source": "Actual PrometheusRule spec; no copied expression",
                 "production_changes": "Alert evaluation only; no automated remediation"}

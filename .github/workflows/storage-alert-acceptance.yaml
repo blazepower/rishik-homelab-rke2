@@ -8,6 +8,7 @@ on:
       - .github/workflows/storage-alert-acceptance.yaml
       - .github/scripts/test-storage-health-alerts.py
       - infrastructure/monitoring/prometheusrules-storage-health-alerts.yaml
+      - infrastructure/monitoring/helmrelease-kube-prometheus-stack.yaml
 
 permissions:
   contents: read
