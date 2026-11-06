@@ -164,7 +164,7 @@ class QtPublicStoreTests(unittest.TestCase):
                 overlays = []
                 for tree in native.guard.NATIVE_TREES["qbittorrent"]:
                     overlays += ["--mount", f"type=volume,src={volume},dst=/{tree},readonly,volume-subpath={tree}"]
-                modes = {}
+                modes, additional_contexts = {}, {}
                 for mode in ("factory-plus-fixtures", "filtered"):
                     if mode == "filtered":
                         filtered = json.loads(docker(
@@ -202,6 +202,19 @@ class QtPublicStoreTests(unittest.TestCase):
                             "--entrypoint", "python3", helper,
                             "-B", "/probe/qt-ca-fixture.py", mode, "/servers", text=True, timeout=120,
                         ).stdout)
+                        additional_contexts[mode] = {}
+                        for context in ("rss", "tracker"):
+                            additional_contexts[mode][context] = json.loads(docker(
+                                "run", "--rm", "--network", "container:" + name, "--read-only",
+                                "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
+                                "--cpus", "0.5", "--memory", "256m",
+                                "--user", f"{os.getuid()}:{os.getgid()}",
+                                "--volume", str(SOURCE) + ":/probe:ro",
+                                "--volume", str(private) + ":/servers:ro",
+                                "--entrypoint", "python3", helper,
+                                "-B", "/probe/qt-ca-fixture.py", mode, "/servers", context,
+                                text=True, timeout=120,
+                            ).stdout)
                         if mode == "filtered":
                             docker("exec", "--user", "0", name, "/bin/sh", "-c",
                                    native.readonly_probe("qbittorrent"))
@@ -213,12 +226,15 @@ class QtPublicStoreTests(unittest.TestCase):
                     "unmodified_static_vendor_binary": True, "production_changes": False,
                     "default_public_filter": filtered, "synthetic_fixture_filter": synthetic_filtered,
                     "modes": modes,
+                    "additional_contexts": additional_contexts,
                     "synthetic_denied_spki": keys["bad"],
                     "real_policy_keys_preserved": len(native.POLICY),
-                    "scope": "Actual daemon Qt HTTPS URL-download context under a disposable profile. "
+                    "scope": "Actual daemon Qt HTTPS URL-download/RSS and libtorrent HTTPS tracker contexts "
+                             "under a disposable profile. Empty RSS feeds and zero-peer synthetic magnets; "
+                             "SSRF mitigation disabled only in the unpublished loopback tracker fixture. "
                              "Explicit synthetic denied-key extension exercises filtering, not possession "
                              "of real denied private keys or native eleven-key/intermediate denial. "
-                             "Not live profiles, trackers/libtorrent, VPN, RSS/search/plugins, custom contexts, "
+                             "Not live profiles, peers/payload, VPN, search/plugins, other custom contexts, "
                              "production authentication or comprehensive security clearance.",
                 })
         finally:
