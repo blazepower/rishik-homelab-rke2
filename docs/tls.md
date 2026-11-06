@@ -130,6 +130,14 @@ It does not deploy or authorize a production major upgrade: that still needs a
 fresh verified backup, stable storage, migration capacity/time assessment and
 explicit acceptance of the v2 deleted-file conflict semantics.
 
+The shell-less rreading-glasses image cannot run the shell/Python snapshot init.
+Its staged public-root mitigation instead projects a read-only, hash-referenced
+ConfigMap over the existing default bundle. `test-rreading-ca.py --registry`
+binds that snapshot to the exact vendor amd64 image and canonical policy, checks
+that every unaffected vendor DER identity is preserved, and rejects unexpected
+additional factory public stores. The image, entrypoint, database and credentials
+are unchanged. This does not patch its compiled Go 1.26.0 or certify custom TLS.
+
 ## cert-manager
 
 [cert-manager](https://cert-manager.io/) is deployed to automate TLS certificate management for services exposed via Ingress.
