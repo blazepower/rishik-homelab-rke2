@@ -116,7 +116,7 @@ class WiringTests(unittest.TestCase):
         for profile in PROFILES:
             app, container, suffix, store = binding(profile)
             doc = release(app)
-            self.assertTrue(doc["spec"]["suspend"])
+            self.assertIs(doc["spec"]["suspend"], False)
             self.assertEqual(doc["spec"]["chart"]["spec"]["version"], "5.3.0")
             values = doc["spec"]["values"]
             controller = values["controllers"][app]
@@ -152,6 +152,10 @@ class WiringTests(unittest.TestCase):
         self.assertEqual(containers["vpn-sync"]["dependsOn"], "gluetun")
         self.assertEqual(containers["seed-policy"]["dependsOn"], "app")
         self.assertEqual(containers["gluetun"]["securityContext"]["capabilities"]["add"], ["NET_ADMIN"])
+        port_sync = containers["vpn-sync"]["command"][-1]
+        self.assertIn(r'\"current_network_interface\":\"tun0\"', port_sync)
+        self.assertIn(r'\"current_interface_name\":\"tun0\"', port_sync)
+        self.assertIn(r'\"listen_port\":$PORT', port_sync)
         env = {e["name"]: e for e in containers["gluetun"]["env"]}
         self.assertEqual(env["WIREGUARD_PRIVATE_KEY"]["valueFrom"]["secretKeyRef"]["name"], "qbittorrent-vpn")
         self.assertEqual(env["VPN_TYPE"]["value"], "wireguard")
@@ -174,7 +178,8 @@ class WiringTests(unittest.TestCase):
             ref = json.loads((directory / "kustomize-ca.json").read_text())
             self.assertEqual(ref["nameReference"][0]["fieldSpecs"][0]["path"],
                              "spec/values/persistence/ca-guard/name")
-            self.assertEqual(release(app)["spec"]["values"]["persistence"]["ca-guard"]["name"], "ca-guard")
+            self.assertEqual(release(app)["spec"]["values"]["persistence"]["ca-guard"]["name"],
+                             app + "-ca-guard")
 
     def test_preparation_does_not_claim_unexecuted_native_or_vpn_clearance(self):
         evidence = json.loads(EVIDENCE.read_text())
@@ -242,6 +247,19 @@ class WiringTests(unittest.TestCase):
                 if init["name"].startswith("ca-"):
                     self.assertFalse(pvc_names & {v["name"] for v in init["volumeMounts"]})
             RESULTS.append({"app": app, "render": "HASHED_CONFIGMAP_AND_SERIAL_INIT_VALIDATED"})
+        (scratch / "apps" / "kustomization.yaml").write_text(
+            yaml.safe_dump({"resources": list(APPS)}), encoding="utf-8"
+        )
+        combined = list(yaml.safe_load_all(
+            run([*kustomize, str(scratch / "apps")], text=True).stdout
+        ))
+        configmaps = {x["metadata"]["name"] for x in combined if x["kind"] == "ConfigMap"}
+        for manifest in combined:
+            if manifest["kind"] != "HelmRelease":
+                continue
+            reference = manifest["spec"]["values"]["persistence"]["ca-guard"]["name"]
+            self.assertIn(reference, configmaps)
+            self.assertTrue(reference.startswith(manifest["metadata"]["name"] + "-ca-guard-"))
 
 
 class FilterTests(unittest.TestCase):
@@ -449,7 +467,11 @@ class ImmutableImageTests(unittest.TestCase):
             self.assertEqual(aliases["etc/ssl/cert.pem"], "certs/ca-certificates.crt")
             if profile == "overseerr":
                 self.assertFalse(any("share/ca-certificates" in name for name in dirs))
-            self.assertGreater(denied, 0)
+            expected_denied = baseline(profile).get("public_store_denied_copies")
+            if expected_denied is None:
+                self.assertGreater(denied, 0)
+            else:
+                self.assertEqual(denied, expected_denied)
             self.assertGreater(len(identities), 10)
             RESULTS.append({"profile": profile, "immutable_amd64": expected, "public_pem_paths": len(present),
                             "baseline_denied_copies": denied, "unaffected_der_identities": len(identities),

@@ -61,6 +61,43 @@ The registry/Docker/render suite passed at `93c0ffa` (16 tests, zero skips,
 Gluetun's public-store barrier passed, but its Go 1.25.11 remains below the
 incident floor; no real VPN startup was attempted.
 
+The separate `Dotnet Public Store CA Acceptance` gate probes Bookshelf's
+unchanged self-contained .NET 6.0.36 CLR, native apphost, runtime configuration
+and dependency files. Only the managed main assembly is replaced in a disposable
+fixture; nothing is rebuilt, published or deployed as a vendor application.
+The pinned .NET 6.0.428 SDK is an offline-only compiler with no NuGet sources,
+credentials or network access, not an accepted production runtime. Real denied
+public roots must be trusted before filtering and rejected specifically for
+root trust afterward, while ten retained roots remain trusted. Read-only
+overlays use the production filter. This is standard `X509Chain` system-anchor
+evidence at a fixed policy-test time, not TLS handshakes, intermediate-key
+denial, actual daemon/custom contexts, user-store inventory or .NET 6 support
+and comprehensive security clearance.
+
+The separate `Qt Public Store CA Acceptance` gate uses the unchanged fully
+static qBittorrent executable, not an external Qt helper. Its real HTTPS
+URL-downloader, RSS reader and independent libtorrent HTTPS tracker stack contact
+two loopback-only generated CA/server chains in a network-disabled disposable
+profile. Both work before filtering; afterward the retained control must still
+work and the excluded chain must produce a native trust diagnostic without an
+HTTP request. RSS acceptance requires parsing the empty synthetic feed, not
+just fetching an icon. Tracker acceptance requires native working/error states;
+negative acceptance combines libtorrent's certificate-verification failure with
+the server's unknown-CA alert. Transport closure, timeouts and unrelated SSL
+errors cannot pass. The original CLI first applies
+its unchanged exactly-eleven-key policy. A separate test-API pass then adds one
+explicitly synthetic denied key while retaining all eleven real keys; the
+production policy loader and shared guard are never modified.
+It is a store-selection/actual-daemon-context test, not real-key signing or
+eleven-key native/intermediate rejection proof. Empty feeds disable automatic
+downloads; synthetic magnets receive zero peers and cannot obtain metadata or
+payload. DHT/LSD/PeX remain disabled. SSRF mitigation is disabled only for the
+unpublished loopback tracker fixture; certificate verification remains enabled
+and actual preferences are checked. No live profiles, live trackers, peer/payload
+TLS, search/plugins, other custom contexts, VPN or production authentication are
+cleared. Localhost authentication bypass exists only in the unpublished,
+loopback-bound, network-disabled disposable profile; no real config is used.
+
 The retired Kindle Sender has a pinned Go 1.27.3 rebuild and non-publishing
 Linux acceptance workflow. Native tests use the exact eight public SPKIs and
 require certificate-policy rejection, not an arbitrary handshake failure.
@@ -98,15 +135,55 @@ passed. The historical stock-image report is not CWA live-clearance evidence.
 Live activation must still verify running trust stores, accounts, library hashes,
 and a new NAS-to-OPDS import. See the Calibre acquisition-bridge procedure.
 
-The remaining prepared Bazarr, Prowlarr, SABnzbd, Sure, Bookshelf,
-qBittorrent and Seerr releases are explicitly suspended in Git. This prevents
-starting seven remaining independent stateful rollouts
-together. Do not remove these
-holds during external storage maintenance. After the storage owner confirms
-completion and a fresh sustained safety check passes, activate one release at
-a time through Git, update its CI hold assertion, and verify actual startup,
-trust rejection, authentication and storage before activating the next.
-Preparation reports and passing CI do not authorize deployment.
+Bazarr, Prowlarr, SABnzbd, Bookshelf, Seerr, qBittorrent/Gluetun and Sure are
+enabled through separate serial activations of their accepted public-CA startup
+guards. Each activation requires storage-owner clearance, a fresh safety check,
+exact-head CI, and verification of the running immutable image, completed guard,
+actual read-only public trust overlays, startup, authentication behavior and
+data mounts before proceeding. Sure applies to both Rails and Sidekiq; verify
+the current Sidekiq process registration and fresh heartbeat, not just HTTP.
+Public-store filtering does not certify every .NET, Qt, compiled-Go or custom
+TLS context. Preparation reports and passing CI alone do not prove live safety.
+
+The November 5 release refresh still finds the supported RKE2 v1.34 channel at
+`v1.34.12+rke2r1`; GitHub marks `v1.34.13+rke2r1` as a prerelease, so it is not
+deployed. Fresh public-image ELF inspection still finds Gluetun v3 on Go 1.25.11,
+Stash v0.32.0 on Go 1.25.9 and rreading-glasses hardcover on Go 1.26.0, below
+the incident floors. Official `syncthing/syncthing:2.1.7` is a same-vendor
+candidate with Go 1.27.3 and clear public PEM stores, not an accepted or deployed
+major-version migration. Compiler versions and PEM inventories are not native
+or custom-context chain-rejection certification.
+
+The separate `Syncthing Upgrade Acceptance` workflow rehearses official 1.28.1
+to 2.1.7 using disposable generated identities, databases and book fixtures on
+an internal Docker network. It keeps the vendor entrypoint, UID/GID 1000,
+configuration/media paths, health endpoint and 500m/512Mi limits, and checks
+SQLite migration, GUI/API authentication and identity preservation, bidirectional
+1.x peer synchronization, cold restart and rollback from a stopped 1.x database
+snapshot. The candidate omits the obsolete default-folder option and explicitly
+retains deleted-file metadata indefinitely with
+`--db-delete-retention-interval=0`. Only synthetic data may enter this rehearsal.
+It does not deploy or authorize a production major upgrade: that still needs a
+fresh verified backup, stable storage, migration capacity/time assessment and
+explicit acceptance of the v2 deleted-file conflict semantics.
+
+The approved production transition first stages the pinned official candidate
+with zero replicas. This quiesces the old database before creating and verifying
+a retained Longhorn snapshot/backup of the existing config PVC. Only a separate
+activation change restores one replica after backup and storage acceptance.
+The existing identity, GUI authentication, books PVC and indefinite deleted-file
+retention must remain intact. Rollback restores the stopped legacy backup and
+old image together; the old executable must never be pointed at the migrated
+SQLite database. The separate immutable v2 runtime record preserves the original
+factory audit and requires its already-clean public stores to remain clean.
+
+The shell-less rreading-glasses image cannot run the shell/Python snapshot init.
+Its staged public-root mitigation instead projects a read-only, hash-referenced
+ConfigMap over the existing default bundle. `test-rreading-ca.py --registry`
+binds that snapshot to the exact vendor amd64 image and canonical policy, checks
+that every unaffected vendor DER identity is preserved, and rejects unexpected
+additional factory public stores. The image, entrypoint, database and credentials
+are unchanged. This does not patch its compiled Go 1.26.0 or certify custom TLS.
 
 ## cert-manager
 
