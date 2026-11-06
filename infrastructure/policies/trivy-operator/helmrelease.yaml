@@ -9,7 +9,7 @@ spec:
   chart:
     spec:
       chart: trivy-operator
-      version: "0.34.0"
+      version: "0.38.1"
       sourceRef:
         kind: HelmRepository
         name: aquasecurity
@@ -49,6 +49,11 @@ spec:
           cpu: "500m"
           memory: "512Mi"
 
+    # Keep scan scratch I/O off worker1's worn storage-replica disk.
+    trivyOperator:
+      scanJobNodeSelector:
+        kubernetes.io/hostname: rishik-worker2
+
     # Operator resources
     operator:
       replicas: 1
@@ -68,6 +73,7 @@ spec:
       clusterComplianceEnabled: false  # Save resources
 
       # Scan existing workloads on startup
+      # Retained completed Jobs also consume this limit in operator 0.36.1.
       scanJobsConcurrentLimit: 2
       scanJobTTL: 1h
 

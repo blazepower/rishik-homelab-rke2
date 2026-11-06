@@ -1,0 +1,12 @@
+{
+  "nameReference": [{
+    "kind": "ConfigMap",
+    "version": "v1",
+    "fieldSpecs": [{
+      "kind": "HelmRelease",
+      "group": "helm.toolkit.fluxcd.io",
+      "version": "v2",
+      "path": "spec/values/persistence/public-ca/name"
+    }]
+  }]
+}

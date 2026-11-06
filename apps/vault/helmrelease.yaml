@@ -5,6 +5,7 @@ metadata:
   name: stash
   namespace: siloarr
 spec:
+  suspend: false
   interval: 30m
   chart:
     spec:
@@ -32,11 +33,34 @@ spec:
         annotations:
           reloader.stakater.com/auto: "true"
 
+        initContainers:
+          ca-copy:
+            image:
+              repository: stashapp/stash
+              tag: "v0.31.1@sha256:df744af5a0c976e2ec671052ecc1f8a9aa757fa12b8f9930b59910b7295f0da6"
+            command: ["/bin/sh", "/ca-guard/copy-go-ca.sh", "stash"]
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop: ["ALL"]
+          ca-filter:
+            image:
+              repository: lscr.io/linuxserver/bazarr
+              tag: "v1.6.2-ls369@sha256:946dc8c5bb5331418eac60050cf40a63cb8f66ac039841dda493870e3559799c"
+            command: ["python3", "-B", "/ca-guard/go-ca-overlay.py"]
+            args: ["--root", "/ca-store", "--app", "stash", "--policy", "/ca-guard/blocked-spkis.sha256"]
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop: ["ALL"]
+
         containers:
           app:
             image:
               repository: stashapp/stash
-              tag: v0.31.1
+              tag: "v0.31.1@sha256:df744af5a0c976e2ec671052ecc1f8a9aa757fa12b8f9930b59910b7295f0da6"
             env:
               - name: STASH_STASH
                 value: "/media"
@@ -77,12 +101,50 @@ spec:
             port: 9999
 
     persistence:
+      ca-guard:
+        type: configMap
+        name: stash-ca-guard
+        defaultMode: 0444
+        advancedMounts:
+          stash:
+            ca-copy:
+              - path: /ca-guard
+                readOnly: true
+            ca-filter:
+              - path: /ca-guard
+                readOnly: true
+      ca-store:
+        type: emptyDir
+        sizeLimit: 32Mi
+        advancedMounts:
+          stash:
+            ca-copy:
+              - path: /ca-store
+            ca-filter:
+              - path: /ca-store
+            app:
+              - path: /etc/ssl
+                subPath: etc/ssl
+                readOnly: true
+              - path: /usr/share/ca-certificates
+                subPath: usr/share/ca-certificates
+                readOnly: true
+              - path: /usr/local/share/ca-certificates
+                subPath: usr/local/share/ca-certificates
+                readOnly: true
+              - path: /usr/lib/python3.12/site-packages/pip/_vendor/certifi
+                subPath: usr/lib/python3.12/site-packages/pip/_vendor/certifi
+                readOnly: true
       config:
         existingClaim: stash-config
-        globalMounts:
-          - path: /root/.stash
+        advancedMounts:
+          stash:
+            app:
+              - path: /root/.stash
       media-xxx:
         existingClaim: media-root
-        globalMounts:
-          - path: /media/TestX
-            subPath: xxx
+        advancedMounts:
+          stash:
+            app:
+              - path: /media/TestX
+                subPath: xxx
