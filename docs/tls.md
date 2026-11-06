@@ -145,14 +145,25 @@ the current Sidekiq process registration and fresh heartbeat, not just HTTP.
 Public-store filtering does not certify every .NET, Qt, compiled-Go or custom
 TLS context. Preparation reports and passing CI alone do not prove live safety.
 
-The November 5 release refresh still finds the supported RKE2 v1.34 channel at
-`v1.34.12+rke2r1`; GitHub marks `v1.34.13+rke2r1` as a prerelease, so it is not
-deployed. Fresh public-image ELF inspection still finds Gluetun v3 on Go 1.25.11,
+The historical November 5 refresh found the supported RKE2 v1.34 channel at
+`v1.34.12+rke2r1` and `v1.34.13+rke2r1` marked as a prerelease at that time.
+The vendor-image ELF inspection found Gluetun v3 on Go 1.25.11,
 Stash v0.32.0 on Go 1.25.9 and rreading-glasses hardcover on Go 1.26.0, below
 the incident floors. Official `syncthing/syncthing:2.1.7` is a same-vendor
-candidate with Go 1.27.3 and clear public PEM stores, not an accepted or deployed
-major-version migration. Compiler versions and PEM inventories are not native
+candidate with Go 1.27.3 and clear public PEM stores, not yet an accepted or
+deployed migration at that refresh. Compiler versions and PEM inventories are not native
 or custom-context chain-rejection certification.
+
+The November 6 release recheck now marks same-minor
+[`v1.34.13+rke2r1`](https://github.com/rancher/rke2/releases/tag/v1.34.13%2Brke2r1)
+stable. Publisher checksums and the actual server ELF, plus selected runtime,
+Kubernetes and etcd image ELFs, were independently checked: all inspected
+compilers are Go 1.26.10. This is selected-artifact metadata, not every component
+or installed-node/native TLS certification. All three hosts remain on
+v1.34.12/Go 1.26.8; privileged maintenance requires operator access. Do not bypass
+sudo or deploy a prerelease/minor jump. Before any sole-control-plane restart,
+create and verify a fresh etcd recovery snapshot and retain the controller
+cordon and Kured suspension.
 
 The separate `Syncthing Upgrade Acceptance` workflow rehearses official 1.28.1
 to 2.1.7 using disposable generated identities, databases and book fixtures on
@@ -177,6 +188,15 @@ old image together; the old executable must never be pointed at the migrated
 SQLite database. The separate immutable v2 runtime record preserves the original
 factory audit and requires its already-clean public stores to remain clean.
 
+This approved transition was deployed in
+[PR416](https://github.com/blazepower/rishik-homelab-rke2/pull/416) and
+[PR417](https://github.com/blazepower/rishik-homelab-rke2/pull/417).
+Live acceptance verified native 2.1.7/Go 1.27.3, two SQLite databases, unchanged
+identity certificate and private-file stat metadata, retained GUI/API protection,
+books/config claims and a connected 2.1.7 peer. The stopped-v1 backup was uploaded
+and separately remotely inspected before activation; it remains retained.
+This is not a real-data restore test or permission to run v1 against SQLite.
+
 The approved owned compiler derivatives retain exact Gluetun v3.41.3 and
 Stash v0.31.1 source, vendor runtime layers, auxiliary tools, native entrypoint
 and application assets while rebuilding the application ELF with Go 1.27.3.
@@ -187,13 +207,30 @@ CA guards and require serial live VPN/application, backup and storage acceptance
 The actual compiler and bounded native proofs are distinct from universal
 custom/intermediate TLS or forensic certification.
 
+The derivatives were deployed serially in
+[PR419](https://github.com/blazepower/rishik-homelab-rke2/pull/419) and
+[PR420](https://github.com/blazepower/rishik-homelab-rke2/pull/420).
+Actual running PID1 and installed-file hashes match the independently inspected
+Go 1.27.3 artifacts. Gluetun passed real VPN health, tunnel/forwarded-port
+synchronization and external port openness; Stash retained its original native
+version and HTTPS UI. Both preserved claims, mounts and read-only zero-denied
+public stores behind freshly uploaded/remotely inspected crash-consistent
+backups. The unchanged full-fleet two-worker storage gate passed after each
+rollout. Synthetic SQLite preservation remains distinct from real-data restore
+testing, and Pod readiness alone is not proof of working VPN forwarding.
+
 The shell-less rreading-glasses image cannot run the shell/Python snapshot init.
-Its staged public-root mitigation instead projects a read-only, hash-referenced
+Its deployed public-root mitigation instead projects a read-only, hash-referenced
 ConfigMap over the existing default bundle. `test-rreading-ca.py --registry`
 binds that snapshot to the exact vendor amd64 image and canonical policy, checks
 that every unaffected vendor DER identity is preserved, and rejects unexpected
 additional factory public stores. The image, entrypoint, database and credentials
 are unchanged. This does not patch its compiled Go 1.26.0 or certify custom TLS.
+The factory-attested source revision
+`97dd4a676d435abc400fac93f303a725cde6b0d9` is unavailable from public supplier
+Git/archive endpoints; OCI provenance/referrers did not recover an exact source
+tree. The same-version compiler derivative remains blocked on that source,
+not on missing user approval. Do not silently substitute another revision.
 
 ## cert-manager
 
