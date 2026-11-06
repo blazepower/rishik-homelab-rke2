@@ -73,7 +73,8 @@ spec:
       clusterComplianceEnabled: false  # Save resources
 
       # Scan existing workloads on startup
-      scanJobsConcurrentLimit: 1
+      # Retained completed Jobs also consume this limit in operator 0.36.1.
+      scanJobsConcurrentLimit: 2
       scanJobTTL: 1h
 
       # How often to rescan
