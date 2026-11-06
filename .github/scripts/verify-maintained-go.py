@@ -2,6 +2,7 @@
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import shutil
@@ -17,7 +18,7 @@ BUILD = ROOT / "apps" / "_shared" / "maintained-go"
 def run(*args, check=True):
     result = subprocess.run(args, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     if check and result.returncode:
-        raise RuntimeError(f"{args[:4]} failed ({result.returncode}):\n{result.stdout[-16000:]}")
+        raise RuntimeError(f"{args[:4]} failed ({result.returncode}):\n{result.stdout[-64000:]}")
     return result
 
 
@@ -83,7 +84,7 @@ def native_gluetun(image, app):
     assert "error" in startup.stdout.lower(), startup.stdout
     return {"native_startup_exit": startup.returncode, "native_startup": startup.stdout,
             "healthcheck_exit": health.returncode, "healthcheck": health.stdout,
-            "scope": "Network-none, no capabilities, no VPN credentials. Native startup rejection and unhealthy result only; not VPN connectivity clearance."}
+            "scope": "Network-none, no capabilities, no VPN credentials. Native startup stops at missing default route; native healthcheck reports connection refused. Not VPN connectivity or provider-validation clearance."}
 
 
 def native_stash(image, app, expected_version, scratch, baseline=False):
@@ -147,6 +148,7 @@ def main():
     scratch = ROOT / ".maintained-go" / args.app
     scratch.mkdir(parents=True, exist_ok=False)
     report = {"app": args.app, "head": run("git", "rev-parse", "HEAD").stdout.strip(),
+              "workflow_head": os.environ.get("GITHUB_SHA"),
               "vendor": app["vendor"], "source_revision": app["revision"],
               "compiler": lock["compiler"], "published": False}
     tag = "ghcr.io/blazepower/maintained-" + args.app + ":" + report["head"]

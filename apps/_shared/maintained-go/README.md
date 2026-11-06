@@ -22,7 +22,7 @@ Hosted Linux CI copies the actual rebuilt ELF out of the runtime image,
 checks its compiler, flags, source binding and hash, and exercises it rather
 than a helper executable. Stash serves locked native UI assets and writes,
 reads and reopens a disposable synthetic SQLite database on a network-none
-container. Gluetun rejects invalid synthetic startup configuration and
+container. Gluetun's native startup rejects the missing default route and
 reports its native unhealthy state without keys, NET_ADMIN or privileged
 network workarounds. That is not acceptance of a real VPN connection.
 

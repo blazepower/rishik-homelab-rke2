@@ -1,6 +1,7 @@
 """Compile locked public source without changing dependency versions."""
 import hashlib
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -23,10 +24,15 @@ if settings["app"] == "gluetun":
     subprocess.run(
         ["go", "build", "-trimpath", "-ldflags=" + flags,
          "-o", "/build/application", "cmd/gluetun/main.go"],
-        env={**__import__("os").environ, "CGO_ENABLED": "0"}, check=True,
+        env={**os.environ, "CGO_ENABLED": "0"}, check=True,
     )
 else:
-    subprocess.run(["make", "generate-backend", "generate-login-locale"], check=True)
+    subprocess.run(["make", "touch-ui"], check=True)
+    generated = subprocess.run(["go", "run", "github.com/99designs/gqlgen", "--verbose"])
+    if generated.returncode:
+        subprocess.run(["go", "mod", "tidy", "-diff"])
+        generated.check_returncode()
+    subprocess.run(["make", "generate-login-locale"], check=True)
     subprocess.run(
         ["make", "flags-release", "flags-static-pie", "stash",
          "STASH_OUTPUT=/build/application", "GITHASH=" + settings["githash"],
