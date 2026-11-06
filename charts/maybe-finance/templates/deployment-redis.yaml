@@ -8,6 +8,10 @@ metadata:
     app.kubernetes.io/component: redis
 spec:
   replicas: 1
+  {{- if .Values.redis.persistence.existingClaim }}
+  strategy:
+    type: Recreate
+  {{- end }}
   selector:
     matchLabels:
       {{- include "maybe-finance.selectorLabels" . | nindent 6 }}
@@ -27,6 +31,28 @@ spec:
         runAsUser: 999
         runAsGroup: 999
         fsGroup: 999
+      {{- if .Values.redis.persistence.existingClaim }}
+      initContainers:
+        - name: verify-existing-aof
+          image: "{{ .Values.redis.image.repository }}:{{ .Values.redis.image.tag }}"
+          command:
+            - sh
+            - -ec
+            - test -s /data/appendonlydir/appendonly.aof.manifest
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999
+            runAsGroup: 999
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: data
+              mountPath: /data
+              readOnly: true
+      {{- end }}
       containers:
         - name: redis
           image: "{{ .Values.redis.image.repository }}:{{ .Values.redis.image.tag }}"
@@ -35,6 +61,15 @@ spec:
             runAsNonRoot: true
             runAsUser: 999
             runAsGroup: 999
+          {{- if .Values.redis.persistence.existingClaim }}
+          command:
+            - redis-server
+            - --appendonly
+            - "yes"
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          {{- end }}
           ports:
             - name: redis
               containerPort: 6379
@@ -57,4 +92,10 @@ spec:
             timeoutSeconds: 3
           resources:
             {{- toYaml .Values.redis.resources | nindent 12 }}
+      {{- if .Values.redis.persistence.existingClaim }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ .Values.redis.persistence.existingClaim | quote }}
+      {{- end }}
 {{- end }}

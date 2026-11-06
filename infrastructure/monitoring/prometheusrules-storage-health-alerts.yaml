@@ -7,6 +7,36 @@ metadata:
     release: kube-prometheus-stack
 spec:
   groups:
+    - name: physical-disk-latency
+      interval: 30s
+      rules:
+        - alert: NodePhysicalDiskWriteLatencyHigh
+          expr: >-
+            (
+              (
+                rate(node_disk_write_time_seconds_total{job="node-exporter",device=~"nvme[0-9]+n[0-9]+|sd[a-z]+"}[2m])
+                /
+                rate(node_disk_writes_completed_total{job="node-exporter",device=~"nvme[0-9]+n[0-9]+|sd[a-z]+"}[2m])
+              ) > 0.25
+              and on (instance, device)
+              rate(node_disk_writes_completed_total{job="node-exporter",device=~"nvme[0-9]+n[0-9]+|sd[a-z]+"}[2m]) > 10
+              and on (instance, device)
+              rate(node_disk_io_time_weighted_seconds_total{job="node-exporter",device=~"nvme[0-9]+n[0-9]+|sd[a-z]+"}[2m]) > 8
+              and on (instance, device)
+              node_disk_info{job="node-exporter",model!="",model!="VIRTUAL-DISK"}
+            )
+            * on (instance) group_left (nodename)
+            node_uname_info{job="node-exporter"}
+          for: 1m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High physical disk write latency on {{ $labels.nodename }} ({{ $labels.device }})"
+            description: >-
+              Physical disk writes average {{ $value | printf "%.3f" }}s over 2 minutes,
+              with more than 10 completed writes/s and average queue depth above 8.
+              Investigate host and workload I/O; do not automatically restart storage or uncordon nodes.
+
     - name: longhorn-health
       rules:
         - alert: LonghornVolumeDegraded

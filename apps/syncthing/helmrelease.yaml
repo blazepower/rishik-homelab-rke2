@@ -5,6 +5,7 @@ metadata:
   name: syncthing
   namespace: media
 spec:
+  suspend: false
   interval: 30m
   chart:
     spec:
@@ -29,6 +30,7 @@ spec:
   values:
     controllers:
       syncthing:
+        replicas: 1
         annotations:
           reloader.stakater.com/auto: "true"
 
@@ -39,16 +41,43 @@ spec:
             fsGroup: 1000
             fsGroupChangePolicy: OnRootMismatch
 
+        initContainers:
+          ca-copy:
+            image:
+              repository: syncthing/syncthing
+              tag: "2.1.7@sha256:2b71da7c0d0a91a6ae5285ad079226fecc0a365d08b27720e1f7037b018f7546"
+            command: ["/bin/sh", "/ca-guard/copy-go-ca.sh", "syncthing"]
+            securityContext:
+              runAsUser: 0
+              runAsGroup: 0
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop: ["ALL"]
+          ca-filter:
+            image:
+              repository: lscr.io/linuxserver/bazarr
+              tag: "v1.6.2-ls369@sha256:946dc8c5bb5331418eac60050cf40a63cb8f66ac039841dda493870e3559799c"
+            command: ["python3", "-B", "/ca-guard/go-ca-overlay.py"]
+            args: ["--root", "/ca-store", "--app", "syncthing", "--policy", "/ca-guard/blocked-spkis.sha256"]
+            securityContext:
+              runAsUser: 0
+              runAsGroup: 0
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop: ["ALL"]
+
         containers:
           app:
             image:
               repository: syncthing/syncthing
-              tag: 1.28.1
+              tag: "2.1.7@sha256:2b71da7c0d0a91a6ae5285ad079226fecc0a365d08b27720e1f7037b018f7546"
             args:
               - serve
               - --home=/config
               - --gui-address=0.0.0.0:8384
-              - --no-default-folder
+              - --db-delete-retention-interval=0
             env:
               TZ: America/Los_Angeles
               # Ignore permissions - required for storage that doesn't support chmod
@@ -157,13 +186,48 @@ spec:
             secretName: syncthing-tls
 
     persistence:
+      ca-guard:
+        type: configMap
+        name: syncthing-ca-guard
+        defaultMode: 0444
+        advancedMounts:
+          syncthing:
+            ca-copy:
+              - path: /ca-guard
+                readOnly: true
+            ca-filter:
+              - path: /ca-guard
+                readOnly: true
+      ca-store:
+        type: emptyDir
+        sizeLimit: 32Mi
+        advancedMounts:
+          syncthing:
+            ca-copy:
+              - path: /ca-store
+            ca-filter:
+              - path: /ca-store
+            app:
+              - path: /etc/ssl
+                subPath: etc/ssl
+                readOnly: true
+              - path: /usr/share/ca-certificates
+                subPath: usr/share/ca-certificates
+                readOnly: true
+              - path: /usr/local/share/ca-certificates
+                subPath: usr/local/share/ca-certificates
+                readOnly: true
       config:
         existingClaim: syncthing-config
-        globalMounts:
-          - path: /config
+        advancedMounts:
+          syncthing:
+            app:
+              - path: /config
       # Books sync folder - syncs to the calibre library
       books:
         existingClaim: media-root
-        globalMounts:
-          - path: /data/books
-            subPath: books
+        advancedMounts:
+          syncthing:
+            app:
+              - path: /data/books
+                subPath: books

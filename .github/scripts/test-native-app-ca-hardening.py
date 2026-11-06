@@ -14,6 +14,7 @@ import sys
 import tarfile
 import time
 import unittest
+from unittest import mock
 import uuid
 
 from cryptography import x509
@@ -35,6 +36,7 @@ guard = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(guard)
 POLICY = guard.policy_keys(SHARED / "blocked-spkis.sha256")
 BASELINE = json.loads((ROOT / ".github" / "security" / "fleet-application-ca-report.json").read_text())
+MAINTAINED = json.loads((ROOT / ".github" / "security" / "maintained-go-runtime.json").read_text())
 EVIDENCE = ROOT / ".github" / "security" / "fleet-native-app-ca-report.json"
 
 
@@ -57,7 +59,18 @@ def image(profile, init=None):
 
 def baseline(profile):
     needle = "seerr-team/seerr" if profile == "overseerr" else "/" + profile + "@"
-    return next(row for row in BASELINE["images"] if needle in row["running_imageID"])
+    historical = next(row for row in BASELINE["images"] if needle in row["running_imageID"])
+    candidate = MAINTAINED["images"].get(profile)
+    if candidate:
+        reference = image(profile)
+        canonical = reference.split(":")[0] + "@" + reference.split("@")[1]
+        if canonical == candidate["declared_imageID"]:
+            assert candidate["factory_amd64"] == historical["immutable_amd64"]
+            assert candidate["vendor_public_stores_preserved"] is True
+            # Adapt comparison fields, not the historical factory audit.
+            return {**historical, "running_imageID": candidate["declared_imageID"],
+                    "immutable_amd64": candidate["declared_imageID"]}
+    return historical
 
 
 def run(command, **kwargs):
@@ -88,6 +101,18 @@ def readonly_probe(profile):
 
 
 class WiringTests(unittest.TestCase):
+    def test_derivative_binding_rejects_another_repository_with_the_same_digest(self):
+        candidate = MAINTAINED["images"]["gluetun"]
+        with mock.patch.dict(candidate, {"declared_imageID": candidate["declared_imageID"].replace(
+                "ghcr.io/blazepower/", "ghcr.io/another-owner/")}):
+            self.assertIn("qmcgaw/gluetun@", baseline("gluetun")["immutable_amd64"])
+
+    def test_derivative_binding_requires_the_audited_factory(self):
+        candidate = MAINTAINED["images"]["gluetun"]
+        with mock.patch.dict(candidate, {"factory_amd64": "unrelated.invalid/image@sha256:" + "0" * 64}):
+            with self.assertRaises(AssertionError):
+                baseline("gluetun")
+
     def test_readonly_proof_requires_filesystem_errors_not_missing_tools_or_permissions(self):
         for profile in PROFILES:
             probe = readonly_probe(profile)
@@ -467,7 +492,11 @@ class ImmutableImageTests(unittest.TestCase):
             self.assertEqual(aliases["etc/ssl/cert.pem"], "certs/ca-certificates.crt")
             if profile == "overseerr":
                 self.assertFalse(any("share/ca-certificates" in name for name in dirs))
-            self.assertGreater(denied, 0)
+            expected_denied = baseline(profile).get("public_store_denied_copies")
+            if expected_denied is None:
+                self.assertGreater(denied, 0)
+            else:
+                self.assertEqual(denied, expected_denied)
             self.assertGreater(len(identities), 10)
             RESULTS.append({"profile": profile, "immutable_amd64": expected, "public_pem_paths": len(present),
                             "baseline_denied_copies": denied, "unaffected_der_identities": len(identities),

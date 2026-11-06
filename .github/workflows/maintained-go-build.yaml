@@ -1,0 +1,70 @@
+name: Maintained same-version Go images
+
+on:
+  pull_request:
+    paths:
+      - 'apps/_shared/maintained-go/**'
+      - '.github/scripts/verify-maintained-go.py'
+      - '.github/scripts/test-maintained-go.py'
+      - '.github/workflows/maintained-go-build.yaml'
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish approved same-version derivatives after native acceptance
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    name: Maintained Go native (${{ matrix.app }})
+    runs-on: ubuntu-26.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [gluetun, stash]
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout exact workflow head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Test actual artifact acceptance gates
+        run: python3 -B .github/scripts/test-maintained-go.py
+      - name: Authenticate approved publication only
+        if: github.event_name == 'workflow_dispatch' && inputs.publish
+        env:
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          test "$GITHUB_REF" = refs/heads/master
+          printf '%s' "$REGISTRY_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+      - name: Build actual artifact and accept native behavior
+        env:
+          APP: ${{ matrix.app }}
+          PUBLISH: ${{ github.event_name == 'workflow_dispatch' && inputs.publish }}
+        run: |
+          args=()
+          if [ "$PUBLISH" = true ]; then args+=(--publish); fi
+          python3 -B .github/scripts/verify-maintained-go.py --app "$APP" "${args[@]}"
+      - name: Persist immutable artifact and native evidence
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: maintained-go-${{ matrix.app }}-evidence
+          path: maintained-go-${{ matrix.app }}-evidence.json
+          if-no-files-found: error
+      - name: Evidence summary
+        env:
+          APP: ${{ matrix.app }}
+        run: |
+          echo '### Same-version actual ELF and bounded native acceptance' >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          cat "maintained-go-$APP-evidence.json" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+      - name: Remove ephemeral registry authentication
+        if: always() && github.event_name == 'workflow_dispatch' && inputs.publish
+        run: docker logout ghcr.io

@@ -68,6 +68,7 @@ simplefin:
 
 ## Sidekiq background worker configuration
 sidekiq:
+  replicaCount: 1
   resources:
     requests:
       cpu: 25m
@@ -79,9 +80,12 @@ sidekiq:
 ## Redis configuration (required for Sidekiq background jobs)
 redis:
   enabled: true
+  persistence:
+    # Preseed and verify the existing claim's appendonlydir before activation.
+    existingClaim: ""
   image:
     repository: docker.io/library/redis
-    tag: "8-alpine@sha256:0bf6577d7774e592b29d093e3ac9390eb91e13d72c21e506afce736de5e0eeb0"
+    tag: "8-alpine@sha256:71885d8cc6e42f2bc0aa2eb853bfc4be200b5108a46ac50e117ae1df0531fb80"
     pullPolicy: IfNotPresent
   resources:
     requests:
@@ -105,7 +109,7 @@ postgresql:
   enabled: true
   image:
     repository: docker.io/library/postgres
-    tag: "18-alpine@sha256:898c60cb390d1085bc97bdd6a1ae968757421df394b071848b52b1c09c89d6a5"
+    tag: "18-alpine@sha256:123b17998ccaf47e53b502e8c6a1e79afd8f579c6f3eec83c563da026f957395"
     pullPolicy: IfNotPresent
   auth:
     database: maybe_production

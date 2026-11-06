@@ -103,6 +103,45 @@ class SureProbeTests(unittest.TestCase):
 
 
 class SureChartTests(unittest.TestCase):
+    def test_existing_redis_claim_requires_seeded_aof_and_exclusive_rollouts(self):
+        values = {**VALUES, "redis": {"enabled": True, "persistence": {"existingClaim": "seeded-redis"}}}
+        deployment = next(doc for doc in render(values)
+                          if doc["kind"] == "Deployment" and doc["metadata"]["name"].endswith("-redis"))
+        self.assertEqual(deployment["spec"]["strategy"], {"type": "Recreate"})
+        pod = deployment["spec"]["template"]["spec"]
+        self.assertEqual(pod["volumes"], [
+            {"name": "data", "persistentVolumeClaim": {"claimName": "seeded-redis"}}])
+        guard = pod["initContainers"][0]
+        self.assertEqual(guard["image"], pod["containers"][0]["image"])
+        self.assertEqual(guard["command"], [
+            "sh", "-ec", "test -s /data/appendonlydir/appendonly.aof.manifest"])
+        self.assertEqual(guard["volumeMounts"], [
+            {"name": "data", "mountPath": "/data", "readOnly": True}])
+        self.assertEqual(pod["containers"][0]["command"], ["redis-server", "--appendonly", "yes"])
+        self.assertEqual(pod["containers"][0]["volumeMounts"], [{"name": "data", "mountPath": "/data"}])
+        self.assertEqual(pod["securityContext"]["fsGroup"], 999)
+
+    def test_unset_redis_claim_preserves_existing_ephemeral_pod_template(self):
+        values = {**VALUES, "redis": {"enabled": True, "persistence": {"existingClaim": ""}}}
+        deployment = next(doc for doc in render(values)
+                          if doc["kind"] == "Deployment" and doc["metadata"]["name"].endswith("-redis"))
+        self.assertNotIn("strategy", deployment["spec"])
+        pod = deployment["spec"]["template"]["spec"]
+        self.assertNotIn("initContainers", pod)
+        self.assertNotIn("volumes", pod)
+        self.assertNotIn("command", pod["containers"][0])
+        self.assertNotIn("volumeMounts", pod["containers"][0])
+
+    def test_quiesced_migration_keeps_both_job_producers_and_consumers_stopped(self):
+        values = {**VALUES, "replicaCount": 0, "sidekiq": {"replicaCount": 0}}
+        deployments = [doc for doc in render(values)
+                       if doc["kind"] == "Deployment" and not doc["metadata"]["name"].endswith("-redis")]
+        self.assertEqual(len(deployments), 2)
+        self.assertTrue(all(doc["spec"]["replicas"] == 0 for doc in deployments))
+        default = next(doc for doc in render({})
+                       if doc["kind"] == "Deployment" and doc["metadata"]["name"].endswith("-sidekiq"))
+        self.assertEqual(default["spec"]["replicas"], 1)
+
     def test_policy_is_all_eleven_canonical_spkis_with_crlf_independent_comparison(self):
         canonical = json.loads((ROOT / ".github/security/emudhra-2026.json").read_text())
         keys = (APP / "blocked-spkis.sha256").read_text().splitlines()
