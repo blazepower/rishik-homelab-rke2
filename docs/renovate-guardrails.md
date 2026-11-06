@@ -110,23 +110,24 @@ Consider a per-package rule whenever an image:
 
 ## November 2026 PR dispositions
 
-The owner requested a merge-or-close decision for the entire backlog. Deferred
-upgrades are **not deployed** and are not assertions of upstream defects.
+The objective is **safely verified merges**, not an empty PR queue. On November 6
+the owner clarified that missing verification, a needed chart bump or another
+prerequisite is work to complete on an open PR, not grounds for closing it.
+The ten PRs prematurely closed on November 5 are being reopened, and the six
+approval rules added solely to defer them are removed. A reopened PR is not
+an assertion that its upgrade is safe or deployed.
 [Issue #359](https://github.com/blazepower/rishik-homelab-rke2/issues/359)
-retains the work and release criteria. The six final approval rules match only
-the affected packages and manifest paths, across the existing managers. They
-require Dependency Dashboard approval rather than disabling discovery, changing
-the PR limit, or adding dependencies to `ignoreDeps`.
+tracks the remaining recovery and release work alongside the individual PRs.
 
 The dashboard is [#164](https://github.com/blazepower/rishik-homelab-rke2/issues/164).
-After satisfying the relevant gate, select its approval or Closed/Ignored
-checkbox to request a fresh PR for the current target. Do not select all pending
-updates indiscriminately. Approval does not release any live maintenance or CA
-hold. Grafana and Whisparr are removed from their broad update groups so their
-approval requirements do not delay Loki/Promtail or other arr applications.
-Unrelated paths, the accepted worn SSD, and all existing architecture/version
-guards are unchanged. Reassess these approval rules as each recovery/rollout
-gate is completed.
+Complete backup/restore, compatibility and rollout checks rather than hiding
+unfinished work behind new Dashboard approval rules. Keep unready PRs open.
+Close only as a last resort for an obsolete, duplicate, retired or demonstrably
+unsuitable update, with a specific justification. Preserve existing
+architecture/version guards, coordinated Flux and Longhorn rules, CWA approval
+and explicit live maintenance/CA holds. Releasing a live hold requires its own
+review; reopening a PR does not release it. The accepted worn SSD is not a
+blanket replacement prerequisite.
 
 ### This backlog
 
@@ -135,16 +136,16 @@ gate is completed.
 | #354 | Merge | Exact old/new Ubuntu images execute only the existing completed-marker path on all three nodes; script, host configuration, GPU allocation and Plex identities must remain unchanged. |
 | #356 | Merge | Maintenance kubectl patch stays on the server's 1.34 minor; validate native client/tool compatibility, unchanged handler script/RBAC and the actual scheduled job. |
 | #362 | Merge | The scheduled maintenance check exposed a preexisting false restart of native CWA at `/media`. Remove that obsolete target, retain all other checks and verify the next scheduled job preserves CWA uptime; repair the stale source-readonly wiring test without weakening the bootstrap guards. |
-| #291 | Defer/close | Newer Plex image needs its own fresh consistent library/configuration backup, isolated restore, exact CA/runtime audit and controlled GPU/media-preserving rollout. Current Plex is stable, not proven safe to migrate. |
-| #336 | Defer/close | PostgreSQL 18 chart defaults require separate Maybe/Paperless native recovery proofs and local chart version bumps; changing defaults alone can leave Flux using a cached chart. Keep Paperless paused. |
-| #337 | Defer/close | rreading-glasses needs its own native database backup and candidate restore; successful Kaneo recovery does not prove this database's contents or extensions. |
-| #344 | Defer/close | Persistent Redis is not disposable cache. Back up and restore its durable state/queues, verify consumers and bump the local charts before rollout. |
-| #341 | Defer/close | Complete Grafana provisioning-parity recovery proof. Empty scratch provisioning orphan-deleted dashboards in both versions; the later 127 MB capture timed out. These are test limitations, not production loss or proof of a 13.3 defect. Preserve canonical dashboards/resources/users/datasources/permissions, Prometheus history and silences. |
-| #342 | Defer/close | Kyverno HelmRelease and policy reconciliation are intentionally held. Review admission behavior, capacity and rollback before explicitly releasing either hold; preserve active policies. |
-| #351 | Defer/close | The rolling Whisparr target changed during review and requires a fresh exact-image CA/runtime and recovery audit. Its live HelmRelease is not suspended; this is a new review gate, not a claim of an existing rollout hold. |
-| #352 | Defer/close | This combined Python proposal also changes qBittorrent's suspended desired template, which cannot complete a runtime upgrade until the deliberate CA cutover. Require exact Linux/script compatibility and recovery/rollout review; a validated CronJob-only split can be reviewed independently. |
-| #358 | Defer/close | AdGuard 0.107.80 contains security fixes, but this proposal changes only a local chart default while leaving chart version/appVersion at 1.0.2/0.107.79. Coordinate a fresh native DNS configuration recovery proof, chart metadata bump and actual rollout instead of claiming a cached-chart no-op is deployed. |
-| #360 | Defer/close | MetalLB 0.16.2 is not merely an image rebuild: the upstream comparison contains L2 election and CRD/schema changes. Review current pool/advertisement validation, upgrade's existing CRD `Create` policy and address/election continuity before replacing the load-balancer components. This is a new review gate, not a reported live outage. |
+| #291 | Reopen; complete verification | Newer Plex image needs its own fresh consistent library/configuration backup, isolated restore, exact CA/runtime audit and controlled GPU/media-preserving rollout. Current Plex is stable, not proven safe to migrate. |
+| #336 | Reopen; complete verification | PostgreSQL 18 chart defaults require separate Maybe/Paperless native recovery proofs and local chart version bumps; changing defaults alone can leave Flux using a cached chart. Keep Paperless paused. |
+| #337 | Reopen; complete verification | rreading-glasses needs its own native database backup and candidate restore; successful Kaneo recovery does not prove this database's contents or extensions. |
+| #344 | Reopen; complete verification | Persistent Redis is not disposable cache. Back up and restore its durable state/queues, verify consumers and bump the local charts before rollout. |
+| #341 | Reopen; complete verification | Complete Grafana provisioning-parity recovery proof. Empty scratch provisioning orphan-deleted dashboards in both versions; the later 127 MB capture timed out. These are test limitations, not production loss or proof of a 13.3 defect. Preserve canonical dashboards/resources/users/datasources/permissions, Prometheus history and silences. |
+| #342 | Reopen; complete verification | Kyverno HelmRelease and policy reconciliation are intentionally held. Review admission behavior, capacity and rollback before explicitly releasing either hold; preserve active policies. |
+| #351 | Reopen; complete verification | The rolling Whisparr target changed during review and requires a fresh exact-image CA/runtime and recovery audit. Its live HelmRelease is not suspended; reopening does not change it. |
+| #352 | Reopen; complete verification | This combined Python proposal also changes qBittorrent's suspended desired template, which cannot complete a runtime upgrade until the deliberate CA cutover. Require exact Linux/script compatibility and recovery/rollout review; a validated CronJob-only split can be reviewed independently. |
+| #358 | Reopen; complete verification | AdGuard 0.107.80 contains security fixes, but this proposal changes only a local chart default while leaving chart version/appVersion at 1.0.2/0.107.79. Coordinate a fresh native DNS configuration recovery proof, chart metadata bump and actual rollout instead of claiming a cached-chart no-op is deployed. |
+| #360 | Reopen; complete verification | MetalLB 0.16.2 is not merely an image rebuild: the upstream comparison contains L2 election and CRD/schema changes. Review current pool/advertisement validation, upgrade's existing CRD `Create` policy and address/election continuity before replacing the load-balancer components. |
 
 ### Earlier unmerged closures in this upgrade campaign
 
