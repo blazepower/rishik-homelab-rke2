@@ -25,6 +25,9 @@ spec:
       remediateLastFailure: false
   values:
     features:
+      policyExceptions:
+        enabled: true
+        namespace: kyverno
       generateValidatingAdmissionPolicy:
         enabled: false
       generateMutatingAdmissionPolicy:

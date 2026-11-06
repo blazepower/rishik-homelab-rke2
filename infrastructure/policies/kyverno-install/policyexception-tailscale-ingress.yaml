@@ -42,7 +42,7 @@ spec:
       - key: >-
           {{ length((request.object.spec.initContainers ||
           request.object.spec.template.spec.initContainers ||
-          `[]`)[?securityContext.privileged == `true`]) }}
+          `[]`)[?securityContext.privileged == `true` && name != 'sysctler']) }}
         operator: Equals
         value: 0
       - key: >-
