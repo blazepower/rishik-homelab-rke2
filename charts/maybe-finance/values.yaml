@@ -68,6 +68,7 @@ simplefin:
 
 ## Sidekiq background worker configuration
 sidekiq:
+  replicaCount: 1
   resources:
     requests:
       cpu: 25m
