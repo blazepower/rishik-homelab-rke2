@@ -1,5 +1,6 @@
 """Build and exercise the actual same-version derivative, never production."""
 import argparse
+import gzip
 import hashlib
 import json
 import os
@@ -111,11 +112,15 @@ def native_stash(image, app, expected_version, scratch, baseline=False):
             for asset in asset_paths:
                 path = asset.lstrip("./")
                 code = (
-                    "import urllib.request,hashlib; "
-                    f"print(hashlib.sha256(urllib.request.urlopen('http://127.0.0.1:9999/{path}').read()).hexdigest())"
+                    "import urllib.request,hashlib,gzip; "
+                    f"r=urllib.request.urlopen('http://127.0.0.1:9999/{path}'); b=r.read(); "
+                    "b=gzip.decompress(b) if r.headers.get('Content-Encoding')=='gzip' else b; "
+                    "print(hashlib.sha256(b).hexdigest())"
                 )
                 actual = docker("exec", name, "python3", "-c", code).stdout.strip()
-                assert actual == hashlib.sha256(archive.read(path)).hexdigest(), path
+                expected = (archive.read(path) if path in archive.namelist()
+                            else gzip.decompress(archive.read(path + ".gz")))
+                assert actual == hashlib.sha256(expected).hexdigest(), path
                 assets[path] = actual
         created = json.loads(http(name, "/graphql", {"query": 'mutation { tagCreate(input:{name:"synthetic compiler proof"}) { id name } }'}))
         assert not created.get("errors"), created
@@ -150,14 +155,15 @@ def main():
     report = {"app": args.app, "head": run("git", "rev-parse", "HEAD").stdout.strip(),
               "workflow_head": os.environ.get("GITHUB_SHA"),
               "vendor": app["vendor"], "source_revision": app["revision"],
-              "compiler": lock["compiler"], "published": False}
+              "compiler": lock["compiler"], "builder": lock["builder"],
+              "generator": lock["generator"], "published": False}
     tag = "ghcr.io/blazepower/maintained-" + args.app + ":" + report["head"]
     try:
         docker("pull", app["vendor"])
         original = json.loads(docker("image", "inspect", app["vendor"]).stdout)[0]
         run("git", "clone", "--quiet", "--no-checkout", app["repository"], str(scratch / "upstream"))
         run("git", "-C", str(scratch / "upstream"), "checkout", "--quiet", app["revision"])
-        settings = {**app, "app": args.app}
+        settings = {**app, "app": args.app, "builder": lock["builder"], "generator": lock["generator"]}
         expected_version = None
         if args.app == "stash":
             expected_version = docker("run", "--rm", "--network", "none", app["vendor"], "stash", "--version").stdout.strip()
@@ -195,7 +201,10 @@ def main():
             for key in ("version", "ui_sha256", "locked_ui_assets", "ffmpeg"):
                 assert report["native"][key] == report["vendor_native"][key], key
         else:
+            report["vendor_native"] = native_gluetun(app["vendor"], app)
             report["native"] = native_gluetun(tag, app)
+            for key in ("native_startup_exit", "healthcheck_exit"):
+                assert report["native"][key] == report["vendor_native"][key], key
         if args.publish:
             result = docker("push", tag).stdout
             digest = re.search(r"digest: (sha256:[0-9a-f]{64})", result)
