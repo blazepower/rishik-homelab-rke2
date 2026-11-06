@@ -25,6 +25,11 @@ description = "API Token or Key"
 regex = '''(?i)(api[_-]?key|api[_-]?token|access[_-]?token)\s*[:=]\s*['"]?[A-Za-z0-9_\-]{20,}['"]?'''
 keywords = ["api_key", "apikey", "api-key", "api_token", "apitoken", "api-token", "access_token", "accesstoken"]
 
+[rules.allowlist]
+description = "Historical disposable Syncthing fixture; current keys are runtime-generated"
+regexTarget = "match"
+regexes = ['''^API_KEY = "disposable-syncthing-migration-fixture"$''']
+
 [[rules]]
 id = "private-key"
 description = "Private Key"
@@ -50,9 +55,12 @@ regex = '''(?i)(password|passwd|pwd)\s*[:=]\s*['"]?[^\s'"]{8,}['"]?'''
 keywords = ["password", "passwd", "pwd"]
 
 [rules.allowlist]
-description = "Exact dummy credentials in SAB config-preservation fixtures"
+description = "Exact dummy credentials and runtime UUID generator expressions in fixtures"
 regexTarget = "match"
-regexes = ['''^password = dummy-(password|provider-secret)-KEEP$''']
+regexes = [
+  '''^password = dummy-(password|provider-secret)-KEEP$''',
+  '''^PASSWORD = uuid\.uuid4\(\)\.hex$''',
+]
 
 [[rules]]
 id = "bearer-token"
