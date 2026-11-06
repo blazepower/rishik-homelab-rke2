@@ -2,8 +2,8 @@ apiVersion: v2
 name: paperless-ngx
 description: A Helm chart for Paperless-ngx document management system
 type: application
-version: 1.0.11
-appVersion: "3.3.4"
+version: 1.0.12
+appVersion: "3.4.2"
 keywords:
   - paperless
   - document-management
