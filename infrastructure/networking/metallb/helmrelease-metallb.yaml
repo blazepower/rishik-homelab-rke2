@@ -33,9 +33,6 @@ spec:
           cpu: "100m"
           memory: "128Mi"
     speaker:
-      # Prevent mixed gossip keys during the coordinated 0.16.2 cutover.
-      updateStrategy:
-        type: OnDelete
       priorityClassName: core-critical
       resources:
         requests:
