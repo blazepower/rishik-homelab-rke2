@@ -24,6 +24,8 @@ spec:
       retries: 3
     timeout: 10m
   values:
+    # Keep producers and consumers stopped until the seeded broker is verified.
+    replicaCount: 0
     # Use Sure fork (community fork with SimpleFIN support)
     image:
       repository: ghcr.io/we-promise/sure
@@ -55,9 +57,12 @@ spec:
     # Enable Redis for Sidekiq background jobs
     redis:
       enabled: true
+      persistence:
+        existingClaim: sure-finance-redis-data
 
     # Sidekiq background worker resources
     sidekiq:
+      replicaCount: 0
       resources:
         requests:
           cpu: "25m"
