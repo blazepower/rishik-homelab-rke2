@@ -117,6 +117,19 @@ candidate with Go 1.27.3 and clear public PEM stores, not an accepted or deploye
 major-version migration. Compiler versions and PEM inventories are not native
 or custom-context chain-rejection certification.
 
+The separate `Syncthing Upgrade Acceptance` workflow rehearses official 1.28.1
+to 2.1.7 using disposable generated identities, databases and book fixtures on
+an internal Docker network. It keeps the vendor entrypoint, UID/GID 1000,
+configuration/media paths, health endpoint and 500m/512Mi limits, and checks
+SQLite migration, GUI/API authentication and identity preservation, bidirectional
+1.x peer synchronization, cold restart and rollback from a stopped 1.x database
+snapshot. The candidate omits the obsolete default-folder option and explicitly
+retains deleted-file metadata indefinitely with
+`--db-delete-retention-interval=0`. Only synthetic data may enter this rehearsal.
+It does not deploy or authorize a production major upgrade: that still needs a
+fresh verified backup, stable storage, migration capacity/time assessment and
+explicit acceptance of the v2 deleted-file conflict semantics.
+
 ## cert-manager
 
 [cert-manager](https://cert-manager.io/) is deployed to automate TLS certificate management for services exposed via Ingress.
