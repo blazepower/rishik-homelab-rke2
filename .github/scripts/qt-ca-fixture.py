@@ -2,8 +2,10 @@
 
 import ctypes
 import http.server
+import importlib.util
 import json
 from pathlib import Path
+import re
 import shutil
 import ssl
 import sys
@@ -98,6 +100,17 @@ def prepare_store(directory):
         (root / "etc/ssl/certs" / f"{subject_hash:08x}.{index}").symlink_to(alias_target)
 
 
+def filter_fixture(directory):
+    spec = importlib.util.spec_from_file_location("public_guard", "/ca-guard/ca-overlay.py")
+    guard = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(guard)
+    policy = guard.policy_keys(Path("/ca-guard/blocked-spkis.sha256"))
+    synthetic = (directory / "synthetic-spki.sha256").read_text().strip()
+    if not re.fullmatch("[0-9A-F]{64}", synthetic) or synthetic in policy:
+        raise ValueError("Expected one separate synthetic-only key")
+    return guard.harden(Path("/ca-store"), "qbittorrent", policy | {synthetic})
+
+
 def probe(directory, mode):
     base = "http://127.0.0.1:8080"
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
@@ -183,5 +196,7 @@ def probe(directory, mode):
 if __name__ == "__main__":
     if sys.argv[1] == "prepare":
         prepare_store(Path(sys.argv[2]))
+    elif sys.argv[1] == "filter-fixture":
+        print(json.dumps(filter_fixture(Path(sys.argv[2]))))
     else:
         print(json.dumps(probe(Path(sys.argv[2]), sys.argv[1])))

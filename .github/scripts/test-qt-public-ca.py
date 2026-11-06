@@ -149,9 +149,7 @@ class QtPublicStoreTests(unittest.TestCase):
                 private.mkdir()
                 private.chmod(0o700)
                 keys = certificates(public, private)
-                (public / "blocked-spkis.sha256").write_text(
-                    "\n".join(sorted(native.POLICY | {keys["bad"]})) + "\n", encoding="ascii",
-                )
+                (public / "synthetic-spki.sha256").write_text(keys["bad"] + "\n", encoding="ascii")
                 common = [
                     *isolated, "--user", "0:0", "--volume", str(native.SHARED) + ":/ca-guard:ro",
                     "--volume", str(SOURCE) + ":/probe:ro",
@@ -172,9 +170,14 @@ class QtPublicStoreTests(unittest.TestCase):
                         filtered = json.loads(docker(
                             "run", "--rm", *common, "--entrypoint", "python3", helper,
                             "-B", "/ca-guard/ca-overlay.py", "--root", "/ca-store", "--app", "qbittorrent",
-                            "--policy", "/public/blocked-spkis.sha256", text=True,
+                            "--policy", "/ca-guard/blocked-spkis.sha256", text=True,
                         ).stdout)
                         self.assertGreater(filtered["removed_certificate_copies"], 0)
+                        synthetic_filtered = json.loads(docker(
+                            "run", "--rm", *common, "--entrypoint", "python3", helper,
+                            "-B", "/probe/qt-ca-fixture.py", "filter-fixture", "/public", text=True,
+                        ).stdout)
+                        self.assertGreater(synthetic_filtered["removed_certificate_copies"], 0)
                     docker(
                         "run", "--detach", "--name", name, *isolated, "--user", "1000:1000",
                         "--tmpfs", "/config:rw,nosuid,nodev,size=134217728,uid=1000,gid=1000,mode=0770",
@@ -208,7 +211,8 @@ class QtPublicStoreTests(unittest.TestCase):
                 RESULTS.append({
                     "immutable_amd64": vendor, "binary_sha256": binary_hash,
                     "unmodified_static_vendor_binary": True, "production_changes": False,
-                    "default_public_filter": filtered, "modes": modes,
+                    "default_public_filter": filtered, "synthetic_fixture_filter": synthetic_filtered,
+                    "modes": modes,
                     "synthetic_denied_spki": keys["bad"],
                     "real_policy_keys_preserved": len(native.POLICY),
                     "scope": "Actual daemon Qt HTTPS URL-download context under a disposable profile. "
