@@ -88,21 +88,17 @@ def release(app):
 
 
 class MediaVendorPinTests(unittest.TestCase):
-    def test_prepared_releases_remain_held_for_serial_activation(self):
-        held = (
-            "bazarr", "prowlarr", "sabnzbd",
-            "sure-finance", "bookshelf", "qbittorrent", "overseerr",
+    def test_release_activation_states_are_explicit(self):
+        active = (
+            "radarr", "calibre-web", "bazarr", "prowlarr", "sabnzbd",
+            "bookshelf", "overseerr", "qbittorrent", "sure-finance",
         )
-        for app in held:
+        for app in active:
             with self.subTest(app=app):
                 manifest = yaml.safe_load(
                     (ROOT / "apps" / app / "helmrelease.yaml").read_text()
                 )
-                self.assertIs(manifest["spec"]["suspend"], True)
-        radarr = yaml.safe_load((ROOT / "apps" / "radarr" / "helmrelease.yaml").read_text())
-        self.assertIs(radarr["spec"]["suspend"], False)
-        calibre = yaml.safe_load((ROOT / "apps" / "calibre-web" / "helmrelease.yaml").read_text())
-        self.assertIs(calibre["spec"]["suspend"], False)
+                self.assertIs(manifest["spec"]["suspend"], False)
 
     def test_manifest_pins_match_the_recorded_immutable_audits(self):
         evidence = json.loads(EVIDENCE.read_text())
