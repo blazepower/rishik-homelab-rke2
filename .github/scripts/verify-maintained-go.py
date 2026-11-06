@@ -175,8 +175,10 @@ def main():
                 archive.extractall(dest)
         (scratch / "settings.json").write_text(json.dumps(settings))
         shutil.copyfile(BUILD / "build.py", scratch / "build.py")
+        shutil.copyfile(BUILD / "generate.py", scratch / "generate.py")
         docker("build", "--platform", "linux/amd64", "--progress", "plain",
                "--build-arg", "BUILDER=" + lock["builder"], "--build-arg", "VENDOR=" + app["vendor"],
+               "--build-arg", "GENERATOR=" + lock["generator"],
                "--build-arg", "BINARY=" + app["binary"], "-f", str(BUILD / "Dockerfile"),
                "-t", tag, str(scratch))
         actual = json.loads(docker("image", "inspect", tag).stdout)[0]

@@ -1,6 +1,7 @@
 {
   "compiler": "go1.27.3",
   "builder": "docker.io/golang:1.27.3-alpine@sha256:0fd028db9bdd4f01657bc8047c209b04d8ce19b853d776bd6f1e76a41729b936",
+  "generator": "docker.io/golang:1.26.10-alpine@sha256:2173d702003b1a8d17b844191acaeb36e94de46f6cabf2cb27370e151bbce5aa",
   "applications": {
     "gluetun": {
       "repository": "https://github.com/passteque/gluetun.git",

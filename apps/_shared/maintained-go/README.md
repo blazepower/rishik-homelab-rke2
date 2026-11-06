@@ -18,6 +18,11 @@ backend/login assets, and original version linker values. Stash's historical
 `officialBuild` feature flag is retained for behavior compatibility; this
 derivative is **not** an official Stash distribution.
 
+The locked gqlgen version cannot load Go 1.27 export data. Its generated
+source is prepared separately with pinned Go 1.26.10; both stages reject
+changes to go.mod/go.sum. The shipped application is compiled with Go 1.27.3,
+and acceptance checks that actual runtime ELF, not the generator toolchain.
+
 Hosted Linux CI copies the actual rebuilt ELF out of the runtime image,
 checks its compiler, flags, source binding and hash, and exercises it rather
 than a helper executable. Stash serves locked native UI assets and writes,

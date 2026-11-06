@@ -14,7 +14,6 @@ def run(*args, **kwargs):
 settings = json.loads(Path("/build/settings.json").read_text())
 assert run("go", "version").split()[2] == "go1.27.3"
 assert run("git", "rev-parse", "HEAD") == settings["revision"]
-assert not run("git", "status", "--porcelain", "--untracked-files=no")
 module_hashes = {p: hashlib.sha256(Path(p).read_bytes()).hexdigest() for p in ("go.mod", "go.sum")}
 if settings["app"] == "gluetun":
     flags = (
@@ -27,12 +26,6 @@ if settings["app"] == "gluetun":
         env={**os.environ, "CGO_ENABLED": "0"}, check=True,
     )
 else:
-    subprocess.run(["make", "touch-ui"], check=True)
-    generated = subprocess.run(["go", "run", "github.com/99designs/gqlgen", "--verbose"])
-    if generated.returncode:
-        subprocess.run(["go", "mod", "tidy", "-diff"])
-        generated.check_returncode()
-    subprocess.run(["make", "generate-login-locale"], check=True)
     subprocess.run(
         ["make", "flags-release", "flags-static-pie", "stash",
          "STASH_OUTPUT=/build/application", "GITHASH=" + settings["githash"],

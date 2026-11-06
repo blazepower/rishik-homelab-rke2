@@ -1,12 +1,21 @@
 ARG BUILDER
 ARG VENDOR
+ARG GENERATOR
+FROM ${GENERATOR} AS generated
+ENV GOTOOLCHAIN=local GOTMPDIR=/build/go-work TMPDIR=/build/scratch
+RUN apk add --no-cache git make build-base python3 && mkdir -p /build/go-work /build/scratch
+WORKDIR /src
+COPY upstream/ ./
+COPY generate.py settings.json /build/
+RUN python3 /build/generate.py
+
 FROM ${BUILDER} AS build
 ENV GOTOOLCHAIN=local GOOS=linux GOARCH=amd64 GOAMD64=v1 \
     GOTMPDIR=/build/go-work TMPDIR=/build/scratch
 RUN apk add --no-cache git make build-base python3
 RUN mkdir -p /build/go-work /build/scratch
 WORKDIR /src
-COPY upstream/ ./
+COPY --from=generated /src/ ./
 COPY build.py settings.json /build/
 RUN python3 /build/build.py
 
