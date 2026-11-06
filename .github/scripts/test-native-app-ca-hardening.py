@@ -467,7 +467,11 @@ class ImmutableImageTests(unittest.TestCase):
             self.assertEqual(aliases["etc/ssl/cert.pem"], "certs/ca-certificates.crt")
             if profile == "overseerr":
                 self.assertFalse(any("share/ca-certificates" in name for name in dirs))
-            self.assertGreater(denied, 0)
+            expected_denied = baseline(profile).get("public_store_denied_copies")
+            if expected_denied is None:
+                self.assertGreater(denied, 0)
+            else:
+                self.assertEqual(denied, expected_denied)
             self.assertGreater(len(identities), 10)
             RESULTS.append({"profile": profile, "immutable_amd64": expected, "public_pem_paths": len(present),
                             "baseline_denied_copies": denied, "unaffected_der_identities": len(identities),

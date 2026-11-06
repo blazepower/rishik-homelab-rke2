@@ -1,4 +1,4 @@
-"""Same-version public-store acceptance; no compiled/custom Go TLS certification."""
+"""Immutable-runtime public-store acceptance; no custom Go TLS certification."""
 
 import argparse
 import importlib.util
@@ -32,6 +32,18 @@ def release(app):
 
 native.release = release
 native.PROFILES = tuple(APPS)
+original_baseline = native.baseline
+SYNCTHING_V2 = json.loads((ROOT / ".github" / "security" / "syncthing-v2-runtime.json").read_text())
+
+
+def baseline(app):
+    if app == "syncthing" and native.image(app).split("@")[-1] == SYNCTHING_V2["declared_imageID"].split("@")[-1]:
+        # Adapt the legacy comparison field without rewriting historical running-image evidence.
+        return {**SYNCTHING_V2, "running_imageID": SYNCTHING_V2["declared_imageID"]}
+    return original_baseline(app)
+
+
+native.baseline = baseline
 for app in APPS:
     native.guard.NATIVE_TREES[app] = ("etc/ssl", *native.guard.TREES[1:]) + (
         ("usr/lib/python3.12/site-packages/pip/_vendor/certifi",) if app == "stash" else ()
@@ -80,9 +92,10 @@ class GoPublicStoreTests(unittest.TestCase):
                 )
                 self.assertNotIn("command", controller["containers"]["app"])
                 if app == "syncthing":
-                    self.assertEqual(controller["containers"]["app"]["args"], [
+                    expected_args = SYNCTHING_V2["application_args"] if "public_store_denied_copies" in baseline(app) else [
                         "serve", "--home=/config", "--gui-address=0.0.0.0:8384", "--no-default-folder",
-                    ])
+                    ]
+                    self.assertEqual(controller["containers"]["app"]["args"], expected_args)
                 for persistence in values["persistence"].values():
                     if "existingClaim" in persistence:
                         self.assertNotIn("globalMounts", persistence)
@@ -160,7 +173,11 @@ class GoPublicStoreTests(unittest.TestCase):
                         "--policy", "/ca-guard/blocked-spkis.sha256",
                     ]
                     result = json.loads(native.docker(*command, text=True).stdout)
-                    self.assertGreater(result["removed_certificate_copies"], 0)
+                    expected_denied = baseline(app).get("public_store_denied_copies")
+                    if expected_denied is None:
+                        self.assertGreater(result["removed_certificate_copies"], 0)
+                    else:
+                        self.assertEqual(result["removed_certificate_copies"], expected_denied)
                     overlays = []
                     for tree in native.guard.NATIVE_TREES[app]:
                         overlays += ["--mount", f"type=volume,src={volume},dst=/{tree},readonly,volume-subpath={tree}"]
