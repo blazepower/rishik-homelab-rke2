@@ -30,6 +30,7 @@ spec:
   values:
     controllers:
       syncthing:
+        replicas: 0
         annotations:
           reloader.stakater.com/auto: "true"
 
@@ -44,7 +45,7 @@ spec:
           ca-copy:
             image:
               repository: syncthing/syncthing
-              tag: "1.28.1@sha256:289b4ca86d77e4938d3e0af7d11f5c0a0fb786e469d5f697c25ab0f9e1f29f34"
+              tag: "2.1.7@sha256:2b71da7c0d0a91a6ae5285ad079226fecc0a365d08b27720e1f7037b018f7546"
             command: ["/bin/sh", "/ca-guard/copy-go-ca.sh", "syncthing"]
             securityContext:
               runAsUser: 0
@@ -71,12 +72,12 @@ spec:
           app:
             image:
               repository: syncthing/syncthing
-              tag: "1.28.1@sha256:289b4ca86d77e4938d3e0af7d11f5c0a0fb786e469d5f697c25ab0f9e1f29f34"
+              tag: "2.1.7@sha256:2b71da7c0d0a91a6ae5285ad079226fecc0a365d08b27720e1f7037b018f7546"
             args:
               - serve
               - --home=/config
               - --gui-address=0.0.0.0:8384
-              - --no-default-folder
+              - --db-delete-retention-interval=0
             env:
               TZ: America/Los_Angeles
               # Ignore permissions - required for storage that doesn't support chmod

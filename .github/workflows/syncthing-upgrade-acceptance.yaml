@@ -10,6 +10,7 @@ on:
       - .github/scripts/test-media-vendor-ca.py
       - .github/scripts/verify-emudhra-trust.py
       - .github/security/emudhra-2026.json
+      - .github/security/syncthing-v2-runtime.json
       - apps/syncthing/**
 
 permissions:
