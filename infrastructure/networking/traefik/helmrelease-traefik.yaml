@@ -45,9 +45,8 @@ spec:
     hostNetwork: false
     service:
       enabled: true
-      type: LoadBalancer
-      externalTrafficPolicy: Local
-      loadBalancerIP: 192.168.1.150
+      spec:
+        type: LoadBalancer
     ingressClass:
       enabled: true
       isDefaultClass: true
