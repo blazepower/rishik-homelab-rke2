@@ -36,8 +36,8 @@ spec:
         initContainers:
           ca-copy:
             image:
-              repository: stashapp/stash
-              tag: "v0.31.1@sha256:df744af5a0c976e2ec671052ecc1f8a9aa757fa12b8f9930b59910b7295f0da6"
+              repository: ghcr.io/blazepower/maintained-stash
+              tag: "1979b5b01c0c5640c12e36b811c1e544100d4c62@sha256:20db267395f0d17882244355975dc78db41abd2c40dbb3a8ffedc2023aea695f"
             command: ["/bin/sh", "/ca-guard/copy-go-ca.sh", "stash"]
             securityContext:
               allowPrivilegeEscalation: false
@@ -59,8 +59,8 @@ spec:
         containers:
           app:
             image:
-              repository: stashapp/stash
-              tag: "v0.31.1@sha256:df744af5a0c976e2ec671052ecc1f8a9aa757fa12b8f9930b59910b7295f0da6"
+              repository: ghcr.io/blazepower/maintained-stash
+              tag: "1979b5b01c0c5640c12e36b811c1e544100d4c62@sha256:20db267395f0d17882244355975dc78db41abd2c40dbb3a8ffedc2023aea695f"
             env:
               - name: STASH_STASH
                 value: "/media"
