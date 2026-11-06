@@ -39,6 +39,7 @@ for app in APPS:
 
 
 def packaged_guard(app, destination):
+    destination.chmod(0o755)
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
         for name in ("media-ca-hardening", "go-ca-hardening"):
@@ -147,8 +148,12 @@ class GoPublicStoreTests(unittest.TestCase):
                         "--security-opt", "no-new-privileges", "--user", "0:0",
                         "--volume", temporary + ":/ca-guard:ro", "--volume", volume + ":/ca-store",
                     ]
-                    native.docker("run", "--rm", *common, "--entrypoint", "/bin/sh",
-                                  native.image(app), "/ca-guard/copy-go-ca.sh", app)
+                    copy = subprocess.run(
+                        ["docker", "run", "--rm", *common, "--entrypoint", "/bin/sh",
+                         native.image(app), "/ca-guard/copy-go-ca.sh", app],
+                        capture_output=True, text=True, timeout=120,
+                    )
+                    self.assertEqual(copy.returncode, 0, app + " public-root copy failed: " + copy.stderr)
                     command = [
                         "run", "--rm", *common, "--entrypoint", "python3", native.image(app, "ca-filter"),
                         "-B", "/ca-guard/go-ca-overlay.py", "--root", "/ca-store", "--app", app,
