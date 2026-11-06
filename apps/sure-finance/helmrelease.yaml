@@ -4,7 +4,7 @@ metadata:
   name: sure-finance
   namespace: sure-finance
 spec:
-  suspend: true
+  suspend: false
   interval: 30m
   chart:
     spec:
@@ -33,6 +33,14 @@ spec:
       enabled: true
       configMapName: sure-runtime-ca
 
+    startupProbe:
+      httpGet:
+        path: /
+        port: 3000
+      periodSeconds: 10
+      timeoutSeconds: 3
+      failureThreshold: 36
+
     # Enable OpenAI integration
     openai:
       enabled: true
@@ -47,6 +55,8 @@ spec:
     # Enable Redis for Sidekiq background jobs
     redis:
       enabled: true
+      persistence:
+        existingClaim: sure-finance-redis-data
 
     # Sidekiq background worker resources
     sidekiq:
