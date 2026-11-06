@@ -4,3 +4,5 @@ resources:
   - namespace.yaml
   - helmrepository-kyverno.yaml
   - helmrelease-kyverno.yaml
+  - policyexception-metallb-speaker.yaml
+  - policyexception-tailscale-ingress.yaml

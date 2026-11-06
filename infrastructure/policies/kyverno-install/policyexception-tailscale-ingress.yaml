@@ -1,0 +1,53 @@
+apiVersion: kyverno.io/v2
+kind: PolicyException
+metadata:
+  name: homelab-ingress-tailscale-privilege
+  namespace: kyverno
+spec:
+  background: false
+  exceptions:
+    - policyName: block-risky-capabilities
+      ruleNames:
+        - deny-privileged-containers
+        - autogen-deny-privileged-containers
+  match:
+    any:
+      - resources:
+          kinds:
+            - Pod
+            - StatefulSet
+          namespaces:
+            - tailscale
+          names:
+            - homelab-ingress
+            - homelab-ingress-*
+          selector:
+            matchLabels:
+              tailscale.com/managed: "true"
+              tailscale.com/parent-resource: homelab-ingress
+              tailscale.com/parent-resource-type: proxygroup
+  conditions:
+    all:
+      - key: >-
+          {{ request.object.spec.serviceAccountName ||
+          request.object.spec.template.spec.serviceAccountName || '' }}
+        operator: Equals
+        value: homelab-ingress
+      - key: >-
+          {{ length((request.object.spec.containers ||
+          request.object.spec.template.spec.containers ||
+          `[]`)[?securityContext.privileged == `true` && name != 'tailscale']) }}
+        operator: Equals
+        value: 0
+      - key: >-
+          {{ length((request.object.spec.initContainers ||
+          request.object.spec.template.spec.initContainers ||
+          `[]`)[?securityContext.privileged == `true`]) }}
+        operator: Equals
+        value: 0
+      - key: >-
+          {{ length((request.object.spec.ephemeralContainers ||
+          request.object.spec.template.spec.ephemeralContainers ||
+          `[]`)[?securityContext.privileged == `true`]) }}
+        operator: Equals
+        value: 0
