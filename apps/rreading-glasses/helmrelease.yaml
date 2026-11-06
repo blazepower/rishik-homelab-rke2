@@ -5,6 +5,7 @@ metadata:
   name: rreading-glasses
   namespace: media
 spec:
+  suspend: true
   interval: 30m
   chart:
     spec:
@@ -87,6 +88,18 @@ spec:
           http:
             port: 8080
             targetPort: 8788
+
+    persistence:
+      public-ca:
+        type: configMap
+        name: rreading-glasses-public-ca
+        defaultMode: 0444
+        advancedMounts:
+          rreading-glasses:
+            app:
+              - path: /etc/ssl/certs/ca-certificates.crt
+                subPath: ca-certificates.crt
+                readOnly: true
 
     defaultPodOptions:
       securityContext:
