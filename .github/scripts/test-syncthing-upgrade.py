@@ -1,7 +1,6 @@
 """Disposable official-image migration rehearsal; never mounts production data."""
 
 import argparse
-import copy
 import importlib.util
 import json
 from pathlib import Path
@@ -14,10 +13,10 @@ import uuid
 import xml.etree.ElementTree as ET
 
 
-ROOT = Path(__file__).resolve().parents[2]
 OLD_IMAGE = "syncthing/syncthing@sha256:35401e343a2a20372fac11c576d8f8fe2de02b4f26128e805b4715258d6205a5"
 NEW_IMAGE = "syncthing/syncthing@sha256:c28e86f5173bacc429aef92af915b5c4fac56e1a9dcd3875855fd51f664d0414"
-API_KEY = "disposable-syncthing-migration-fixture"
+API_KEY = uuid.uuid4().hex
+GUI_PASSWORD = uuid.uuid4().hex
 FOLDER = "synthetic-books"
 BASE_ARGS = ["serve", "--home=/config", "--gui-address=0.0.0.0:8384"]
 OLD_ARGS = [*BASE_ARGS, "--no-default-folder"]
@@ -51,7 +50,7 @@ def fixture_config(content, other_id, other_name):
     gui = root.find("gui")
     for key, value in {
         "address": "0.0.0.0:8384", "apikey": API_KEY,
-        "user": "fixture-user", "password": "fixture-password",
+        "user": "fixture-user", "password": GUI_PASSWORD,
     }.items():
         element = gui.find(key)
         if element is None:
@@ -73,6 +72,14 @@ def fixture_config(content, other_id, other_name):
             element = ET.SubElement(options, key)
         element.text = value
     return ET.tostring(root, encoding="utf-8")
+
+
+def authentication(content):
+    gui = ET.fromstring(content).find("gui")
+    return {
+        "enabled": gui.get("enabled"), "tls": gui.get("tls"),
+        **{key: gui.findtext(key) for key in ("user", "password", "apikey")},
+    }
 
 
 class FixtureTests(unittest.TestCase):
@@ -97,6 +104,16 @@ class FixtureTests(unittest.TestCase):
         for key in ("globalAnnounceEnabled", "localAnnounceEnabled",
                     "relaysEnabled", "natEnabled", "crashReportingEnabled"):
             self.assertEqual(root.find("options").findtext(key), "false")
+
+    def test_authentication_survives_unrelated_gui_schema_changes(self):
+        first = b"""<configuration><gui enabled="true" tls="false">
+          <user>fixture-user</user><password>generated-test-hash</password>
+          <apikey>generated-test-value</apikey></gui></configuration>"""
+        newer = ET.fromstring(first)
+        ET.SubElement(newer.find("gui"), "newSetting").text = "new-default"
+        self.assertEqual(authentication(first), authentication(ET.tostring(newer)))
+        newer.find("gui/apikey").text = "changed-test-value"
+        self.assertNotEqual(authentication(first), authentication(ET.tostring(newer)))
 
 
 class Rehearsal:
@@ -187,6 +204,18 @@ class Rehearsal:
         assert [(f["id"], f["path"]) for f in config["folders"]] == [(FOLDER, "/data/books")]
         assert config["gui"]["user"] == "fixture-user"
         assert config["gui"]["apiKey"] == API_KEY
+        denied = subprocess.run([
+            "docker", "exec", self.names[role], "wget", "-SO-", "-T", "3",
+            "http://127.0.0.1:8384/rest/system/status",
+        ], capture_output=True, timeout=10)
+        assert denied.returncode != 0 and re.search(rb"HTTP/\S+ (401|403)\b", denied.stderr), (
+            "Unauthenticated API access was not explicitly rejected"
+        )
+
+    def authentication(self, role):
+        return authentication(self.docker(
+            "exec", self.names[role], "cat", "/config/config.xml",
+        ))
 
     @staticmethod
     def wait(check, description, timeout=120):
@@ -277,14 +306,14 @@ class Rehearsal:
         files = {"first-book.txt": b"Disposable generated book fixture one.\n"}
         self.write("peer", "first-book.txt", files["first-book.txt"])
         self.wait(lambda: self.files_match("app", files), "legacy peer synchronization")
-        original_gui = copy.deepcopy(self.api("app", "/rest/config")["gui"])
+        original_auth = self.authentication("app")
         original_id = self.api("app", "/rest/system/status")["myID"]
         self.stop("app")
         self.mounted(OLD_IMAGE, [(config, "/source"), (rollback, "/snapshot")],
                      "cp -a /source/. /snapshot/")
         self.start("app", NEW_IMAGE, config, books)
         assert self.api("app", "/rest/system/status")["myID"] == original_id
-        assert self.api("app", "/rest/config")["gui"] == original_gui
+        assert self.authentication("app") == original_auth
         self.wait(lambda: self.files_match("app", files), "migrated folder and file content")
         sqlite = self.docker(
             "exec", self.names["app"], "/bin/sh", "-c",
@@ -302,12 +331,12 @@ class Rehearsal:
         self.start("app", NEW_IMAGE, config, books)
         self.wait(lambda: self.files_match("app", files), "candidate cold restart")
         assert self.api("app", "/rest/system/status")["myID"] == original_id
-        assert self.api("app", "/rest/config")["gui"] == original_gui
+        assert self.authentication("app") == original_auth
         self.stop("app")
         self.start("app", OLD_IMAGE, rollback, books)
         self.wait(lambda: self.files_match("app", files), "rollback using the pre-migration database")
         assert self.api("app", "/rest/system/status")["myID"] == original_id
-        assert self.api("app", "/rest/config")["gui"] == original_gui
+        assert self.authentication("app") == original_auth
         self.stop("app")
         self.stop("peer")
         report.update({"native_sqlite_databases": len(sqlite), "identity_and_auth_preserved": True,
