@@ -165,8 +165,22 @@ class SureChartTests(unittest.TestCase):
             if doc["kind"] != "Deployment":
                 continue
             pod = doc["spec"]["template"]["spec"]
+            self.assertNotIn("startupProbe", pod["containers"][0])
             self.assertNotIn("initContainers", pod)
             self.assertFalse(any(volume["name"].startswith("sure-ca") for volume in pod.get("volumes", [])))
+
+    def test_cold_start_probe_gates_liveness_without_loosening_steady_state_checks(self):
+        deployment = next(doc for doc in render(VALUES)
+                          if doc["kind"] == "Deployment"
+                          and doc["metadata"]["name"].endswith("maybe-finance"))
+        app = deployment["spec"]["template"]["spec"]["containers"][0]
+        self.assertEqual(app["startupProbe"]["httpGet"], DEFAULTS["readinessProbe"]["httpGet"])
+        self.assertEqual(app["livenessProbe"], DEFAULTS["livenessProbe"])
+        self.assertEqual(app["readinessProbe"], DEFAULTS["readinessProbe"])
+        startup_budget = app["startupProbe"]["periodSeconds"] * app["startupProbe"]["failureThreshold"]
+        liveness_budget = (app["livenessProbe"]["initialDelaySeconds"]
+                           + app["livenessProbe"]["periodSeconds"] * app["livenessProbe"]["failureThreshold"])
+        self.assertGreater(startup_budget, liveness_budget)
 
     def test_existing_optional_rails_storage_is_preserved_and_not_exposed_to_guard(self):
         values = {**VALUES, "persistence": {"appStorage": {"enabled": True}}}
