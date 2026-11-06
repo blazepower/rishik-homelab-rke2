@@ -109,8 +109,8 @@ def probe(directory, mode):
             headers={"Origin": base, "Referer": base + "/"},
         )
         with opener.open(request, timeout=20) as response:
-            if response.status != 200:
-                raise ValueError("Disposable API request not accepted")
+            if response.status != 200 and not (path == "torrents/add" and response.status == 202):
+                raise ValueError(f"Disposable API request not accepted: {path}, HTTP {response.status}")
             return response.read()
 
     ready = False
