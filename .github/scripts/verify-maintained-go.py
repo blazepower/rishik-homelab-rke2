@@ -75,7 +75,7 @@ def proof_binary(image, app, scratch, builder):
 
 def native_gluetun(image, app):
     health = docker("run", "--rm", "--network", "none", image, "healthcheck", check=False)
-    assert health.returncode != 0 and "healthcheck" in health.stdout.lower(), health.stdout
+    assert health.returncode != 0 and "http://127.0.0.1:9999" in health.stdout and "connection refused" in health.stdout, health.stdout
     startup = docker("run", "--rm", "--network", "none", "--cap-drop", "ALL",
                      "-e", "VPN_SERVICE_PROVIDER=invalid-synthetic-provider", image, check=False)
     assert startup.returncode != 0
@@ -86,17 +86,17 @@ def native_gluetun(image, app):
             "scope": "Network-none, no capabilities, no VPN credentials. Native startup rejection and unhealthy result only; not VPN connectivity clearance."}
 
 
-def native_stash(image, app, expected_version, scratch):
+def native_stash(image, app, expected_version, scratch, baseline=False):
     version = docker("run", "--rm", "--network", "none", image, "stash", "--version").stdout.strip()
     assert version == expected_version and app["version"] in version, (version, expected_version)
-    config = scratch / "synthetic"
+    config = scratch / ("vendor-synthetic" if baseline else "synthetic")
     config.mkdir(exist_ok=True)
     (config / "config.yml").write_text(
         "host: 127.0.0.1\nport: 9999\ndatabase: /proof/stash-go.sqlite\n"
         "generated: /proof/generated\nmetadata: /proof/metadata\ncache: /proof/cache\n"
         "stash: []\n"
     )
-    name = "maintained-stash-proof"
+    name = "maintained-stash-baseline" if baseline else "maintained-stash-proof"
     docker("run", "-d", "--name", name, "--network", "none",
            "--mount", f"type=bind,src={config},dst=/proof",
            "-e", "STASH_CONFIG_FILE=/proof/config.yml", image)
@@ -185,8 +185,13 @@ def main():
         report["image_id"] = actual["Id"]
         report["vendor_layers_preserved"] = len(inherited)
         report["binary"] = proof_binary(tag, app, scratch, lock["builder"])
-        report["native"] = (native_stash(tag, app, expected_version, scratch) if args.app == "stash"
-                            else native_gluetun(tag, app))
+        if args.app == "stash":
+            report["vendor_native"] = native_stash(app["vendor"], app, expected_version, scratch, baseline=True)
+            report["native"] = native_stash(tag, app, expected_version, scratch)
+            for key in ("version", "ui_sha256", "locked_ui_assets", "ffmpeg"):
+                assert report["native"][key] == report["vendor_native"][key], key
+        else:
+            report["native"] = native_gluetun(tag, app)
         if args.publish:
             result = docker("push", tag).stdout
             digest = re.search(r"digest: (sha256:[0-9a-f]{64})", result)
