@@ -9,6 +9,8 @@ on:
       - .github/scripts/test-go-public-ca.py
       - .github/scripts/test-native-app-ca-hardening.py
       - .github/security/emudhra-2026.json
+      - .github/security/syncthing-v2-runtime.json
+      - .github/security/maintained-go-runtime.json
       - apps/_shared/media-ca-hardening/**
       - apps/_shared/go-ca-hardening/**
       - apps/vault/**
@@ -49,5 +51,5 @@ jobs:
         run: |
           echo '### Same-version public stores (not compiled/custom Go TLS clearance)' >> "$GITHUB_STEP_SUMMARY"
           echo '```json' >> "$GITHUB_STEP_SUMMARY"
-          cat go-public-ca-ci.json >> "$GITHUB_STEP_SUMMARY"
+          cat go-public-ca-ci.json | tee -a "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
