@@ -4,12 +4,12 @@ metadata:
   name: kyverno
   namespace: kyverno
 spec:
-  suspend: true
+  suspend: false
   interval: 10m
   chart:
     spec:
       chart: kyverno
-      version: "3.8.2"
+      version: "3.9.2"
       sourceRef:
         kind: HelmRepository
         name: kyverno
@@ -17,22 +17,77 @@ spec:
   install:
     createNamespace: true
     remediation:
-      retries: 5
+      retries: 0
+      remediateLastFailure: false
   upgrade:
     remediation:
-      retries: 5
+      retries: 0
+      remediateLastFailure: false
   values:
+    features:
+      policyExceptions:
+        enabled: true
+        namespace: kyverno
+      generateValidatingAdmissionPolicy:
+        enabled: false
+      generateMutatingAdmissionPolicy:
+        enabled: false
+      validatingAdmissionPolicyReports:
+        enabled: false
     admissionController:
-      replicas: 1
-      resources:
-        requests:
-          cpu: 100m
-          memory: 256Mi
-        limits:
-          cpu: 500m
-          memory: 512Mi
+      replicas: 2
+      updateStrategy:
+        type: RollingUpdate
+        rollingUpdate:
+          maxSurge: 0
+          maxUnavailable: 1
+      podDisruptionBudget:
+        enabled: true
+        minAvailable: 1
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: node-role.kubernetes.io/control-plane
+                  operator: DoesNotExist
+      podAntiAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                app.kubernetes.io/instance: kyverno
+                app.kubernetes.io/component: admission-controller
+            topologyKey: kubernetes.io/hostname
+      container:
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
     backgroundController:
-      replicas: 1
+      replicas: 2
+      updateStrategy:
+        type: RollingUpdate
+        rollingUpdate:
+          maxSurge: 0
+          maxUnavailable: 1
+      podDisruptionBudget:
+        enabled: true
+        minAvailable: 1
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: node-role.kubernetes.io/control-plane
+                  operator: DoesNotExist
+      podAntiAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                app.kubernetes.io/instance: kyverno
+                app.kubernetes.io/component: background-controller
+            topologyKey: kubernetes.io/hostname
       resources:
         requests:
           cpu: 50m
@@ -42,6 +97,12 @@ spec:
           memory: 256Mi
     cleanupController:
       replicas: 1
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: node-role.kubernetes.io/control-plane
+                  operator: DoesNotExist
       resources:
         requests:
           cpu: 50m
@@ -51,6 +112,12 @@ spec:
           memory: 256Mi
     reportsController:
       replicas: 1
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: node-role.kubernetes.io/control-plane
+                  operator: DoesNotExist
       resources:
         requests:
           cpu: 50m
