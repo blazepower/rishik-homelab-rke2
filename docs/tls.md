@@ -177,6 +177,16 @@ old image together; the old executable must never be pointed at the migrated
 SQLite database. The separate immutable v2 runtime record preserves the original
 factory audit and requires its already-clean public stores to remain clean.
 
+The approved owned compiler derivatives retain exact Gluetun v3.41.3 and
+Stash v0.31.1 source, vendor runtime layers, auxiliary tools, native entrypoint
+and application assets while rebuilding the application ELF with Go 1.27.3.
+They are not official vendor distributions. Their immutable runtime record
+binds the publication, source revision, original factory and actual ELF hash
+without rewriting the historical factory audit. Preserve all read-only public
+CA guards and require serial live VPN/application, backup and storage acceptance.
+The actual compiler and bounded native proofs are distinct from universal
+custom/intermediate TLS or forensic certification.
+
 The shell-less rreading-glasses image cannot run the shell/Python snapshot init.
 Its staged public-root mitigation instead projects a read-only, hash-referenced
 ConfigMap over the existing default bundle. `test-rreading-ca.py --registry`

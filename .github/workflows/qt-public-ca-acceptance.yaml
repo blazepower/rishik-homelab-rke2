@@ -11,6 +11,7 @@ on:
       - .github/scripts/test-native-app-ca-hardening.py
       - .github/security/emudhra-2026.json
       - .github/security/fleet-application-ca-report.json
+      - .github/security/maintained-go-runtime.json
       - apps/_shared/media-ca-hardening/**
       - apps/qbittorrent/helmrelease.yaml
 
