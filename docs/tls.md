@@ -167,6 +167,16 @@ It does not deploy or authorize a production major upgrade: that still needs a
 fresh verified backup, stable storage, migration capacity/time assessment and
 explicit acceptance of the v2 deleted-file conflict semantics.
 
+The approved production transition first stages the pinned official candidate
+with zero replicas. This quiesces the old database before creating and verifying
+a retained Longhorn snapshot/backup of the existing config PVC. Only a separate
+activation change restores one replica after backup and storage acceptance.
+The existing identity, GUI authentication, books PVC and indefinite deleted-file
+retention must remain intact. Rollback restores the stopped legacy backup and
+old image together; the old executable must never be pointed at the migrated
+SQLite database. The separate immutable v2 runtime record preserves the original
+factory audit and requires its already-clean public stores to remain clean.
+
 The shell-less rreading-glasses image cannot run the shell/Python snapshot init.
 Its staged public-root mitigation instead projects a read-only, hash-referenced
 ConfigMap over the existing default bundle. `test-rreading-ca.py --registry`

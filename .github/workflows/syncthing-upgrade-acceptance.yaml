@@ -10,6 +10,7 @@ on:
       - .github/scripts/test-media-vendor-ca.py
       - .github/scripts/verify-emudhra-trust.py
       - .github/security/emudhra-2026.json
+      - .github/security/syncthing-v2-runtime.json
       - apps/syncthing/**
 
 permissions:
@@ -40,5 +41,5 @@ jobs:
         run: |
           echo '### Synthetic Syncthing migration (not production clearance)' >> "$GITHUB_STEP_SUMMARY"
           echo '```json' >> "$GITHUB_STEP_SUMMARY"
-          cat syncthing-upgrade-ci.json >> "$GITHUB_STEP_SUMMARY"
+          cat syncthing-upgrade-ci.json | tee -a "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
