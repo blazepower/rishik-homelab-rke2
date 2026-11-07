@@ -1,0 +1,102 @@
+name: Rreading Source Eligibility
+
+on:
+  push:
+    branches:
+      - vet/rreading-source-eligibility-20261107
+    paths:
+      - .github/workflows/rreading-source-eligibility.yaml
+
+permissions:
+  contents: read
+
+jobs:
+  rehearsal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - source: a2939b625d91389d3f0a3e58cbc3bfa7ebb8390a
+            toolchain: go1.26.10
+          - source: ceb4d580f01a920e474ae14d5085ff6809771d22
+            toolchain: go1.27.3
+    env:
+      GOTOOLCHAIN: ${{ matrix.toolchain }}
+      GOMAXPROCS: "2"
+      HARDCOVER_API_KEY: ""
+      GR_HOST: ""
+      GR_TEST_COOKIE: ""
+    services:
+      postgres:
+        image: postgres:16.15-alpine@sha256:aa6cb33cf4c19c765cefcf48d96176258800870a9a1e930ad126200f9d825139
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ""
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+        ports:
+          - 5432:5432
+    steps:
+      - name: Fetch immutable public supplier source
+        run: |
+          set -euo pipefail
+          git init --quiet source
+          git -C source remote add origin https://github.com/blampe/rreading-glasses.git
+          git -C source fetch --quiet --depth 1 origin "${{ matrix.source }}"
+          git -C source checkout --quiet --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = "${{ matrix.source }}"
+          test -z "$(git -C source status --porcelain)"
+
+      - name: Build and bind native Linux executable
+        working-directory: source
+        run: |
+          set -euo pipefail
+          test "$(go version | awk '{print $3}')" = "${{ matrix.toolchain }}"
+          CGO_ENABLED=0 go build -mod=readonly -p 2 -trimpath -ldflags="-w -s" \
+            -o "$RUNNER_TEMP/rreading-candidate" ./cmd/rghc
+          go version -m "$RUNNER_TEMP/rreading-candidate"
+          sha256sum "$RUNNER_TEMP/rreading-candidate"
+          "$RUNNER_TEMP/rreading-candidate" serve --help >/dev/null
+          test -z "$(git status --porcelain)"
+
+      - name: Existing full suite with race detector and synthetic PostgreSQL
+        working-directory: source
+        run: >-
+          go test -mod=readonly -p 2 -race -count=1 -timeout=10m
+          -coverpkg=./... -covermode=atomic ./...
+
+      - name: Native startup with an empty isolated database
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ""
+          POSTGRES_DATABASE: smoke
+          HARDCOVER_AUTH: Bearer synthetic-rehearsal-only
+          UPSTREAM: 127.0.0.1:65534
+          PORT: "8788"
+        run: |
+          set -euo pipefail
+          docker exec "${{ job.services.postgres.id }}" createdb -U postgres smoke
+          "$RUNNER_TEMP/rreading-candidate" serve >"$RUNNER_TEMP/smoke.log" 2>&1 &
+          pid=$!
+          trap 'kill -TERM "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true' EXIT
+          ready=false
+          for attempt in $(seq 1 30); do
+            kill -0 "$pid"
+            if curl --fail --silent --max-time 2 http://127.0.0.1:8788/ >/dev/null; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" = true
+          docker exec "${{ job.services.postgres.id }}" psql -U postgres -d smoke -At \
+            -c "SELECT column_name,data_type,is_nullable FROM information_schema.columns WHERE table_schema='public' AND table_name='cache' ORDER BY ordinal_position"
+          printf 'SOURCE_ELIGIBILITY_NATIVE_STARTUP_PASSED\n'
