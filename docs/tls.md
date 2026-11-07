@@ -159,11 +159,35 @@ The November 6 release recheck now marks same-minor
 stable. Publisher checksums and the actual server ELF, plus selected runtime,
 Kubernetes and etcd image ELFs, were independently checked: all inspected
 compilers are Go 1.26.10. This is selected-artifact metadata, not every component
-or installed-node/native TLS certification. All three hosts remain on
-v1.34.12/Go 1.26.8; privileged maintenance requires operator access. Do not bypass
-sudo or deploy a prerelease/minor jump. Before any sole-control-plane restart,
-create and verify a fresh etcd recovery snapshot and retain the controller
-cordon and Kured suspension.
+or universal native/custom TLS certification.
+
+The operator completed the stable same-minor upgrade on November 6, serially:
+controller, worker2, then worker1. All three nodes are Ready on
+`v1.34.13+rke2r1`, with native RKE2 reporting `go1.26.10-X:boringcrypto`
+and containerd reporting `2.2.10-k3s1`. Protected completion receipts were
+independently bound to each current service PID/invocation and the
+publisher-verified RKE2 executable. Installed selected runtime hashes match
+the inspected artifacts; worker receipts also verify the running kubelet and
+containerd executables. Running control-plane image indexes were bound to the
+inspected amd64 manifests, the actual API-server executable matches its inspected
+ELF, and the API and running etcd executable report Go 1.26.10.
+
+Before the sole-control-plane restart, a fresh local etcd snapshot passed
+appended-checksum and offline native database-status verification. This was not
+a real-data restore test; retain that snapshot and the old node binaries.
+The unchanged three-sample storage gate passed after the final node:
+27 attached volumes with two RW replicas and seven detached volumes with two
+clean worker copies, with legacy quarantine unchanged. Post-upgrade acceptance
+also confirmed cluster DNS, Plex identity/NFS mounts, hostname-and-chain-verified
+Plex/Stash HTTPS through ingress, and native VPN health/forwarding-file presence.
+That final forwarding-file check is not a new external-port-openness test.
+
+The controller remains cordoned and Kured suspended. No drain, forced stop,
+OS upgrade or reboot was performed. Existing workload containers and historical
+container shims were not deliberately restarted; installing the patched shim
+does not certify every surviving old process or auxiliary component. Do not
+bypass sudo or deploy a prerelease/minor jump. Before any future sole-control-plane
+restart, create and verify a fresh recovery snapshot again.
 
 The separate `Syncthing Upgrade Acceptance` workflow rehearses official 1.28.1
 to 2.1.7 using disposable generated identities, databases and book fixtures on
@@ -231,6 +255,9 @@ The factory-attested source revision
 Git/archive endpoints; OCI provenance/referrers did not recover an exact source
 tree. The same-version compiler derivative remains blocked on that source,
 not on missing user approval. Do not silently substitute another revision.
+The exact-source request is tracked in
+[upstream issue 611](https://github.com/blampe/rreading-glasses/issues/611);
+the completed RKE2 maintenance does not resolve that separate blocker.
 
 ## cert-manager
 
