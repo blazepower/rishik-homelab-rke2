@@ -53,6 +53,7 @@ jobs:
           test -z "$(git -C source status --porcelain)"
 
       - name: Build and bind native Linux executable
+        id: build
         working-directory: source
         run: |
           set -euo pipefail
@@ -67,10 +68,11 @@ jobs:
       - name: Existing full suite with race detector and synthetic PostgreSQL
         working-directory: source
         run: >-
-          go test -mod=readonly -p 2 -race -count=1 -timeout=10m
+          go test -mod=readonly -p 2 -race -count=1 -timeout=2m
           -coverpkg=./... -covermode=atomic ./...
 
       - name: Native startup with an empty isolated database
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         env:
           POSTGRES_HOST: localhost
           POSTGRES_USER: postgres
