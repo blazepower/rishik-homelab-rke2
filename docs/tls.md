@@ -322,6 +322,9 @@ Post-rollout three-sample storage acceptance remained 29 attached/two-RW plus
 5 detached/two-clean original volumes. Completed retained rollback backups
 remain available. Temporary verification policies and the public checker in
 PostgreSQL's `/tmp` were removed; controller cordon and Kured suspension remain.
+Pre-existing Kyverno tag/registry rule regex evaluation errors occurred on both
+the original and replacement Pods. They were not fixed by this image-only work
+and must not be represented as accepted admission-policy enforcement.
 
 ## cert-manager
 
