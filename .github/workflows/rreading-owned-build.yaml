@@ -1,0 +1,167 @@
+name: Owned Hardcover source image
+
+on:
+  pull_request:
+    paths:
+      - apps/_shared/rreading-owned/**
+      - .github/scripts/rreading-native-acceptance.py
+      - .github/workflows/rreading-owned-build.yaml
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish only after native acceptance; production rollout is separate
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    env:
+      GOTOOLCHAIN: go1.27.3
+      GOMAXPROCS: "2"
+      HARDCOVER_API_KEY: ""
+      GR_HOST: ""
+      GR_TEST_COOKIE: ""
+    services:
+      postgres:
+        image: postgres:16.15-alpine@sha256:aa6cb33cf4c19c765cefcf48d96176258800870a9a1e930ad126200f9d825139
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: synthetic-source-vet
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+        ports:
+          - 5432:5432
+    steps:
+      - name: Checkout exact recipe
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Fetch clean immutable owned GPL source and build native CLI
+        run: |
+          set -euo pipefail
+          git init --quiet source
+          git -C source remote add origin https://github.com/blazepower/rreading-glasses.git
+          git -C source fetch --quiet --depth 2 origin 524c9139707faa3e774b30a13bab688710b02ff2
+          git -C source checkout --quiet --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = 524c9139707faa3e774b30a13bab688710b02ff2
+          test "$(git -C source rev-parse HEAD^)" = ceb4d580f01a920e474ae14d5085ff6809771d22
+          test -z "$(git -C source status --porcelain)"
+          test "$(go version | awk '{print $3}')" = go1.27.3
+          mkdir -p "$RUNNER_TEMP/rreading-image"
+          cd source
+          CGO_ENABLED=0 go build -mod=readonly -p 2 -trimpath -ldflags="-w -s" \
+            -o "$RUNNER_TEMP/rreading-image/main" ./cmd/rghc
+          go mod verify
+          go version -m "$RUNNER_TEMP/rreading-image/main" | tee "$RUNNER_TEMP/rreading-image/build-info.txt"
+          grep -F 'vcs.revision=524c9139707faa3e774b30a13bab688710b02ff2' "$RUNNER_TEMP/rreading-image/build-info.txt"
+          grep -F 'vcs.modified=false' "$RUNNER_TEMP/rreading-image/build-info.txt"
+          test -z "$(git status --porcelain)"
+          cp LICENSE "$RUNNER_TEMP/rreading-image/LICENSE"
+
+      - name: Retained race regressions and full original suite
+        working-directory: source
+        run: |
+          go test -mod=readonly -p 2 -race -count=20 -timeout=5m \
+            -run '^(TestAccumulatePublishesFinalQueueSize|TestAccumulateEdges|TestAccumulateSlice|TestIncrementalDenormalization)$' ./internal
+          go test -mod=readonly -p 2 -race -count=1 -timeout=2m ./...
+
+      - name: Build immutable runtime and verify its actual ELF
+        run: |
+          set -euo pipefail
+          cp apps/_shared/rreading-owned/Dockerfile "$RUNNER_TEMP/rreading-image/Dockerfile"
+          python3 - <<'PY'
+          import hashlib,json,os,pathlib
+          d=pathlib.Path(os.environ["RUNNER_TEMP"])/"rreading-image"
+          source=json.loads(pathlib.Path("apps/_shared/rreading-owned/source.json").read_text())
+          source["binary_sha256"]=hashlib.sha256((d/"main").read_bytes()).hexdigest()
+          source["recipe_revision"]=os.environ["GITHUB_SHA"]
+          (d/"source.json").write_text(json.dumps(source,indent=2))
+          PY
+          docker build --quiet --tag rreading-owned:proof "$RUNNER_TEMP/rreading-image"
+          container="$(docker create rreading-owned:proof)"
+          trap 'docker rm "$container" >/dev/null' EXIT
+          docker cp "$container:/main" "$RUNNER_TEMP/rreading-image/actual-main"
+          cmp "$RUNNER_TEMP/rreading-image/main" "$RUNNER_TEMP/rreading-image/actual-main"
+          go version -m "$RUNNER_TEMP/rreading-image/actual-main"
+          sha256sum "$RUNNER_TEMP/rreading-image/actual-main"
+
+      - name: Actual non-root read-only container TLS API and restored cache acceptance
+        env:
+          RREADING_ACCEPTANCE_IMAGE: rreading-owned:proof
+        run: |
+          python3 .github/scripts/rreading-native-acceptance.py \
+            "$RUNNER_TEMP/rreading-image/actual-main" "${{ job.services.postgres.id }}"
+
+      - name: Source and binary advisory scan, not universal clearance
+        run: |
+          set -euo pipefail
+          cd source
+          go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 -json ./cmd/rghc > "$RUNNER_TEMP/rreading-image/source-vuln.jsonl"
+          go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 -json -mode=binary \
+            "$RUNNER_TEMP/rreading-image/actual-main" > "$RUNNER_TEMP/rreading-image/binary-vuln.jsonl"
+          python3 - <<'PY'
+          import json,os,pathlib
+          d=pathlib.Path(os.environ["RUNNER_TEMP"])/"rreading-image";summary={}
+          for name in ["source","binary"]:
+              text=(d/(name+"-vuln.jsonl")).read_text();decoder=json.JSONDecoder();i=0;findings=[]
+              while i<len(text):
+                  while i<len(text) and text[i].isspace():i+=1
+                  if i==len(text):break
+                  obj,i=decoder.raw_decode(text,i)
+                  if "finding" in obj:findings.append(obj["finding"])
+              symbols=[f for f in findings if any(t.get("function") for t in f.get("trace",[]))]
+              assert not symbols,(name,symbols)
+              summary[name]={"module_advisory_ids":sorted({f["osv"] for f in findings}),"symbol_findings":0}
+          (d/"advisories.json").write_text(json.dumps(summary,indent=2))
+          print(json.dumps(summary))
+          PY
+
+      - name: Authenticate publication only on accepted master
+        if: github.event_name == 'workflow_dispatch' && inputs.publish
+        env:
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          test "$GITHUB_REF" = refs/heads/master
+          printf '%s' "$REGISTRY_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+
+      - name: Publish accepted immutable image only
+        if: github.event_name == 'workflow_dispatch' && inputs.publish
+        run: |
+          set -euo pipefail
+          tag="ghcr.io/blazepower/maintained-rreading-hardcover:$GITHUB_SHA"
+          docker tag rreading-owned:proof "$tag"
+          docker push "$tag"
+          docker image inspect "$tag" --format '{{json .RepoDigests}}' > "$RUNNER_TEMP/rreading-image/published-digests.json"
+
+      - name: Retain actual executable and corresponding GPL provenance
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: rreading-owned-native-evidence
+          path: |
+            ${{ runner.temp }}/rreading-image/actual-main
+            ${{ runner.temp }}/rreading-image/source.json
+            ${{ runner.temp }}/rreading-image/build-info.txt
+            ${{ runner.temp }}/rreading-image/advisories.json
+            ${{ runner.temp }}/rreading-image/published-digests.json
+            ${{ runner.temp }}/rreading-image/LICENSE
+          if-no-files-found: error
+
+      - name: Remove ephemeral registry authentication
+        if: always() && github.event_name == 'workflow_dispatch' && inputs.publish
+        run: docker logout ghcr.io
