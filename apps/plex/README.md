@@ -32,6 +32,20 @@ Plex is configured with Intel QuickSync hardware transcoding support:
 - GPU resource: `gpu.intel.com/i915: "1"`
 - Requires Intel GPU Device Plugin to be installed
 
+## Loudness Analysis
+
+**Settings > Library > Analyze audio tracks for loudness** is set to **Never**
+(`LoudnessAnalysisBehavior=never`). Loudness analysis is disabled server-wide,
+including scheduled processing and processing when media is added.
+
+This is a Plex-owned preference, changed through its authenticated API and saved
+in `Preferences.xml` on the `plex-config` PVC. It survives normal pod restarts
+without changing the HelmRelease or restarting Plex. After restoring an older
+config backup, reconfirm that this preference is still **Never**.
+
+Already generated loudness metadata is retained. Playback, hardware transcoding,
+and unrelated library analysis and maintenance settings are unchanged.
+
 ## Access
 
 - **Local HTTPS**: `https://plex.homelab` (via Traefik ingress)
