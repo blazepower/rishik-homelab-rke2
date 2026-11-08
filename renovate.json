@@ -61,7 +61,7 @@
         "/(^|/)charts/.+/(values|templates/.+)\\.ya?ml$/"
       ],
       "matchStrings": [
-        "(?m)^\\s*repository:\\s*[\\\"']?(?<depName>[^\\\"'\\s#]+)[\\\"']?\\s*(?:#\\s*renovate:\\s*packageName=(?<packageName>\\S+)|#.*)?\\r?\\n\\s*tag:\\s*[\\\"']?(?<currentValue>[^\\\"'\\s#]+)[\\\"']?"
+        "(?m)^\\s*repository:\\s*[\\\"']?(?<depName>[^\\\"'\\s#]+)[\\\"']?\\s*(?:#\\s*renovate:\\s*packageName=(?<packageName>\\S+)|#.*)?\\r?\\n\\s*tag:\\s*[\\\"']?(?<currentValue>[^@\\\"'\\s#]+)(?:@(?<currentDigest>sha256:[a-f0-9]+))?[\\\"']?"
       ],
       "packageNameTemplate": "{{#if packageName}}{{{packageName}}}{{else}}{{{depName}}}{{/if}}",
       "datasourceTemplate": "docker",
