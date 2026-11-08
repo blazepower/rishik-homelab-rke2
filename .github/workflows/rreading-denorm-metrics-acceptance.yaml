@@ -7,6 +7,7 @@ on:
     paths:
       - .github/workflows/rreading-denorm-metrics-acceptance.yaml
       - .github/patches/rreading-denorm-pending-metrics.*
+      - .github/scripts/rreading-native-acceptance.py
 
 permissions:
   contents: read
@@ -115,3 +116,9 @@ jobs:
           test "$(docker exec "${{ job.services.postgres.id }}" psql -U postgres -d smoke -At \
             -c "SELECT count(*) FROM pg_indexes WHERE schemaname='public' AND tablename='cache' AND indexname IN ('cache_pkey','cache_expires_idx')")" = 2
           printf 'PATCHED_DENORM_NATIVE_SCHEMA_PASSED\n'
+
+      - name: Native TLS, synthetic metadata and restored persistent cache
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: |
+          python3 .github/scripts/rreading-native-acceptance.py \
+            "$RUNNER_TEMP/rreading-candidate" "${{ job.services.postgres.id }}"
