@@ -31,7 +31,7 @@
       "attestation": "sha256:607ff53de9972c9ed33ea5ed629c95ff7d453649cff479502ff6f13c97012859",
       "repository": "https://github.com/blampe/rreading-glasses.git",
       "revision": "97dd4a676d435abc400fac93f303a725cde6b0d9",
-      "reason": "Factory OCI provenance binds this unavailable public revision. Git fetch: not our ref; commit API: HTTP 422; codeload: HTTP 404. Do not substitute main or another version."
+      "reason": "Factory-matched same-version source remains unavailable: Git fetch not our ref, commit API HTTP 422, codeload HTTP 404. It has not been recovered or silently replaced. A separately approved and vetted replacement-source line is recorded in apps/_shared/rreading-owned/source.json and published through rreading-owned-build.yaml."
     }
   }
 }
