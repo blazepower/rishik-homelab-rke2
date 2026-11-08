@@ -60,6 +60,7 @@ regexTarget = "match"
 regexes = [
   '''^password = dummy-(password|provider-secret)-KEEP$''',
   '''^PASSWORD = uuid\.uuid4\(\)\.hex$''',
+  '''^PASSWORD: synthetic-source-vet$''',
 ]
 
 [[rules]]
@@ -67,6 +68,11 @@ id = "bearer-token"
 description = "Bearer Token"
 regex = '''(?i)bearer\s+[A-Za-z0-9_\-\.=]{20,}'''
 keywords = ["bearer"]
+
+[rules.allowlist]
+description = "Exact historical non-production rreading source-eligibility fixture"
+regexTarget = "match"
+regexes = ['''^Bearer synthetic-rehearsal-only$''']
 
 # Allowlist for known safe patterns
 [allowlist]
