@@ -244,6 +244,27 @@ def test_sabnzbd_registry_alias(config: dict) -> bool:
     return True
 
 
+def test_pinned_repository_tag_extraction(config: dict) -> bool:
+    manager = next(item for item in config["customManagers"]
+                   if item["description"] == "Fallback Docker image repository/tag pairs in YAML")
+    pattern = manager["matchStrings"][0].replace("(?<", "(?P<")
+    digest = "sha256:" + "a" * 64
+    cases = [
+        ("unquoted", f"repository: plexinc/pms-docker\ntag: 1.43.7.11114-build@{digest}\n", digest),
+        ("double quoted CRLF", f'repository: "plexinc/pms-docker"\r\ntag: "1.43.7.11114-build@{digest}"\r\n', digest),
+        ("single quoted", f"repository: 'plexinc/pms-docker'\ntag: '1.43.7.11114-build@{digest}'\n", digest),
+        ("unpinned", "repository: plexinc/pms-docker\ntag: 1.43.7.11114-build\n", None),
+    ]
+    passed = True
+    for name, text, expected_digest in cases:
+        match = re.search(pattern, text)
+        valid = match is not None and match.group("currentValue") == "1.43.7.11114-build"
+        valid = valid and match.groupdict().get("currentDigest") == expected_digest
+        print(f"{'PASS' if valid else 'FAIL'}: {name} repository/tag version and digest extraction")
+        passed = passed and valid
+    return passed
+
+
 def main() -> int:
     config = json.loads(RENOVATE_CONFIG.read_text(encoding="utf-8"))
     if config.get("ignoreUnstable") is not True:
@@ -298,6 +319,8 @@ def main() -> int:
     if not test_upgrade_coordination(config):
         failures += 1
     if not test_sabnzbd_registry_alias(config):
+        failures += 1
+    if not test_pinned_repository_tag_extraction(config):
         failures += 1
     if not test_upgrade_visibility(config):
         failures += 1
