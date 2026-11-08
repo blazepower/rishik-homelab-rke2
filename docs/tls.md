@@ -248,8 +248,9 @@ Its deployed public-root mitigation instead projects a read-only, hash-reference
 ConfigMap over the existing default bundle. `test-rreading-ca.py --registry`
 binds that snapshot to the exact vendor amd64 image and canonical policy, checks
 that every unaffected vendor DER identity is preserved, and rejects unexpected
-additional factory public stores. The image, entrypoint, database and credentials
-are unchanged. This does not patch its compiled Go 1.26.0 or certify custom TLS.
+additional factory public stores. That original mitigation did not change the
+image, entrypoint, database or credentials, patch compiled Go 1.26.0, or certify
+custom TLS. The separate owned-source activation below replaces the active ELF.
 The factory-attested source revision
 `97dd4a676d435abc400fac93f303a725cde6b0d9` is unavailable from public supplier
 Git/archive endpoints; OCI provenance/referrers did not recover an exact source
@@ -258,6 +259,54 @@ not on missing user approval. Do not silently substitute another revision.
 The exact-source request is tracked in
 [upstream issue 611](https://github.com/blampe/rreading-glasses/issues/611);
 the completed RKE2 maintenance does not resolve that separate blocker.
+
+A separately approved replacement-source line has now been vetted in the
+[public GPL fork](https://github.com/blazepower/rreading-glasses/tree/f3855259d93cb8d9899bb940155c571b08c53262).
+It preserves the selected signed upstream PR587 base
+`ceb4d580f01a920e474ae14d5085ff6809771d22`, adds the narrow queue-owned pending
+metric fix tracked in [issue612](https://github.com/blampe/rreading-glasses/issues/612),
+and updates advisory-affected networking, cryptography, routing and PostgreSQL
+client modules plus their required transitive minima. It is explicitly not
+the unavailable factory source or an official vendor release.
+
+The clean Go 1.27.3 ELF is built outside its source tree and copied from the
+actual immutable runtime image for acceptance. Original full race tests and
+20-repeat controlled queue regressions pass, as do non-root read-only native
+trusted/unknown/name-constrained TLS, API metadata and synthetic restored-cache
+tests. Both source and actual-binary advisory scans report zero findings after
+the dependency updates. The initial older-dependency binary scan failed and
+remains preserved; its gate was not waived.
+
+An isolated, normal-authentication, read-only PostgreSQL dump/restore also
+preserved real cached book responses. A cold exact factory process read
+metadata persisted by the new executable with upstream offline, proving the
+tested rollback format. Real records and credentials remained inside the
+cluster. No initial stored work rows were present; work persistence was tested
+with collision-checked synthetic metadata rather than invented real samples.
+An additional physical Longhorn restore was blocked by replica free-space
+prechecks, not accepted as successful or diagnosed as database corruption.
+The logical rehearsal and its private scratch data were removed without
+lowering replica counts, free-space thresholds or storage safeguards.
+
+Publication is gated by the separate accepted-master
+`rreading-owned-build.yaml` workflow. Serial production activation additionally
+requires a fresh completed retained rollback backup and the unchanged full-fleet
+two-worker storage gate. Preserve the vendor distroless runtime, `/main serve`
+contract, UID, public CA projection, authentication and original database claim.
+These bounded compiler, dependency, TLS and compatibility proofs are not
+universal custom/intermediate TLS, hardware or forensic clearance.
+
+The selected production image is
+`ghcr.io/blazepower/maintained-rreading-hardcover@sha256:5f2046190d8c17c4af2d507c8137b351280e65623d6725ef8323718711fa8a26`,
+published by accepted-master native run
+[42531984345](https://github.com/blazepower/rishik-homelab-rke2/actions/runs/42531984345).
+Its clean-source Go 1.27.3 ELF SHA-256 is
+`cd56d53133445ab655f3265582790e83cef93dc88f5eecdc6917029bb2b7169c`.
+The registry publication transiently failed once and passed on a full gated
+retry. Native fixtures and live baseline are separate: all historical book
+cache rows were expired before activation, so fresh-cache hits are not claimed.
+The unchanged original public PEM root bundle is inherited from the pinned
+vendor filesystem; the same filtered read-only CA projection remains mounted.
 
 ## cert-manager
 

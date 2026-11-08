@@ -39,9 +39,17 @@ values, source revisions, compiler output and bounded behavior results.
 
 The Hardcover rreading-glasses factory provenance identifies revision
 `97dd4a676d435abc400fac93f303a725cde6b0d9`, unavailable from public upstream
-Git, commit API and codeload. It is blocked, not silently replaced by main or
-a newer application. Its separate preserved PostgreSQL upgrade is out of
-scope.
+Git, commit API and codeload. The factory-matched rebuild remains unavailable;
+that source has not been recovered or silently replaced. A separately approved
+replacement-source line is locked in `../rreading-owned/source.json`. Its
+public GPL fork preserves the selected signed PR587 base, adds the queue-owned
+pending metric fix tracked in upstream issue612, and patches advisory-affected
+dependencies. The separate `rreading-owned-build.yaml` publisher requires
+the actual clean Go 1.27.3 image to pass original race regressions, native
+TLS/API/restored-cache tests, and source plus binary advisory gates before
+master-only publication. Production activation remains separate, with real-cache
+and cold-factory rollback compatibility, fresh durable backup and unchanged
+two-worker storage gates. PostgreSQL and its original claim are not migrated.
 
 This proves a patched compiler and bounded native behavior, not universal
 custom/intermediate TLS validation, a vulnerability-free dependency tree,
