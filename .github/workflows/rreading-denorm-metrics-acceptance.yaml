@@ -1,0 +1,117 @@
+name: Rreading Denormalization Metrics Acceptance
+
+on:
+  push:
+    branches:
+      - vet/rreading-denorm-metrics-20261107
+    paths:
+      - .github/workflows/rreading-denorm-metrics-acceptance.yaml
+      - .github/patches/rreading-denorm-pending-metrics.*
+
+permissions:
+  contents: read
+
+jobs:
+  patched-rehearsal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GOTOOLCHAIN: go1.27.3
+      GOMAXPROCS: "2"
+      HARDCOVER_API_KEY: ""
+      GR_HOST: ""
+      GR_TEST_COOKIE: ""
+    services:
+      postgres:
+        image: postgres:16.15-alpine@sha256:aa6cb33cf4c19c765cefcf48d96176258800870a9a1e930ad126200f9d825139
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: synthetic-source-vet
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+        ports:
+          - 5432:5432
+    steps:
+      - name: Checkout isolated acceptance recipe
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Fetch immutable upstream and verify owned patch
+        run: |
+          set -euo pipefail
+          git init --quiet source
+          git -C source remote add origin https://github.com/blampe/rreading-glasses.git
+          git -C source fetch --quiet --depth 1 origin ceb4d580f01a920e474ae14d5085ff6809771d22
+          git -C source checkout --quiet --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = ceb4d580f01a920e474ae14d5085ff6809771d22
+          test -z "$(git -C source status --porcelain)"
+          patch="$GITHUB_WORKSPACE/.github/patches/rreading-denorm-pending-metrics.patch"
+          printf '%s  %s\n' 5bfe9d9b874ebfdeb2178bb9c63f25b9362e8ef15a6bab0cb412269077a2d0e4 "$patch" | sha256sum --check -
+          git -C source apply --check "$patch"
+          git -C source apply "$patch"
+          test "$(git -C source diff --name-only)" = $'internal/buffer.go\ninternal/buffer_test.go\ninternal/controller.go'
+
+      - name: Build and bind native patched candidate
+        id: build
+        working-directory: source
+        run: |
+          set -euo pipefail
+          test "$(go version | awk '{print $3}')" = go1.27.3
+          CGO_ENABLED=0 go build -mod=readonly -p 2 -trimpath -ldflags="-w -s" \
+            -o "$RUNNER_TEMP/rreading-candidate" ./cmd/rghc
+          go version -m "$RUNNER_TEMP/rreading-candidate" | tee "$RUNNER_TEMP/build-info"
+          grep -F 'vcs.modified=true' "$RUNNER_TEMP/build-info"
+          sha256sum "$RUNNER_TEMP/rreading-candidate"
+          "$RUNNER_TEMP/rreading-candidate" serve --help >/dev/null
+          go mod verify
+
+      - name: Repeated original and deterministic queue regressions with race detector
+        working-directory: source
+        run: >-
+          go test -mod=readonly -p 2 -race -count=20 -timeout=5m
+          -run '^(TestAccumulatePublishesFinalQueueSize|TestAccumulateEdges|TestAccumulateSlice|TestIncrementalDenormalization)$'
+          ./internal
+
+      - name: Full original suite with race detector and synthetic PostgreSQL
+        working-directory: source
+        run: >-
+          go test -mod=readonly -p 2 -race -count=1 -timeout=2m
+          -coverpkg=./... -covermode=atomic ./...
+
+      - name: Native startup and empty database schema
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: synthetic-source-vet
+          POSTGRES_DATABASE: smoke
+          HARDCOVER_AUTH: synthetic-source-vet-not-a-real-token
+          UPSTREAM: 127.0.0.1:65534
+          PORT: "8788"
+        run: |
+          set -euo pipefail
+          docker exec "${{ job.services.postgres.id }}" createdb -U postgres smoke
+          "$RUNNER_TEMP/rreading-candidate" serve >"$RUNNER_TEMP/smoke.log" 2>&1 &
+          pid=$!
+          trap 'kill -TERM "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true' EXIT
+          ready=false
+          for attempt in $(seq 1 30); do
+            kill -0 "$pid"
+            if curl --fail --silent --max-time 2 http://127.0.0.1:8788/ >/dev/null; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" = true
+          schema="$(docker exec "${{ job.services.postgres.id }}" psql -U postgres -d smoke -At \
+            -c "SELECT column_name,data_type,is_nullable FROM information_schema.columns WHERE table_schema='public' AND table_name='cache' ORDER BY ordinal_position")"
+          printf '%s\n' "$schema"
+          test "$schema" = $'key|text|NO\nvalue|bytea|NO\nexpires|timestamp with time zone|NO'
+          test "$(docker exec "${{ job.services.postgres.id }}" psql -U postgres -d smoke -At \
+            -c "SELECT count(*) FROM pg_indexes WHERE schemaname='public' AND tablename='cache' AND indexname IN ('cache_pkey','cache_expires_idx')")" = 2
+          printf 'PATCHED_DENORM_NATIVE_SCHEMA_PASSED\n'

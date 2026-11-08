@@ -1,0 +1,132 @@
+diff --git a/internal/buffer.go b/internal/buffer.go
+index d72107f..bd2e68e 100644
+--- a/internal/buffer.go
++++ b/internal/buffer.go
+@@ -86,12 +86,13 @@ func (s *slicebuffer[T]) len() int {
+ // edgebuf collects and merges denormalization steps while still maintaining
+ // serializability.
+ type edgebuf struct {
+-	mu      sync.Mutex
+-	cond    *sync.Cond
+-	queue   []*edge
+-	works   map[int64]*edge
+-	authors map[int64]*edge
+-	size    atomic.Int32
++	mu            sync.Mutex
++	cond          *sync.Cond
++	queue         []*edge
++	works         map[int64]*edge
++	authors       map[int64]*edge
++	size          atomic.Int32
++	onSizeChanged func(int)
+ }
+ 
+ // push enqueues the edge. If an edge of the same kind was already
+@@ -132,10 +133,10 @@ func (b *edgebuf) push(e edge) {
+ 
+ 	if ok {
+ 		combined := union(existing.childIDs, e.childIDs)
+-		b.size.Add(int32(len(combined) - len(existing.childIDs)))
++		b.addSize(int32(len(combined) - len(existing.childIDs)))
+ 		existing.childIDs = combined
+ 	} else {
+-		b.size.Add(int32(len(e.childIDs)))
++		b.addSize(int32(len(e.childIDs)))
+ 		b.queue = append(b.queue, &e)
+ 	}
+ 	b.cond.Signal()
+@@ -180,11 +181,19 @@ func (b *edgebuf) pop() edge {
+ 		panic("unrecognized edge kind")
+ 	}
+ 
+-	b.size.Add(-int32(len(edge.childIDs)))
++	b.addSize(-int32(len(edge.childIDs)))
+ 
+ 	return *edge
+ }
+ 
++// addSize publishes queue changes while mu is held, including the final dequeue.
++func (b *edgebuf) addSize(delta int32) {
++	size := b.size.Add(delta)
++	if b.onSizeChanged != nil {
++		b.onSizeChanged(int(size))
++	}
++}
++
+ // len returns the number of children currently waiting in the buffer.
+ func (b *edgebuf) len() int {
+ 	b.mu.Lock()
+diff --git a/internal/buffer_test.go b/internal/buffer_test.go
+index 66f35f5..e932c23 100644
+--- a/internal/buffer_test.go
++++ b/internal/buffer_test.go
+@@ -90,3 +90,48 @@ func TestAccumulateSlice(t *testing.T) {
+ 	_, ok := <-consumer
+ 	assert.False(t, ok)
+ }
++
++type diagnosticPopBuffer struct {
++	edgebuf
++	popStarted  chan struct{}
++	popAllowed  chan struct{}
++	popFinished chan struct{}
++}
++
++func (b *diagnosticPopBuffer) pop() edge {
++	close(b.popStarted)
++	<-b.popAllowed
++	e := b.edgebuf.pop()
++	close(b.popFinished)
++	return e
++}
++
++func TestAccumulatePublishesFinalQueueSize(t *testing.T) {
++	metrics := newControllerMetrics(nil)
++	buf := &diagnosticPopBuffer{
++		edgebuf:     edgebuf{onSizeChanged: metrics.denormWaitingSet},
++		popStarted:  make(chan struct{}),
++		popAllowed:  make(chan struct{}),
++		popFinished: make(chan struct{}),
++	}
++	producer := make(chan edge)
++	consumer := accumulate(producer, buf)
++
++	producer <- edge{kind: workEdge, parentID: 1, childIDs: newSet(int64(2))}
++	delivered := <-consumer
++	<-buf.popStarted
++
++	before := metrics.denormWaitingGet()
++	close(buf.popAllowed)
++	<-buf.popFinished
++
++	assert.Equal(t, int64(1), delivered.parentID)
++	assert.Equal(t, 0, buf.len())
++	assert.Equal(t, 1.0, before)
++	assert.Equal(t, 0.0, metrics.denormWaitingGet())
++	t.Logf("edge delivered; queue=%d, metric=%g after final dequeue", buf.len(), metrics.denormWaitingGet())
++
++	close(producer)
++	_, ok := <-consumer
++	assert.False(t, ok)
++}
+diff --git a/internal/controller.go b/internal/controller.go
+index 9bd44b0..9e4ffd2 100644
+--- a/internal/controller.go
++++ b/internal/controller.go
+@@ -788,7 +788,7 @@ func (c *Controller) Run(ctx context.Context) {
+ 		}
+ 	}()
+ 
+-	denormBuf := &edgebuf{}
++	denormBuf := &edgebuf{onSizeChanged: c.metrics.denormWaitingSet}
+ 	denorms := accumulate(c.denormC, denormBuf)
+ 	for edge := range denorms {
+ 		ctx, cancel := context.WithTimeout(ctx, 1*time.Minute)
+@@ -813,7 +813,6 @@ func (c *Controller) Run(ctx context.Context) {
+ 			}
+ 		}
+ 		cancel()
+-		c.metrics.denormWaitingSet(denormBuf.len())
+ 	}
+ }
+ 
