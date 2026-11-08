@@ -308,6 +308,21 @@ cache rows were expired before activation, so fresh-cache hits are not claimed.
 The unchanged original public PEM root bundle is inherited from the pinned
 vendor filesystem; the same filtered read-only CA projection remains mounted.
 
+Production activation [PR434](https://github.com/blazepower/rishik-homelab-rke2/pull/434)
+passed all 16 exact-head checks and was applied through Flux. The running amd64
+image ID matches the selected manifest, whose actual registry ELF matches the
+accepted compiler, advisory and real-cache evidence. Its parent OCI index is
+`sha256:74232326290d6fa50bc5377771c0c008439ad21c3fba82f691b33af578109364`;
+the index and platform manifest are distinct, independently bound digests.
+The app is Ready with zero restarts, unchanged native command/security and exact
+filtered public CA bytes. The original PostgreSQL Pod UID, image, claim and
+mounts were preserved. Native live root 200 and genuine upstream 404 acceptance
+passed; expired historical cache is not reported as fresh-cache coverage.
+Post-rollout three-sample storage acceptance remained 29 attached/two-RW plus
+5 detached/two-clean original volumes. Completed retained rollback backups
+remain available. Temporary verification policies and the public checker in
+PostgreSQL's `/tmp` were removed; controller cordon and Kured suspension remain.
+
 ## cert-manager
 
 [cert-manager](https://cert-manager.io/) is deployed to automate TLS certificate management for services exposed via Ingress.
