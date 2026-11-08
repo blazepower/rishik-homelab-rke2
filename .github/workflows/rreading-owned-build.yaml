@@ -56,10 +56,11 @@ jobs:
           set -euo pipefail
           git init --quiet source
           git -C source remote add origin https://github.com/blazepower/rreading-glasses.git
-          git -C source fetch --quiet --depth 2 origin 524c9139707faa3e774b30a13bab688710b02ff2
+          git -C source fetch --quiet --depth 3 origin f3855259d93cb8d9899bb940155c571b08c53262
           git -C source checkout --quiet --detach FETCH_HEAD
-          test "$(git -C source rev-parse HEAD)" = 524c9139707faa3e774b30a13bab688710b02ff2
-          test "$(git -C source rev-parse HEAD^)" = ceb4d580f01a920e474ae14d5085ff6809771d22
+          test "$(git -C source rev-parse HEAD)" = f3855259d93cb8d9899bb940155c571b08c53262
+          test "$(git -C source rev-parse HEAD^)" = 524c9139707faa3e774b30a13bab688710b02ff2
+          test "$(git -C source rev-parse HEAD^^)" = ceb4d580f01a920e474ae14d5085ff6809771d22
           test -z "$(git -C source status --porcelain)"
           test "$(go version | awk '{print $3}')" = go1.27.3
           mkdir -p "$RUNNER_TEMP/rreading-image"
@@ -68,7 +69,7 @@ jobs:
             -o "$RUNNER_TEMP/rreading-image/main" ./cmd/rghc
           go mod verify
           go version -m "$RUNNER_TEMP/rreading-image/main" | tee "$RUNNER_TEMP/rreading-image/build-info.txt"
-          grep -F 'vcs.revision=524c9139707faa3e774b30a13bab688710b02ff2' "$RUNNER_TEMP/rreading-image/build-info.txt"
+          grep -F 'vcs.revision=f3855259d93cb8d9899bb940155c571b08c53262' "$RUNNER_TEMP/rreading-image/build-info.txt"
           grep -F 'vcs.modified=false' "$RUNNER_TEMP/rreading-image/build-info.txt"
           test -z "$(git status --porcelain)"
           cp LICENSE "$RUNNER_TEMP/rreading-image/LICENSE"
@@ -158,6 +159,7 @@ jobs:
             ${{ runner.temp }}/rreading-image/source.json
             ${{ runner.temp }}/rreading-image/build-info.txt
             ${{ runner.temp }}/rreading-image/advisories.json
+            ${{ runner.temp }}/rreading-image/*-vuln.jsonl
             ${{ runner.temp }}/rreading-image/published-digests.json
             ${{ runner.temp }}/rreading-image/LICENSE
           if-no-files-found: error

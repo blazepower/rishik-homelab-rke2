@@ -1,9 +1,17 @@
 {
   "repository": "https://github.com/blazepower/rreading-glasses.git",
-  "revision": "524c9139707faa3e774b30a13bab688710b02ff2",
+  "revision": "f3855259d93cb8d9899bb940155c571b08c53262",
+  "queue_fix_revision": "524c9139707faa3e774b30a13bab688710b02ff2",
   "upstream_revision": "ceb4d580f01a920e474ae14d5085ff6809771d22",
   "upstream_source_selection": "signed official unmerged PR587, not recovered factory source",
-  "owned_change": "queue-owned denormalization pending metric; upstream issue612",
+  "owned_change": "queue-owned denormalization pending metric (upstream issue612), plus advisory-fixed dependencies and their minimum required transitive versions",
+  "security_dependencies": {
+    "github.com/go-chi/chi/v5": "v5.3.0",
+    "github.com/jackc/pgx/v5": "v5.9.2",
+    "golang.org/x/net": "v0.62.0",
+    "golang.org/x/crypto": "v0.58.1-0.20261009181718-2f1f834330b2",
+    "golang.org/x/text": "v0.43.0"
+  },
   "compiler": "go1.27.3",
   "license": "GPL-3.0",
   "runtime": "docker.io/blampe/rreading-glasses:hardcover@sha256:3f017a51d9007b715303a20f481c822e4df66485fc9e5f57f6fdf1de840dc02f",
