@@ -38,6 +38,24 @@ env:
   CRDS_CATALOG_SCHEMA_LOCATION: "/tmp/crds-catalog/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json"
 
 jobs:
+  kyverno-image-policy:
+    name: Kyverno Image Policy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install native policy test dependencies
+        run: |
+          pip install PyYAML
+          curl --fail --location --retry 3 --output kyverno.tar.gz \
+            https://github.com/kyverno/kyverno/releases/download/v1.19.2/kyverno-cli_v1.19.2_linux_x86_64.tar.gz
+          echo '357eaf1df8bc24ddd5a73979fadeaae6a032e8710f11af264229756e4956bf4a  kyverno.tar.gz' | sha256sum --check
+          tar -xzf kyverno.tar.gz kyverno
+
+      - name: Test tag and registry rules with Kyverno 1.19.2
+        run: python3 -B .github/scripts/test-kyverno-image-policy.py --kyverno ./kyverno
+
   renovate-guardrails-test:
     name: renovate-guardrails-test
     runs-on: ubuntu-latest
