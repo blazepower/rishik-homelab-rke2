@@ -32,37 +32,28 @@ spec:
                 - longhorn-system
       validate:
         message: >-
-          Images tagged ':latest' are not allowed. Please use a specific version tag
-          for all containers.
+          Images tagged ':latest' or missing both a tag and digest are not allowed.
+          Please use a specific version tag or a digest pin for all containers.
         foreach:
           - list: "request.object.spec.containers"
             deny:
               conditions:
                 any:
-                  - key: "{{ element.image | contains(@, ':latest') }}"
-                    operator: Equals
-                    value: true
-                  - key: "{{ element.image | regex_match('^[^:]+$') }}"
+                  - key: "{{ regex_match('(^|/)[^/:@]+(:latest(@[^/]+)?)?$', element.image) }}"
                     operator: Equals
                     value: true
           - list: "request.object.spec.initContainers || []"
             deny:
               conditions:
                 any:
-                  - key: "{{ element.image | contains(@, ':latest') }}"
-                    operator: Equals
-                    value: true
-                  - key: "{{ element.image | regex_match('^[^:]+$') }}"
+                  - key: "{{ regex_match('(^|/)[^/:@]+(:latest(@[^/]+)?)?$', element.image) }}"
                     operator: Equals
                     value: true
           - list: "request.object.spec.ephemeralContainers || []"
             deny:
               conditions:
                 any:
-                  - key: "{{ element.image | contains(@, ':latest') }}"
-                    operator: Equals
-                    value: true
-                  - key: "{{ element.image | regex_match('^[^:]+$') }}"
+                  - key: "{{ regex_match('(^|/)[^/:@]+(:latest(@[^/]+)?)?$', element.image) }}"
                     operator: Equals
                     value: true
     - name: validate-trusted-registries
@@ -84,36 +75,27 @@ spec:
       validate:
         message: >-
           Images must come from trusted registries. All containers must use images from
-          an allowed registry: docker.io, ghcr.io, quay.io, gcr.io,
+          an allowed registry: docker.io (including index.docker.io), ghcr.io, quay.io, gcr.io,
           registry.k8s.io, mcr.microsoft.com, lscr.io, or Docker Hub library images.
         foreach:
           - list: "request.object.spec.containers"
             deny:
               conditions:
-                all:
-                  - key: "{{ element.image | regex_match('^[^/]+:[^/]+$') }}"
-                    operator: NotEquals
-                    value: true
-                  - key: "{{ element.image | starts_with(@, 'docker.io/') || element.image | starts_with(@, 'ghcr.io/') || element.image | starts_with(@, 'quay.io/') || element.image | starts_with(@, 'gcr.io/') || element.image | starts_with(@, 'registry.k8s.io/') || element.image | starts_with(@, 'mcr.microsoft.com/') || element.image | starts_with(@, 'lscr.io/') }}"
+                any:
+                  - key: "{{ regex_match('^(docker\\.io|index\\.docker\\.io|ghcr\\.io|quay\\.io|gcr\\.io|registry\\.k8s\\.io|mcr\\.microsoft\\.com|lscr\\.io)/', image_normalize(element.image)) }}"
                     operator: Equals
                     value: false
           - list: "request.object.spec.initContainers || []"
             deny:
               conditions:
-                all:
-                  - key: "{{ element.image | regex_match('^[^/]+:[^/]+$') }}"
-                    operator: NotEquals
-                    value: true
-                  - key: "{{ element.image | starts_with(@, 'docker.io/') || element.image | starts_with(@, 'ghcr.io/') || element.image | starts_with(@, 'quay.io/') || element.image | starts_with(@, 'gcr.io/') || element.image | starts_with(@, 'registry.k8s.io/') || element.image | starts_with(@, 'mcr.microsoft.com/') || element.image | starts_with(@, 'lscr.io/') }}"
+                any:
+                  - key: "{{ regex_match('^(docker\\.io|index\\.docker\\.io|ghcr\\.io|quay\\.io|gcr\\.io|registry\\.k8s\\.io|mcr\\.microsoft\\.com|lscr\\.io)/', image_normalize(element.image)) }}"
                     operator: Equals
                     value: false
           - list: "request.object.spec.ephemeralContainers || []"
             deny:
               conditions:
-                all:
-                  - key: "{{ element.image | regex_match('^[^/]+:[^/]+$') }}"
-                    operator: NotEquals
-                    value: true
-                  - key: "{{ element.image | starts_with(@, 'docker.io/') || element.image | starts_with(@, 'ghcr.io/') || element.image | starts_with(@, 'quay.io/') || element.image | starts_with(@, 'gcr.io/') || element.image | starts_with(@, 'registry.k8s.io/') || element.image | starts_with(@, 'mcr.microsoft.com/') || element.image | starts_with(@, 'lscr.io/') }}"
+                any:
+                  - key: "{{ regex_match('^(docker\\.io|index\\.docker\\.io|ghcr\\.io|quay\\.io|gcr\\.io|registry\\.k8s\\.io|mcr\\.microsoft\\.com|lscr\\.io)/', image_normalize(element.image)) }}"
                     operator: Equals
                     value: false
