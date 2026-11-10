@@ -72,6 +72,8 @@ class MaintenanceTests(unittest.TestCase):
         blocked = {**plan, "blockers": ["unsafe drain"]}
         with self.assertRaises(RuntimeError):
             m.check_plan(blocked, m.sha(m.canonical(blocked)), "cluster", now=101)
+        with patch.object(m, "HOST_BYTES", b"different executable source"), self.assertRaises(RuntimeError):
+            m.check_plan(plan, approval, "cluster", now=101)
 
     def storage(self, state="attached"):
         volume = {"metadata": {"name": "vol"}, "spec": {"numberOfReplicas": 2},

@@ -19,6 +19,8 @@ import uuid
 ROOT = Path(__file__).resolve().parents[2]
 POLICY = ROOT / "node-config" / "maintenance" / "policy.json"
 HOST = Path(__file__).with_name("node-maintenance-host.py")
+HOST_BYTES = HOST.read_bytes()
+HOST_SOURCE = HOST_BYTES.decode("utf-8").replace("\r\n", "\n")
 LOCK = "operator-node-maintenance"
 
 
@@ -71,7 +73,7 @@ def check_transition(current, target):
 
 def remote(node, payload, privileged=False):
     encoded = base64.b64encode(canonical(payload)).decode()
-    command = ["python3", "-c", HOST.read_text(encoding="utf-8"), encoded]
+    command = ["python3", "-c", HOST_SOURCE, encoded]
     if privileged:
         command = ["sudo", "systemd-run", "--unit=node-maintenance-" + payload["run_id"] + "-" + payload["operation"],
                    "--property=SendSIGKILL=no", "--property=KillMode=process",
@@ -408,7 +410,8 @@ def check_plan(plan, approval, cluster_uid, now=None):
     require(plan["action"] in ("os", "rke2"), "Unsupported maintenance operation")
     require(plan["policy_sha256"] == sha(POLICY.read_bytes())
             and plan["runner_sha256"] == sha(Path(__file__).read_bytes())
-            and plan["host_sha256"] == sha(HOST.read_bytes()), "Policy/maintenance code changed after approval")
+            and plan["host_sha256"] == sha(HOST.read_bytes()) == sha(HOST_BYTES),
+            "Policy/maintenance code changed after approval")
     require(not plan["blockers"], "Plan has unresolved blockers")
 
 
@@ -508,6 +511,7 @@ def apply(plan, approval, policy, recovery_directory, token_confirmed, compatibi
          "--from-literal=plan_sha256=" + approval)
     print("Maintenance lock acquired. Failure retains lock and the current node cordon.", flush=True)
     for node in plan["nodes"]:
+        check_plan(plan, approval, get("namespace", name="kube-system")["metadata"]["uid"])
         name, binding = node["name"], plan["bindings"][node["name"]]
         stable_health(policy)
         current = remote(node, {"operation": "audit"})
