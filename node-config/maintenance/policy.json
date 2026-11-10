@@ -1,0 +1,63 @@
+{
+  "ubuntu_lts": "26.04",
+  "kernel_package": "linux-generic",
+  "kernel": "7.0.0-43-generic",
+  "rke2_goal_minor": "1.37",
+  "rke2_releases": {
+    "1.35": {
+      "version": "v1.35.10+rke2r1",
+      "sha256": "4685cdac99b2288668b7f00b69e6848412949fbdc71ba065de7688b6b1647a70"
+    },
+    "1.36": {
+      "version": "v1.36.6+rke2r1",
+      "sha256": "e111ac6333ddb2b819d133a413914d4456dd2195a3d694865cb7acda5bf81ae4"
+    },
+    "1.37": {
+      "version": "v1.37.2+rke2r1",
+      "sha256": "0568f48d772c7feff7056062225d5ba82fb3f73ea7acaea63862fe601dae6d92"
+    }
+  },
+  "etcdutl": {
+    "3.6": {
+      "version": "v3.6.14",
+      "sha256": "ffe840ff9295808e88cce2794a18a5ac87f12a5203c8314d0bf6aa119b41bac5"
+    },
+    "3.7": {
+      "version": "v3.7.1",
+      "sha256": "e8cd3fa8064c98137c5dbd78b76f969417ace84efb83c481041d7a52ffdd8fb9"
+    }
+  },
+  "quarantined_volumes": [
+    "pvc-4d89c9aa-74e2-4951-951b-8deec1edc4a0",
+    "pvc-9ac577de-192a-4cff-8803-e0a212d5e0d4"
+  ],
+  "nodes": [
+    {
+      "name": "rishik-controller",
+      "ssh": "rishik@192.168.1.10",
+      "role": "server"
+    },
+    {
+      "name": "rishik-worker2",
+      "ssh": "rishik@192.168.1.12",
+      "role": "agent"
+    },
+    {
+      "name": "rishik-worker1",
+      "ssh": "rishik@192.168.1.11",
+      "role": "agent"
+    }
+  ],
+  "storage_namespace": "storage",
+  "probe_urls": [
+    "https://plex.homelab/identity",
+    "https://vault.homelab/"
+  ],
+  "compatibility_sources": [
+    "https://docs.rke2.io/upgrades/manual",
+    "https://www.suse.com/suse-rke2/support-matrix/all-supported-versions/rke2-v1-36/",
+    "https://www.suse.com/suse-rke2/support-matrix/all-supported-versions/rke2-v1-37/",
+    "https://longhorn.io/docs/",
+    "https://kyverno.io/docs/installation/"
+  ]
+}
