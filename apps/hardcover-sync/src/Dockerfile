@@ -1,5 +1,5 @@
 # Multi-stage build for Hardcover Sync
-FROM golang:1.27.3-bookworm AS build
+FROM golang:1.27.4-bookworm AS build
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
