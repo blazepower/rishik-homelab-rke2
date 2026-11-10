@@ -1,5 +1,8 @@
 # Node Bootstrap
 
+For ongoing Ubuntu LTS/kernel/RKE2 upgrades and headless server maintenance,
+see [Guarded node maintenance](node-maintenance.md).
+
 ## Node Requirements
 
 This section documents the requirements for nodes joining the cluster.

@@ -1,0 +1,65 @@
+name: Node Maintenance Proposals
+
+on:
+  schedule:
+    - cron: '21 15 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: node-maintenance-proposals
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  propose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+    steps:
+      - name: Checkout default branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: master
+
+      - name: Discover official pinned RKE2 releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -B .github/scripts/node-maintenance.py discover
+
+      - name: Test maintenance safeguards
+        run: python3 -B .github/scripts/test-node-maintenance.py
+
+      - name: Open a reviewed proposal and explicitly run CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          policy=node-config/maintenance/policy.json
+          if git diff --quiet -- "$policy"; then
+            echo 'Pinned RKE2 patches are current. No node access or changes occurred.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          branch="automation/node-maintenance-$(sha256sum "$policy" | cut -c1-16)"
+          if [ -n "$(gh pr list --state all --head "$branch" --json number --jq '.[0].number // empty')" ]; then
+            echo "Existing proposal (open, merged or deliberately closed): $branch" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if ! gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$branch" >/dev/null 2>&1; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git switch -c "$branch"
+            git add -- "$policy"
+            git commit -m 'chore(nodes): propose pinned RKE2 patch releases'
+            git push origin "$branch"
+          fi
+          gh pr create --base master --head "$branch" \
+            --title 'chore(nodes): review pinned RKE2 patch releases' \
+            --body 'Review-only pins; no host access, approval or automerge. Review compatibility and use the guarded local workflow, one minor at a time: docs/node-maintenance.md.'
+          # GITHUB_TOKEN PR events do not trigger CI. Dispatch it explicitly.
+          gh workflow run ci.yaml --ref "$branch"
+          echo 'Opened a review-only proposal and dispatched CI; no node maintenance ran.' >> "$GITHUB_STEP_SUMMARY"
