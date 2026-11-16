@@ -70,6 +70,11 @@ held `tag: 5.33.2`. Every reconcile therefore restored the broken image.
   one minor of the API server, so `1.37.x` is not safe against this cluster.
 - **Infrastructure charts have independent PRs**, rather than one bundle
   coupling admission, storage, networking and scheduling controllers.
+- **Owned HTTP add-on runtimes stay paired with chart `0.16.0`.** Review new
+  chart CRDs/RBAC and the matching application source before changing that
+  exact ceiling or any of the three owned digests. Source/binary advisory,
+  unchanged-filesystem, native HTTP scaling and anonymous publication gates
+  must pass again. Core KEDA remains independently eligible for updates.
 - **Longhorn chart automation is held at the existing exact pin.** Resume it
   only after a dedicated storage upgrade review covers backup/restore,
   engine versions, replica health and maintenance capacity. This hold does
