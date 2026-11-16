@@ -134,8 +134,8 @@ def native(image, scratch, suffix):
                      image, *log_args, check=False)
         assert log.returncode == 0, log.stdout
         invalid = docker("run", "--rm", *restrictions, "--entrypoint", "/home/kubernetes/bin/log-counter",
-                         image, *log_args, "--pattern=[", check=False)
-        assert invalid.returncode == 2 and "error parsing regexp" in invalid.stdout, invalid.stdout
+                         image, *log_args, "--lookback=invalid", check=False)
+        assert invalid.returncode == 2 and "invalid duration" in invalid.stdout, (invalid.returncode, invalid.stdout)
         health_args = ["--component=cri", "--enable-repair=false", "--crictl-path=/fixture/crictl",
                        "--cri-socket-path=unix:///fixture/synthetic.sock", "--health-check-timeout=2s"]
         health = docker("run", "--rm", *restrictions, "--entrypoint", "/home/kubernetes/bin/health-checker",
@@ -150,9 +150,9 @@ def native(image, scratch, suffix):
         return {"version": version, "condition_gauge_values": [0, 1, 0],
                 "memory_limit_bytes": 134217728, "cpu_limit_cores": 0.1, "oom_killed": False,
                 "condition_samples": transitions, "empty_journal_exit": log.returncode,
-                "invalid_journal_regex_exit": invalid.returncode, "synthetic_cri_healthy_exit": health.returncode,
+                "invalid_journal_lookback_exit": invalid.returncode, "synthetic_cri_healthy_exit": health.returncode,
                 "synthetic_cri_failed_exit": unhealthy.returncode,
-                "scope": "Disposable custom-plugin transitions, empty journal/library ABI, invalid regex and "
+                "scope": "Disposable custom-plugin transitions, empty journal/library ABI, invalid duration and "
                          "synthetic CRI command. Repair disabled; no host PID, devices, journal, socket, "
                          "kubeconfig, cluster API, public TLS or private data. Not a real-journal/API proof."}
     finally:
@@ -200,7 +200,7 @@ def main():
         report["binaries"] = binary_proof(tag, lock, scratch)
         report["vendor_native"] = native(lock["vendor"], scratch, "vendor")
         report["native"] = native(tag, scratch, "owned")
-        for key in ("version", "condition_gauge_values", "empty_journal_exit", "invalid_journal_regex_exit",
+        for key in ("version", "condition_gauge_values", "empty_journal_exit", "invalid_journal_lookback_exit",
                     "synthetic_cri_healthy_exit", "synthetic_cri_failed_exit"):
             assert report["native"][key] == report["vendor_native"][key], key
         if args.publish:

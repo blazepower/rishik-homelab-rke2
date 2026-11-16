@@ -21,7 +21,10 @@ The runtime inherits the exact supported-minor vendor filesystem/configuration,
 replacing only three programs and adding provenance. Debian libraries are not
 claimed patched by this compiler change. Native CI compares vendor and owned
 custom-plugin healthy/failure/recovery metrics, deliberately empty journal
-library operation and invalid-regex failure, plus synthetic CRI success/failure.
+library operation and invalid-lookback failure, plus synthetic CRI success/failure.
+Upstream only evaluates regexes while processing records; an empty journal
+cannot establish malformed-regex rejection. The negative fixture instead uses
+an eagerly validated duration and requires the actual parse error/Unknown exit.
 Everything runs network-none, read-only and capability-free with repair disabled;
 the actual current 100m CPU/128Mi memory limits are exercised without raising
 production resources, and the detector must remain running without OOM.
@@ -49,5 +52,11 @@ it does not claim to measure real API request rates. The active chart 2.3.14
 supports `image.digest` and `settings.extraArgs`; pin that exact chart on
 activation rather than leaving the existing wildcard version.
 
-Keep
-the controller cordoned and Kured suspended; this is not node maintenance.
+The reviewed Debian factory still has OS package findings, including the fixed
+APT advisory CVE-2026-109518 (`apt` and `libapt-pkg6.0` 2.6.1 -> 2.6.2).
+The compiler-only producer does not remediate those findings or authorize
+activation without the separate runtime-package assessment/patch. Retain all
+raw severities, including UNKNOWN, and distinguish source-package records
+from actual component applicability rather than silently excluding them.
+
+Keep the controller cordoned and Kured suspended; this is not node maintenance.
