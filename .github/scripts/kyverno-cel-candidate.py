@@ -201,7 +201,7 @@ def build():
                 if scalar_delete:
                     # The legacy scalar deny audits the deleted resource; pattern/foreach rules skip.
                     spec["variables"][0]["expression"] = (
-                        f"object != null ? {POD_SPEC} : {inline(POD_SPEC, 'oldObject')}"
+                        f"request.operation != 'DELETE' ? {POD_SPEC} : {inline(POD_SPEC, 'oldObject')}"
                     )
             candidates.append({
                 "apiVersion": API, "kind": "ValidatingPolicy",

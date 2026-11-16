@@ -130,6 +130,17 @@ func run() error {
 		if err := json.Unmarshal(wire, &admission); err != nil {
 			return err
 		}
+		objectNull := len(admission.Object.Raw) == 0 || string(admission.Object.Raw) == "null"
+		oldNull := len(admission.OldObject.Raw) == 0 || string(admission.OldObject.Raw) == "null"
+		if test.Operation == "DELETE" && (!objectNull || oldNull) {
+			return fmt.Errorf("%s: DELETE wire payload must contain only the old object", test.ID)
+		}
+		if test.Operation == "CREATE" && (objectNull || !oldNull) {
+			return fmt.Errorf("%s: CREATE wire payload must contain only the new object", test.ID)
+		}
+		if test.Operation == "UPDATE" && (objectNull || oldNull) {
+			return fmt.Errorf("%s: UPDATE wire payload must contain distinct old/new slots", test.ID)
+		}
 		response, err := engine.Handle(
 			context.Background(), celengine.RequestFromAdmission(libs.GetLibsCtx(), admission),
 			func(policy policies.ValidatingPolicyLike) bool { return policy.GetName() == test.Policy },
