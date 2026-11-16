@@ -15,6 +15,23 @@ kubeconfigs or put cluster credentials in GitHub. Run from a real terminal;
 keep it open throughout maintenance. Do not pipe its input or run `apply`
 through an assistant's noninteractive command runner.
 
+Application downtime, including multiple applications together, is accepted.
+The maximum restoration budget is **12 hours**. The runner starts this clock
+conservatively at lock acquisition, before any drain, and persists the UTC start
+and deadline in the non-expiring lock and local technical evidence. It reserves
+the final two hours for recovery instead of starting another disruptive step.
+Wall-clock and monotonic elapsed time are both checked; clock rollback cannot
+extend a running batch. A failed/interrupted run cannot reset the clock by
+starting another run because its lock remains held.
+
+Recovery waits and each host's pre-mutation gate honor this deadline. Reaching
+the reserve stops new disruption; it does not kill an in-progress package
+manager, forcibly reboot a host, or perform an automatic restore. This is a
+fail-stop recovery budget, not an unconditional guarantee after hardware
+failure. Do not start without a credible recovery path inside the limit.
+Application downtime consent does not bypass PDB, storage or locality gates:
+those still require exact workload-specific maintenance design.
+
 Ubuntu stays on **26.04 LTS**, with its supported `linux-generic` kernel
 metapackage. No mainline/PPA kernels, interim-release upgrade, package purge,
 autoremove, replica reduction or eviction/PDB bypass is performed. Existing
@@ -104,6 +121,12 @@ server token, required for recovery, and acknowledge this with
 integrity/native status is **not** a restore rehearsal. The current supported
 layout is the existing tarball RKE2 install and default data/snapshot paths;
 custom layouts stop rather than guessing.
+
+The controller's off-node directory mount, owner and mode are checked through
+read-only SSH **before any node is cordoned**, even for a worker-first OS run.
+This stops a missing recovery destination before worker disruption rather than
+discovering it only when the controller's snapshot stage is reached. The
+privileged snapshot stage repeats these checks and verifies the actual copy.
 
 After resolving blockers and reviewing the complete plan, replace the
 placeholders below. **Do not run while a plan contains blockers.**

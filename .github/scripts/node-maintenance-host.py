@@ -117,8 +117,8 @@ def validate_snapshot(path):
     return digest(path)
 
 
-def backup(payload, work):
-    recovery = Path(payload["recovery_directory"]).resolve()
+def recovery_directory(path):
+    recovery = Path(path).resolve()
     require(recovery.is_dir(), "Protected recovery directory must already exist")
     mount = json.loads(command(["findmnt", "-J", "-T", str(recovery), "-o", "TARGET,FSTYPE"]))["filesystems"][0]
     require(mount["target"] != "/" and mount["fstype"] in ("nfs", "nfs4", "cifs"),
@@ -126,6 +126,11 @@ def backup(payload, work):
     metadata = recovery.stat()
     require(metadata.st_uid == 0 and stat.S_IMODE(metadata.st_mode) == 0o700,
             "Recovery directory must be root-owned mode 0700")
+    return recovery
+
+
+def backup(payload, work):
+    recovery = recovery_directory(payload["recovery_directory"])
     prefix = "node-maintenance-" + payload["run_id"]
     started = time.time()
     command(["/usr/local/bin/rke2", "etcd-snapshot", "save", "--name", prefix,
@@ -230,6 +235,10 @@ def main(payload):
     if operation == "audit":
         print(json.dumps(audit()))
         return
+    if operation == "recovery-audit":
+        recovery_directory(payload["recovery_directory"])
+        print(json.dumps({"off_node_directory_verified": True}))
+        return
     require(os.geteuid() == 0 and platform.machine() == "x86_64", "Root on amd64 is required")
     require(re.fullmatch(r"[a-f0-9]{32}", payload["run_id"]) is not None, "Invalid run identifier")
     state = audit()
@@ -245,6 +254,8 @@ def main(payload):
         guard.unlink()
         command(["systemctl", "daemon-reload"])
         return
+    require(payload["deadline_epoch"] - time.time() > payload["recovery_reserve_seconds"],
+            "Host reached restoration reserve; do not start a disruptive step")
     directory = Path("/var/lib/node-maintenance") / payload["run_id"]
     directory.mkdir(mode=0o700, parents=True, exist_ok=False)
     os.chmod(directory.parent, 0o700)
@@ -256,6 +267,8 @@ def main(payload):
         },
     }))
     recovery = backup(payload, directory) if payload["role"] == "server" else None
+    require(payload["deadline_epoch"] - time.time() > payload["recovery_reserve_seconds"],
+            "Backup/preflight consumed the restoration reserve; do not change host services")
     if operation == "os":
         result = os_upgrade(payload)
     else:
