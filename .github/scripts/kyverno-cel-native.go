@@ -35,6 +35,7 @@ type testCase struct {
 	Expected          string                     `json:"expected"`
 	ExpectedException bool                       `json:"expectedException"`
 	ExpectedActions   []string                   `json:"expectedActions"`
+	LegacyExpected    string                     `json:"legacyExpected"`
 }
 
 type suite struct {

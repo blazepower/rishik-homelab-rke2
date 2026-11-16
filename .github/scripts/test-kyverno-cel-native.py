@@ -23,6 +23,7 @@ SPEC.loader.exec_module(candidate)
 KINDS = ("Pod", "Deployment", "DaemonSet", "StatefulSet", "ReplicaSet",
          "ReplicationController", "Job", "CronJob")
 USER = "system:serviceaccount:policy-test:synthetic"
+AUDIT_REPAIR = "require-run-as-nonroot"
 
 
 def resource(kind, spec, namespace="policy-test", name="fixture"):
@@ -200,6 +201,10 @@ def fixtures(policies, exceptions):
             ["spec"]["validationFailureAction"] == "Enforce" else "Audit"
         ] for policy in policies
     }
+    original_names = {
+        policy["metadata"]["name"]: policy["metadata"]["labels"]["homelab.rishik.dev/legacy-policy"]
+        for policy in policies
+    }
 
     def add(policy, label, obj, expected, old=None, operation="CREATE", subresource="",
             username=USER, exception=False, keep_name=False):
@@ -213,6 +218,10 @@ def fixtures(policies, exceptions):
             "oldObject": old, "operation": operation, "subresource": subresource,
             "username": username, "expected": expected, "expectedException": exception,
             "expectedActions": actions[policy],
+            # The pinned original uses the identifier `false`, not the JSON literal.
+            # Its Audit check passes all Boolean false/missing cases; CEL repairs reporting only.
+            "legacyExpected": "pass" if original_names[policy] == AUDIT_REPAIR
+            and expected != "skip" else expected,
         })
 
     for policy in policies:
@@ -354,7 +363,8 @@ def baseline(suite, cli, evidence, directory):
         source = deepcopy(sources[source_name])
         source["spec"]["rules"] = [rule for rule in source["spec"]["rules"] if rule["name"] == rule_name]
         cases = [case for case in suite["cases"] if case["policy"] == policy["metadata"]["name"]
-                 and case["operation"] == "CREATE" and case["username"] and not case["subresource"]]
+                 and case["operation"] in ("CREATE", "DELETE")
+                 and case["username"] and not case["subresource"]]
         folder = directory / policy["metadata"]["name"]
         folder.mkdir()
         (folder / "policy.yaml").write_text(yaml.safe_dump(source), encoding="utf-8")
@@ -362,7 +372,7 @@ def baseline(suite, cli, evidence, directory):
             [source for source in sources.values() if source["kind"] == "PolicyException"]
         ), encoding="utf-8")
         (folder / "resources.yaml").write_text(yaml.safe_dump_all(
-            [case["object"] for case in cases]
+            [case["object"] or case["oldObject"] for case in cases]
         ), encoding="utf-8")
         (folder / "userinfo.yaml").write_text(yaml.safe_dump({
             "apiVersion": "cli.kyverno.io/v1alpha1", "kind": "UserInfo",
@@ -370,14 +380,15 @@ def baseline(suite, cli, evidence, directory):
         }), encoding="utf-8")
         results = []
         for case in cases:
-            kind = case["object"]["kind"]
+            resource = case["object"] or case["oldObject"]
+            kind = resource["kind"]
             prefix = "" if kind in ("Pod", "Namespace") else (
                 "autogen-cronjob-" if kind == "CronJob" else "autogen-"
             )
             results.append({
                 "policy": source_name, "rule": prefix + rule_name, "kind": kind,
-                "resources": [case["object"]["metadata"]["name"]],
-                "result": case["expected"],
+                "resources": [resource["metadata"]["name"]], "operation": case["operation"],
+                "result": case["legacyExpected"],
             })
         (folder / "kyverno-test.yaml").write_text(yaml.safe_dump({
             "apiVersion": "cli.kyverno.io/v1alpha1", "kind": "Test",
@@ -404,6 +415,12 @@ def run(args):
                "sdk_version": args.sdk_version, "requests_expected": len(suite["cases"]),
                "policies": len(policies), "exceptions": len(exceptions),
                "production_activation": False}
+    receipt["intentional_audit_repair"] = {
+        "policy": AUDIT_REPAIR,
+        "original": "unquoted false identifier makes the Boolean false/missing Audit cases pass",
+        "candidate": "report these existing violations as Audit failures; never deny admission",
+        "production_activated": False,
+    }
     (evidence / "evidence.json").write_text(json.dumps(receipt, indent=2), encoding="utf-8")
     if args.fixtures_only:
         print(f"Generated {len(suite['cases'])} synthetic requests; no native acceptance claimed")

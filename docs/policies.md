@@ -61,11 +61,15 @@ violation/recovery review. The admission-only infrastructure exceptions must
 not hide background violations: the actual versioned background scanner
 constructs CREATE requests with empty UserInfo.
 
-This is a compatibility migration, not a claim of complete Pod Security
-Standards coverage. For example, the original run-as-nonroot Audit rule accepts
-pod-level true even when a container explicitly sets false, and the original
-AppArmor Audit rule inspects legacy annotations. Their separate hardening and
-modern-field review must precede any promotion to Enforce.
+This is not a claim of complete Pod Security Standards coverage. One explicit
+Audit reporting repair is held with the migration: the original run-as-nonroot
+rule uses unquoted `false` (a JMESPath identifier, not the JSON literal), and
+actual original-engine fixtures passed all tested false/missing Boolean cases.
+Legacy expectations retain that observed result; the CEL candidate must report
+the violations as **Audit**, not deny admission. Both receipts remain distinct.
+Pod-level true still satisfies that legacy rule even when a container sets
+false, and the AppArmor Audit rule still inspects legacy annotations. Their
+separate hardening and modern-field review must precede promotion to Enforce.
 
 The isolated acceptance workflow uses the actual 1.19.2 release CLI for legacy
 CREATE baselines, then builds the shared engine from checksum-verified upstream
