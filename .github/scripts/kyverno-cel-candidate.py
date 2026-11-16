@@ -131,7 +131,7 @@ def inline(expression, root="object"):
     return re.sub(r"\bobject\b", root, value)
 
 
-def resource_rules(pod):
+def resource_rules(pod, operations):
     # Legacy Pod webhooks also cover ephemeral-container admission.
     groups = [
         ("", ["pods", "pods/ephemeralcontainers", "replicationcontrollers"]),
@@ -139,7 +139,7 @@ def resource_rules(pod):
         ("batch", ["jobs", "cronjobs"]),
     ] if pod else [("", ["namespaces"])]
     return [
-        {"apiGroups": [group], "apiVersions": ["v1"], "operations": ["CREATE", "UPDATE"],
+        {"apiGroups": [group], "apiVersions": ["v1"], "operations": operations,
          "resources": resources}
         for group, resources in groups
     ]
@@ -172,6 +172,7 @@ def build():
         for rule in policy["spec"]["rules"]:
             key = policy_name, rule["name"]
             expression = EXPRESSIONS[key]
+            scalar_delete = key == ("restrict-seccomp", "restrict-seccomp-pod")
             seen.add(key)
             name = candidate_name(*key)
             pod = rule["match"]["any"][0]["resources"]["kinds"] == ["Pod"]
@@ -185,7 +186,9 @@ def build():
                 "failurePolicy": "Fail",
                 "evaluation": {"admission": {"enabled": True}, "background": {"enabled": True}},
                 "validationActions": ["Deny" if action == "Enforce" else "Audit"],
-                "matchConstraints": {"resourceRules": resource_rules(pod)},
+                "matchConstraints": {"resourceRules": resource_rules(
+                    pod, ["CREATE", "UPDATE", "DELETE"] if scalar_delete else ["CREATE", "UPDATE"]
+                )},
                 "matchConditions": conditions,
                 "validations": [{"expression": expression, "message": rule["validate"]["message"]}],
             }
@@ -195,6 +198,11 @@ def build():
                     {"name": "podMetadata", "expression": POD_METADATA},
                     {"name": "containers", "expression": CONTAINERS},
                 ]
+                if scalar_delete:
+                    # The legacy scalar deny audits the deleted resource; pattern/foreach rules skip.
+                    spec["variables"][0]["expression"] = (
+                        f"object != null ? {POD_SPEC} : {inline(POD_SPEC, 'oldObject')}"
+                    )
             candidates.append({
                 "apiVersion": API, "kind": "ValidatingPolicy",
                 "metadata": {

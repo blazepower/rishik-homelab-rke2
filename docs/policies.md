@@ -71,6 +71,11 @@ Pod-level true still satisfies that legacy rule even when a container sets
 false, and the AppArmor Audit rule still inspects legacy annotations. Their
 separate hardening and modern-field review must precede promotion to Enforce.
 
+DELETE compatibility is checked with the actual operation-aware legacy CLI.
+The scalar pod-seccomp deny rule audits the deleted old object; the reviewed
+pattern and foreach rules skip it. The candidate retains that distinction,
+including valid and excluded DELETE cases, rather than broadly ignoring deletes.
+
 The isolated acceptance workflow uses the actual 1.19.2 release CLI for legacy
 CREATE baselines, then builds the shared engine from checksum-verified upstream
 Go modules for **both 1.19.2 and 1.20.0**. The synthetic wire-request harness

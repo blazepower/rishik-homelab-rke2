@@ -259,8 +259,13 @@ def fixtures(policies, exceptions):
                 add(name, f"{rule_name}-{kind}-update-{expected}", new, expected, old,
                     operation="UPDATE", exception=expected == "skip")
             deletion = deepcopy(bad)
-            add(name, f"{rule_name}-{kind}-delete", deletion, "skip", deletion, operation="DELETE")
+            add(name, f"{rule_name}-{kind}-delete", deletion,
+                "fail" if rule_name == "restrict-seccomp-pod" else "skip",
+                deletion, operation="DELETE")
             cases[-1]["object"] = None
+            if rule_name == "restrict-seccomp-pod":
+                add(name, f"{rule_name}-{kind}-delete-valid", good, "pass", good, operation="DELETE")
+                cases[-1]["object"] = None
 
         exclusions = rule["exclude"]["any"][0]["resources"]
         for excluded in exclusions.get("namespaces", exclusions.get("names", [])):
@@ -270,12 +275,19 @@ def fixtures(policies, exceptions):
             else:
                 obj["metadata"]["namespace"] = excluded
             add(name, rule_name + "-excluded-" + excluded, obj, "skip", keep_name=kind == "Namespace")
+            if rule_name == "restrict-seccomp-pod":
+                add(name, rule_name + "-delete-excluded-" + excluded, obj, "skip",
+                    obj, operation="DELETE")
+                cases[-1]["object"] = None
         obj = deepcopy(bad)
         if kind == "Namespace":
             obj["metadata"]["name"] = exclusions["names"][0] + "-untrusted"
         else:
             obj["metadata"]["namespace"] = exclusions["namespaces"][0] + "-untrusted"
         add(name, rule_name + "-exclusion-lookalike", obj, "fail")
+        if rule_name == "restrict-seccomp-pod":
+            add(name, rule_name + "-delete-exclusion-lookalike", obj, "fail", obj, operation="DELETE")
+            cases[-1]["object"] = None
 
     for field in ("privileged", "hostPort"):
         rule = "deny-privileged-containers" if field == "privileged" else "deny-host-ports"
