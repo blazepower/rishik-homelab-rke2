@@ -1,16 +1,43 @@
 {
-  "scope": "Approved exact-version owned compiler derivatives; not historical running-image evidence or universal TLS certification.",
+  "scope": "Approved exact-version owned compiler derivatives, including only explicitly declared per-image dependency/runtime package overlays. Per-image publication is authoritative. Not historical running-image evidence or universal TLS certification.",
   "publication": "https://github.com/blazepower/rishik-homelab-rke2/actions/runs/43814769131",
   "images": {
     "gluetun": {
-      "declared_imageID": "ghcr.io/blazepower/maintained-gluetun@sha256:c74b287ddbb7c9b48c31ef147476c9e4ed6a338b993b018250c829f9e5dd9ed7",
+      "declared_imageID": "ghcr.io/blazepower/maintained-gluetun@sha256:eecee96bbad403ce78ae426f8aeee37a99ec2244eda5c8fb23ad1e2ce3b19f63",
       "factory_amd64": "docker.io/qmcgaw/gluetun@sha256:1baa76576dea1dfbafbd62bb635daf40fd87171f63273c2fdfe630418783011e",
       "application_version": "v3.41.3",
       "source_revision": "3d1e20c5551e9cae1f9d938dc7b7214a6987f27e",
       "source_repository": "https://github.com/passteque/gluetun",
       "compiler": "go1.27.4",
-      "publication": "https://github.com/blazepower/rishik-homelab-rke2/actions/runs/43814769131",
-      "binary_sha256": "771616685d8a969f6222d39b405f3f2b06f0516af4c3c4a7e969319de53fc97b",
+      "publication": "https://github.com/blazepower/rishik-homelab-rke2/actions/runs/43849975870",
+      "recipe_revision": "90986639986252279d1849d5a2f2cc17b455a691",
+      "binary_sha256": "2898e01ca3e4f897fd9886a7ba59eb383143e75cf3d3e7de27ff93afcba459ea",
+      "security_overlay": {
+        "patch_sha256": "53bf806c4272829b48727880b99e2751a9c8b430db4d8b512326008cd27f2185",
+        "module_sha256": {
+          "go.mod": "944f0e06724506d6acaf39d4e42487cba27c0a709c7a000aab09b7ca26862013",
+          "go.sum": "c2657f5f4effd6789758b5ee46b3eee6b9a7a146029fbfa300af20e85c91b1c2"
+        },
+        "modules": {
+          "github.com/cloudflare/circl": "v1.6.5",
+          "github.com/klauspost/compress": "v1.20.4",
+          "golang.org/x/crypto": "v0.59.0",
+          "golang.org/x/net": "v0.62.0",
+          "golang.org/x/text": "v0.44.0"
+        },
+        "runtime_packages": {
+          "pcre2": "10.46-r1"
+        },
+        "advisory_assessment": {
+          "scanner": "govulncheck v1.9.0",
+          "database_last_modified": "2026-11-11T02:51:11Z",
+          "source_symbol_or_package_wide_findings": 0,
+          "binary_symbol_or_package_wide_findings": 0,
+          "source_module_advisory_ids": [],
+          "binary_module_advisory_ids": [],
+          "scope": "Actual source and published ELF against the recorded database; not live hostile-input, whole-rootfs, future-advisory or forensic clearance."
+        }
+      },
       "vendor_public_stores_preserved": true
     },
     "stash": {
