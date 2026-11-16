@@ -1,0 +1,34 @@
+[Unit]
+Description=Read-only Ubuntu patch and reboot observations
+After=local-fs.target
+
+[Service]
+Type=oneshot
+User=homelab-node-observer
+Group=homelab-node-observer
+ExecStart=/usr/bin/python3 -B /usr/local/libexec/homelab-node-observer.py --output /var/lib/homelab-node-observer/node-maintenance.prom
+StateDirectory=homelab-node-observer
+StateDirectoryMode=0755
+UMask=0022
+Environment=LC_ALL=C
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+RestrictAddressFamilies=AF_UNIX
+IPAddressDeny=any
+CapabilityBoundingSet=
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+TimeoutStartSec=90
+MemoryMax=256M
+CPUQuota=10%
+Nice=19
+IOSchedulingClass=idle

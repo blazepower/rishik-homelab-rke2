@@ -36,10 +36,50 @@ spec:
             summary: "Critical swap usage on {{ $labels.instance }}"
             description: "Swap usage is above 95% on node {{ $labels.instance }} (current value: {{ $value | printf \"%.1f\" }}%)."
 
-    - name: kured-alerts
+    - name: node-maintenance-observations
       rules:
-        - alert: KuredRebootRequired
-          expr: kured_reboot_required > 0
+        - record: homelab:node_observer_recent:current
+          expr: >-
+            (homelab_node_observer_last_attempt_seconds <= time())
+            and (homelab_node_observer_last_attempt_seconds >= time() - 1800)
+
+        - record: homelab:node_reboot_flag:current
+          expr: >-
+            max by (node) (
+              ((homelab_node_reboot_required == 0) or (homelab_node_reboot_required == 1))
+              and homelab:node_observer_recent:current
+              and ignoring (check) (homelab_node_observer_check_success{check="reboot"} == 1)
+            )
+
+        - record: homelab:node_kernel_abi_pending:current
+          expr: >-
+            max by (node) (
+              ((homelab_node_kernel_abi_pending == 0) or (homelab_node_kernel_abi_pending == 1))
+              and homelab:node_observer_recent:current
+              and ignoring (check) (homelab_node_observer_check_success{check="kernel"} == 1)
+            )
+
+        - record: homelab:node_security_updates_available:current
+          expr: >-
+            max by (node) (
+              (homelab_node_apt_security_updates_available >= 0)
+              and homelab:node_observer_recent:current
+              and ((homelab_node_apt_security_metadata_seconds <= time())
+                   and (homelab_node_apt_security_metadata_seconds >= time() - 86400))
+              and ignoring (check) (homelab_node_observer_check_success{check="security"} == 1)
+            )
+
+        - record: homelab:node_reboot_required:current
+          expr: >-
+            (homelab:node_reboot_flag:current == 1)
+            or on (node) (homelab:node_kernel_abi_pending:current == 1)
+            or on (node) (
+              (homelab:node_reboot_flag:current == 0)
+              and on (node) (homelab:node_kernel_abi_pending:current == 0)
+            )
+
+        - alert: NodeRebootRequired
+          expr: homelab:node_reboot_required:current > 0
           for: 24h
           labels:
             severity: warning
@@ -47,8 +87,8 @@ spec:
             summary: "Node {{ $labels.node }} requires reboot"
             description: "Node {{ $labels.node }} has required a reboot for more than 24 hours. Consider scheduling maintenance."
 
-        - alert: KuredRebootPending
-          expr: kured_reboot_required > 0
+        - alert: NodeRebootPending
+          expr: homelab:node_reboot_required:current > 0
           for: 1h
           labels:
             severity: info
@@ -57,17 +97,48 @@ spec:
             description: "Node {{ $labels.node }} requires a reboot. Use guarded node maintenance; do not assume automatic reboot is enabled."
 
         - alert: NodeRebootTelemetryMissing
-          expr: kube_node_info unless on(node) kured_reboot_required
+          expr: max by (node) (kube_node_info) unless on (node) homelab:node_reboot_required:current
           for: 15m
           labels:
             severity: warning
           annotations:
             summary: "Reboot telemetry missing for {{ $labels.node }}"
             description: >-
-              Kubernetes reports this node but no reboot-required sample is available.
-              Existing reboot alerts cannot distinguish a patched node from missing
-              telemetry. Check the observer without enabling autonomous reboots;
+              Kubernetes reports this node but current reboot state is unknown.
+              A known positive flag or newer installed ABI is sufficient; a zero
+              needs both independent checks to be current and successful.
+              Check the observer without enabling autonomous reboots;
               use the local node-maintenance audit to inspect actual host state.
+
+        - alert: NodePatchTelemetryMissing
+          expr: >-
+            max by (node) (kube_node_info) unless on (node) (
+              homelab:node_reboot_flag:current
+              and on (node) homelab:node_kernel_abi_pending:current
+              and on (node) homelab:node_security_updates_available:current
+            )
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Patch telemetry unknown for {{ $labels.node }}"
+            description: >-
+              A reboot, kernel ABI or cached Ubuntu security check is missing, failed
+              or stale. Observer attempts must be no older than 30 minutes and active
+              security release metadata no older than 24 hours. Inspect the observer
+              and APT refresh; a missing sample is not zero patches or permission to reboot.
+
+        - alert: NodeSecurityUpdatesAvailable
+          expr: homelab:node_security_updates_available:current > 0
+          for: 24h
+          labels:
+            severity: warning
+          annotations:
+            summary: "Ubuntu security updates available on {{ $labels.node }}"
+            description: >-
+              Cached official Ubuntu security versions remain newer than installed
+              packages. Review unattended-upgrade health and guarded maintenance;
+              this count is not a full-host CVE assessment or permission to bypass recovery.
 
     - name: node-problem-detector-alerts
       rules:

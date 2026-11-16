@@ -117,6 +117,8 @@ spec:
           cpu: "100m"
           memory: "128Mi"
     prometheus-node-exporter:
+      extraArgs:
+        - --collector.textfile.directory=/host/root/var/lib/homelab-node-observer
       resources:
         requests:
           cpu: "25m"

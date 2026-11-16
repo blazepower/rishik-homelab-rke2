@@ -51,6 +51,28 @@ def case(name, series, evaluations):
     }
 
 
+def node_observation(node, flag=0, kernel=0, security=0, success=None,
+                     attempt=None, metadata=None, repeats=4, job="observer"):
+    labels = f'node="{node}",job="{job}"'
+    fresh = f"0+30x{repeats}"
+    series = [{"series": f"homelab_node_observer_last_attempt_seconds{{{labels}}}",
+               "values": fresh if attempt is None else attempt}]
+    for check, metric, value in [
+        ("reboot", "homelab_node_reboot_required", flag),
+        ("kernel", "homelab_node_kernel_abi_pending", kernel),
+        ("security", "homelab_node_apt_security_updates_available", security),
+    ]:
+        if value is not None:
+            series.append({"series": f"{metric}{{{labels}}}", "values": f"{value}x{repeats}"})
+        valid = (success or {}).get(check, int(value is not None))
+        series.append({"series": f'homelab_node_observer_check_success{{{labels},check="{check}"}}',
+                       "values": f"{valid}x{repeats}"})
+    if security is not None:
+        series.append({"series": f"homelab_node_apt_security_metadata_seconds{{{labels}}}",
+                       "values": fresh if metadata is None else metadata})
+    return series
+
+
 def reboot_dashboard_cases():
     directory = ROOT / "infrastructure" / "monitoring" / "custom-dashboards"
     expressions = []
@@ -74,9 +96,8 @@ def reboot_dashboard_cases():
     inventory = [{"series": f'kube_node_info{{node="{node}",job="inventory"}}', "values": "1x4"}
                  for node in nodes]
 
-    def telemetry(values, job="kured"):
-        return [{"series": f'kured_reboot_required{{node="{node}",job="{job}"}}', "values": f"{value}x4"}
-                for node, value in values.items()]
+    def telemetry(values, job="observer"):
+        return [entry for node, value in values.items() for entry in node_observation(node, flag=value, job=job)]
 
     zero = {node: 0 for node in nodes}
     mixed = dict(zip(nodes, (1, 0, 1)))
@@ -95,6 +116,19 @@ def reboot_dashboard_cases():
         ("duplicate inventories do not double count", inventory + [
             {"series": f'kube_node_info{{node="{nodes[0]}",job="duplicate"}}', "values": "1x4"}],
          telemetry(mixed), 2, mixed),
+        ("kernel pending is a known positive even without a reboot flag", inventory,
+         node_observation(nodes[0], flag=None, kernel=1), None, {nodes[0]: 1}),
+        ("flag positive is preserved when only the kernel check fails", inventory,
+         node_observation(nodes[0], flag=1, kernel=None), None, {nodes[0]: 1}),
+        ("flag zero alone cannot mean no reboot", inventory,
+         node_observation(nodes[0], flag=0, kernel=None), None, {}),
+        ("failed check cannot authorize raw zeros", inventory,
+         node_observation(nodes[0], success={"reboot": 0}), None, {}),
+        ("future observer clock is unknown", inventory,
+         node_observation(nodes[0], attempt="120+30x4"), None, {}),
+        ("a different fresh scrape cannot authorize a future source's zeros", inventory,
+         node_observation(nodes[0], attempt="120+30x4", job="future") +
+         node_observation(nodes[0], flag=None, kernel=None, job="fresh"), None, {}),
     ]
     tests = []
     node_expression = "(" + expressions[1] + ")"
@@ -120,6 +154,64 @@ def reboot_dashboard_cases():
     return tests
 
 
+def node_observer_cases(node_rules):
+    node = "fixture-a"
+    inventory = [{"series": f'kube_node_info{{node="{node}",job="inventory"}}', "values": "1x3001"}]
+    metrics = ["homelab:node_reboot_flag:current", "homelab:node_kernel_abi_pending:current",
+               "homelab:node_security_updates_available:current", "homelab:node_reboot_required:current"]
+    scenarios = [
+        ("healthy zeros", node_observation(node), "1m", [0, 0, 0, 0]),
+        ("ABI update requires reboot despite zero flag", node_observation(node, kernel=1), "1m", [0, 1, 0, 1]),
+        ("invalid nonbinary flag is unknown", node_observation(node, flag=2), "1m", [None, 0, 0, None]),
+        ("failed security check is not zero patches", node_observation(node, success={"security": 0}),
+         "1m", [0, 0, None, 0]),
+        ("frozen file goes stale despite continuing successful scrapes",
+         node_observation(node, attempt="0x100", repeats=100), "31m", [None, None, None, None]),
+        ("security publication expires between otherwise fresh successful attempts",
+         node_observation(node, metadata="0x3001", repeats=3001), "25h", [0, 0, None, 0]),
+    ]
+    tests = []
+    for name, series, when, values in scenarios:
+        tests.append({
+            "name": "observer rules: " + name, "interval": "30s", "input_series": inventory + series,
+            "promql_expr_test": [
+                {"expr": metric, "eval_time": when,
+                 "exp_samples": [] if value is None else [
+                     {"labels": metric + f'{{node="{node}"}}', "value": value}]}
+                for metric, value in zip(metrics, values)
+            ],
+        })
+    alerts = {rule["alert"]: rule for group in node_rules["groups"] for rule in group["rules"] if "alert" in rule}
+
+    def expected_alert(name):
+        rule = alerts[name]
+        return {"exp_labels": {**rule["labels"], "node": node}, "exp_annotations": {
+            key: text.replace("{{ $labels.node }}", node) for key, text in rule["annotations"].items()}}
+
+    for name, series, evaluations in [
+        ("missing observer holds before alerting", [], [
+            ("NodeRebootTelemetryMissing", "14m", False), ("NodeRebootTelemetryMissing", "15m", True),
+            ("NodePatchTelemetryMissing", "14m", False), ("NodePatchTelemetryMissing", "15m", True)]),
+        ("security publication expiry raises unknown not false healthy",
+         node_observation(node, metadata="0x3001", repeats=3001),
+         [("NodePatchTelemetryMissing", "25h", True), ("NodeRebootTelemetryMissing", "25h", False)]),
+        ("persistent security packages respect daily patch hold",
+         node_observation(node, security=2, repeats=3001),
+         [("NodeSecurityUpdatesAvailable", "23h59m", False), ("NodeSecurityUpdatesAvailable", "24h", True),
+          ("NodePatchTelemetryMissing", "25h", False)]),
+        ("ABI pending respects reboot holds without Kured",
+         node_observation(node, kernel=1, repeats=3001),
+         [("NodeRebootPending", "59m", False), ("NodeRebootPending", "1h", True),
+          ("NodeRebootRequired", "23h59m", False), ("NodeRebootRequired", "24h", True)]),
+    ]:
+        tests.append({"name": "observer alerts: " + name, "interval": "30s", "input_series": inventory + series,
+                      "alert_rule_test": [
+                          {"alertname": alert, "eval_time": when,
+                           "exp_alerts": [expected_alert(alert)] if firing else []}
+                          for alert, when, firing in evaluations]})
+    return tests
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--docker", action="store_true", required=True)
@@ -128,6 +220,10 @@ def main():
     rules = yaml.safe_load(
         (ROOT / "infrastructure" / "monitoring" / "prometheusrules-storage-health-alerts.yaml").read_text(
             encoding="utf-8"))["spec"]
+    node_rules = yaml.safe_load(
+        (ROOT / "infrastructure/monitoring/prometheusrules-node-health-alerts.yaml").read_text(
+            encoding="utf-8"))["spec"]
+    rules["groups"].extend(node_rules["groups"])
     tests = [
         case("sustained NVMe and SATA stalls respect hold time and node labels",
              inputs() + inputs("node-b:9100", "sda", "fixture-sata"),
@@ -159,6 +255,7 @@ def main():
              [("1m30s", []), ("3m", [])]),
     ]
     tests.extend(reboot_dashboard_cases())
+    tests.extend(node_observer_cases(node_rules))
     subprocess.run(["docker", "pull", IMAGE], check=True)
     with tempfile.TemporaryDirectory() as temporary:
         directory = Path(temporary)

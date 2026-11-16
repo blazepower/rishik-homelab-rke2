@@ -1719,14 +1719,14 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum(max by (node) (kured_reboot_required) and on (node) kube_node_info) unless on () (count(kube_node_info unless on (node) kured_reboot_required) > 0)",
+              "expr": "sum(homelab:node_reboot_required:current and on (node) kube_node_info) unless on () (count(kube_node_info unless on (node) homelab:node_reboot_required:current) > 0)",
               "instant": true,
               "range": false,
               "legendFormat": "Pending Reboots",
               "refId": "A"
             }
           ],
-          "title": "Kured Pending Reboots",
+          "title": "Nodes Requiring Reboot",
           "description": "Current known cluster members only. Unknown if any member lacks reboot telemetry; missing data is not zero. Duplicate scrapes are counted once.",
           "type": "stat",
           "uid": "panel-kured-pending"
@@ -1889,7 +1889,7 @@ data:
               "showLineNumbers": false,
               "showMiniMap": false
             },
-            "content": "### [Node Health Dashboard \u2192](/d/node-health/node-health)\n\nKured, NPD, Swap metrics",
+            "content": "### [Node Health Dashboard \u2192](/d/node-health/node-health)\n\nReboot/ABI observer, NPD, Swap metrics",
             "mode": "markdown"
           },
           "pluginVersion": "10.0.0",

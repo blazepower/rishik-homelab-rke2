@@ -11,7 +11,7 @@ data:
       "annotations": {
         "list": []
       },
-      "description": "Node health monitoring dashboard for Kured, Node Problem Detector, and swap usage",
+      "description": "Independent reboot and kernel ABI observations, historical Kured, Node Problem Detector, and swap usage",
       "editable": true,
       "fiscalYearStartMonth": 0,
       "graphTooltip": 0,
@@ -160,7 +160,7 @@ data:
           "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
           "id": 6,
           "panels": [],
-          "title": "Kured - Reboot Daemon",
+          "title": "Node Maintenance (Kured History)",
           "type": "row"
         },
         {
@@ -191,7 +191,7 @@ data:
           "targets": [
             {
               "datasource": { "type": "prometheus", "uid": "prometheus" },
-              "expr": "(max by (node) (kured_reboot_required) and on (node) kube_node_info) or on (node) (0 / 0 * (max by (node) (kube_node_info) unless on (node) kured_reboot_required))",
+              "expr": "(homelab:node_reboot_required:current and on (node) kube_node_info) or on (node) (0 / 0 * (max by (node) (kube_node_info) unless on (node) homelab:node_reboot_required:current))",
               "instant": true,
               "range": false,
               "legendFormat": "{{ node }}",

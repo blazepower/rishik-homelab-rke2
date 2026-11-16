@@ -40,21 +40,75 @@ host APT state. Run `audit` and `plan` locally for OS updates/reboot state.
 The kernel pin must be reviewed against refreshed Ubuntu APT metadata before
 each OS run; discovery currently automates RKE2 pins, not Ubuntu kernel pins.
 
-Existing reboot alerts consume `kured_reboot_required`. With Kured suspended,
-that series can be absent, which is not the same as a zero reboot requirement.
-`NodeRebootTelemetryMissing` compares it with the Kubernetes node inventory and
-warns per missing node. This exposes the monitoring gap; it does not collect
-host package/kernel state or prove patch compliance. Until independent host
-telemetry is provisioned, use the read-only local `audit` for those facts.
-Do not enable Kured solely to restore this metric.
+The independent observer below is **held source, not a provisioned service**.
+Production still lacks independent host telemetry; use the read-only local
+`audit` for those facts. With Kured suspended, `kured_reboot_required` can be
+absent, which is not the same as a zero reboot requirement. Do not enable
+Kured solely to restore a metric.
 
 The held reboot-dashboard correction uses current instant queries, not a
 historical `lastNotNull` result. The cluster total is Unknown unless every
 current member has reboot telemetry. Per-node cards preserve known positives
 and show missing members as explicit gray Unknown values; duplicate scrapes
 and nonmember series do not inflate counts. These are honest missing-data
-semantics, not a replacement host observer or patch-compliance claim. Native
-isolated promtool fixtures cover missing/partial/full coverage and membership.
+semantics, not patch-compliance claims.
+
+## Independent host observations (held, not activated)
+
+`.github/scripts/node-patch-observer.py` reads the real reboot flag, installed
+generic kernel ABIs and system Python-APT cache without root, network access,
+APT refresh, package installation or reboot. It emits independent check
+successes and an attempt epoch as a **gauge value**, not a Prometheus sample
+timestamp. A failed check is explicitly logged, exits nonzero and omits its
+value; it does not erase another check's known positive. Atomic `0644` textfile
+replacement also replaces old healthy results when an input becomes invalid.
+
+Kernel comparison includes only genuinely installed `linux-image-*-generic`
+packages, not dpkg `config-files` remnants. It does not prove that a
+same-ABI package revision is the booted build. Security availability checks
+**all newer versions** with Ubuntu `*-security` origins, not only the selected
+candidate; a newer `-updates` candidate or hold must not hide a security fix.
+APT inputs and installed status identities must stay unchanged around the
+read. Active security `InRelease` publication dates must be within 24 hours
+and not future-dated; any `Valid-Until` must not have expired. Unchanged
+individual component index mtimes are not a freshness test. This deliberately
+conservative freshness policy can report Unknown for an old signed
+publication even if a fetch succeeded. It relies on system APT's accepted
+cache, not an independent signature revalidation, CVE database or whole-host
+security clearance.
+
+The static-account systemd profile in `node-config/maintenance/observer`
+runs every 15 minutes under filesystem, privilege, network, CPU and memory
+restrictions. Its only persistent writable area is
+`/var/lib/homelab-node-observer`, mode `0755`, containing
+`node-maintenance.prom`, mode `0644`. A static system account avoids
+`DynamicUser`'s private parent-directory traversal problem for node-exporter.
+The held exporter flag reuses its **existing read-only `/host/root` mount**;
+it adds no host mount, capability, privileged Pod or unattended action.
+
+Current recording rules require successful source-matched checks and an
+attempt no older than 30 minutes; cached security values also expire at the
+24-hour publication boundary between timer runs. Reboot state is positive
+when either a current OS flag or newer installed generic ABI is positive.
+It is zero only when **both** checks are current, successful zeros; otherwise
+it is Unknown. Old Kured samples cannot override an independent check failure.
+Current panels use these rules while the historical Kured panel is unchanged.
+`NodePatchTelemetryMissing` detects incomplete reboot/kernel/security inputs;
+`NodeRebootTelemetryMissing` detects unknown combined reboot state.
+`NodeRebootPending` and `NodeRebootRequired` replace the Kured-named current
+alerts. None proves alert delivery or authorizes a maintenance step.
+
+Provisioning is a separate, not-yet-executed privileged operation: review and
+install the script as root-owned `/usr/local/libexec/homelab-node-observer.py`,
+the sysusers profile as `/usr/lib/sysusers.d/homelab-node-observer.conf`,
+and the service/timer under `/etc/systemd/system`. Create the system account
+with `systemd-sysusers`, then review the unit sandbox and explicitly enable
+the timer. Use `/usr/bin/python3` with the existing Ubuntu `python3-apt`;
+do not install a desktop notifier. Only promote the exporter/rule/dashboard
+changes in a legitimate future window after protected recovery prerequisites.
+Acceptance must then cover each real timer, file ownership/traversal, actual
+scraped freshness, all current nodes, Grafana rendering and alert delivery.
+Until that happens this source and isolated fixtures do not close the gap.
 
 ## Maintenance stages
 
