@@ -25,6 +25,9 @@ spec:
       retries: 3
     timeout: 10m
   values:
+    podAnnotations:
+      checksum/scan-cache: "d9d3e74be3faf292c3be3ef1a36ab035051d0fb0b1d02827b67bc637fc86a3e6"
+
     # Scan all namespaces
     targetNamespaces: ""
     excludeNamespaces: "kube-system,kube-node-lease,kube-public"
