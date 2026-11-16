@@ -68,6 +68,15 @@ def select_amd64_digest(manifest, published_digest):
     return candidates[0]
 
 
+def runtime_identity(image):
+    identity = {key: image[key] for key in ("Architecture", "Os", "Created", "Config", "RootFS")}
+    assert identity["Architecture"] == "amd64" and identity["Os"] == "linux"
+    assert isinstance(identity["Config"], dict) and identity["Config"]
+    assert identity["RootFS"]["Type"] == "layers" and identity["RootFS"]["Layers"]
+    assert all(re.fullmatch(r"sha256:[0-9a-f]{64}", layer) for layer in identity["RootFS"]["Layers"])
+    return identity
+
+
 def validate_security_proof(app, source, info, patch):
     security = app["security"]
     assert source["security"] == security, "Undeclared security overlay"
@@ -212,7 +221,9 @@ def main():
               "workflow_head": os.environ.get("GITHUB_SHA"),
               "vendor": app["vendor"], "source_revision": app["revision"],
               "compiler": lock["compiler"], "builder": lock["builder"],
-              "generator": lock["generator"], "published": False}
+              "generator": lock["generator"], "published": False,
+              "publication_stage": "native_or_build_incomplete"}
+    output = ROOT / ("maintained-go-" + args.app + "-evidence.json")
     tag = "ghcr.io/blazepower/maintained-" + args.app + ":" + report["head"]
     try:
         docker("pull", app["vendor"])
@@ -261,6 +272,7 @@ def main():
         inherited = original["RootFS"]["Layers"]
         assert actual["RootFS"]["Layers"][:len(inherited)] == inherited, "Vendor auxiliary filesystem was replaced"
         report["image_id"] = actual["Id"]
+        report["accepted_runtime_identity"] = runtime_identity(actual)
         report["vendor_layers_preserved"] = len(inherited)
         report["binary"] = proof_binary(tag, app, scratch, lock["builder"])
         if packages:
@@ -285,6 +297,7 @@ def main():
             for key in ("native_startup_exit", "healthcheck_exit"):
                 assert report["native"][key] == report["vendor_native"][key], key
         if args.publish:
+            report["publication_stage"] = "native_accepted_push_pending"
             result = docker("push", tag).stdout
             digest = re.search(r"digest: (sha256:[0-9a-f]{64})", result)
             assert digest, result
@@ -292,16 +305,25 @@ def main():
             manifest = json.loads(docker("buildx", "imagetools", "inspect", "--raw", published).stdout)
             amd64 = select_amd64_digest(manifest, digest[1])
             immutable = tag.split(":")[0] + "@" + amd64
+            report.update(publication_stage="pushed_pull_verification_pending",
+                          pushed_image=published, selected_runtime_image=immutable)
             docker("pull", immutable)
-            assert json.loads(docker("image", "inspect", immutable).stdout)[0]["Id"] == report["image_id"]
+            pulled = json.loads(docker("image", "inspect", immutable).stdout)[0]
+            report["pulled_image_id"] = pulled["Id"]
+            report["pulled_runtime_identity"] = runtime_identity(pulled)
+            assert report["pulled_runtime_identity"] == report["accepted_runtime_identity"], \
+                "Published runtime config/platform/creation/filesystem differs from the accepted local artifact"
             registry_proof = proof_binary(immutable, app, scratch, lock["builder"])
             assert registry_proof["sha256"] == report["binary"]["sha256"]
-            report.update(published=True, image=immutable, published_image=published, amd64_digest=amd64)
+            report.update(published=True, image=immutable, published_image=published, amd64_digest=amd64,
+                          publication_stage="accepted")
+        else:
+            report["publication_stage"] = "native_accepted_publication_not_requested"
         report["limitations"] = "Compiler/public source, declared security overlays where present, and bounded native behavior only; advisory DB timestamp and remaining module-only matches are retained. Not universal TLS, runtime exploitability, whole-rootfs or forensic clearance. Existing GitOps CA guards remain required."
-        output = ROOT / ("maintained-go-" + args.app + "-evidence.json")
         output.write_text(json.dumps(report, indent=2))
         print(json.dumps(report, indent=2))
     finally:
+        output.write_text(json.dumps(report, indent=2))
         shutil.rmtree(scratch)
 
 
