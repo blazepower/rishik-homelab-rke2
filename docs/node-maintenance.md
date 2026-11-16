@@ -195,7 +195,17 @@ evidence directory. Raw logs, event messages and secret/record payloads are
 never written. The host retains private technical state/journal counts too.
 Each node gets bounded eviction-based drain, a privileged host step, host/API
 recovery checks, then full native/storage acceptance. Three stable health
-samples bracket steps. OS acceptance requires a different boot ID, the exact
+samples bracket steps. After a successful drain, a new full health check must
+pass before the privileged host step: only the selected maintenance node may
+have an additional cordon, no active evictable pods may remain there, and peer
+readiness/pressure, workloads, strict two-copy storage, quarantines, managers
+and native probes are checked again. The technical-only `*-after-drain.json`
+receipt records that result. A successful drain exit is not storage or service
+acceptance. Failure retains the lock and cordon and never starts the host step.
+This does not permit previously unapproved Pending workloads or relax the
+separate PDB/locality/downtime-design blockers.
+
+OS acceptance requires a different boot ID, the exact
 approved running kernel, no remaining reboot sentinel and headless default.
 RKE2 acceptance binds the running host executable and kubelet version.
 
@@ -235,5 +245,6 @@ python -B .github\scripts\test-node-maintenance.py
 CI tests unsupported minor jumps, approval tampering/expiry/context,
 zero-budget PDB detection, capacity/placement constraints, two-copy storage,
 snapshot corruption, package drift, preserved server services and fail-stop
-behavior. They do not execute privileged maintenance or claim a live reboot
+behavior, including storage/health drift after a successful drain. They do not
+execute privileged maintenance or claim a live reboot
 rehearsal.
