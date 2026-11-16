@@ -24,7 +24,7 @@ SPEC.loader.exec_module(VERIFY)
 class KindleBuildTests(unittest.TestCase):
     def test_exact_published_bases_and_native_toolchain(self):
         dockerfile = (SOURCE / "Dockerfile").read_text()
-        self.assertRegex(dockerfile, r"FROM golang:1\.27\.3-bookworm@sha256:[a-f0-9]{64} AS build")
+        self.assertRegex(dockerfile, r"FROM golang:1\.27\.4-bookworm@sha256:[a-f0-9]{64} AS build")
         self.assertRegex(dockerfile, r"gcr.io/distroless/static-debian12:nonroot@sha256:[a-f0-9]{64}")
         self.assertIn("ENV GOTOOLCHAIN=local", dockerfile)
         self.assertIn("go version -m /build/kindle-sender", dockerfile)
