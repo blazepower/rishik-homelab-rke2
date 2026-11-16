@@ -160,6 +160,17 @@ def test_upgrade_coordination(config: dict) -> bool:
             effective_option(config, "ghcr.io/blazepower/npd-owned", "enabled") is False,
         ),
         (
+            "HTTP chart updates cannot cross the accepted owned-runtime contract",
+            not version_is_rejected(effective_allowed_versions(config, "keda-add-ons-http"), "0.16.0")
+            and all(version_is_rejected(effective_allowed_versions(config, "keda-add-ons-http"), version)
+                    for version in ("0.16.1", "0.17.0", "1.0.0")),
+        ),
+        (
+            "All three owned HTTP artifacts require coordinated acceptance",
+            all(effective_option(config, "ghcr.io/blazepower/http-addon-owned-" + name, "enabled") is False
+                for name in ("operator", "scaler", "interceptor")),
+        ),
+        (
             "The storage hold does not disable unrelated infrastructure",
             all(
                 effective_option(

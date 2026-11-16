@@ -271,6 +271,22 @@
       "enabled": false
     },
     {
+      "description": "HTTP add-on chart changes require matching owned application source, CRD/RBAC and native scaling acceptance",
+      "matchDatasources": ["helm"],
+      "matchPackageNames": ["keda-add-ons-http"],
+      "allowedVersions": "/^0\\.16\\.0$/"
+    },
+    {
+      "description": "Owned HTTP add-on images require coordinated three-binary, advisory, filesystem, native and public-child publication acceptance",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": [
+        "ghcr.io/blazepower/http-addon-owned-operator",
+        "ghcr.io/blazepower/http-addon-owned-scaler",
+        "ghcr.io/blazepower/http-addon-owned-interceptor"
+      ],
+      "enabled": false
+    },
+    {
       "description": "Keep Descheduler on 0.36.x while Kubernetes is 1.34; 0.37 tests only Kubernetes 1.35 through 1.37",
       "matchDatasources": ["helm"],
       "matchPackageNames": ["descheduler"],

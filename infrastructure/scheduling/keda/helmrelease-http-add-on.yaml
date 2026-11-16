@@ -23,6 +23,18 @@ spec:
   upgrade:
     remediation:
       retries: 3
+  postRenderers:
+    - kustomize:
+        images:
+          - name: ghcr.io/kedacore/http-add-on-operator
+            newName: ghcr.io/blazepower/http-addon-owned-operator
+            digest: sha256:849c089d111384df6bf4c59725ff886fc145bd423909084b774d6a31c8942e53
+          - name: ghcr.io/kedacore/http-add-on-scaler
+            newName: ghcr.io/blazepower/http-addon-owned-scaler
+            digest: sha256:6d3d3953627f7049ecee26b9034d346d2a3f96c2bcab1f2561557acd5f391130
+          - name: ghcr.io/kedacore/http-add-on-interceptor
+            newName: ghcr.io/blazepower/http-addon-owned-interceptor
+            digest: sha256:3b0aeb314779f6e379736ed0b00a987843caac7e6805e9fc930f462f07812a9d
   values:
     operator:
       resources:
