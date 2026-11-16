@@ -1,0 +1,43 @@
+{
+  "compiler": "go1.27.4",
+  "builder": "docker.io/golang:1.27.4-alpine@sha256:0a5f7fe796599ff487605987432e7619ae45beeb2fba4c2ce0b907879932aebf",
+  "generator": "docker.io/golang:1.26.11-alpine@sha256:ae52b5bc6ed045a9ed26ab03dc19327a802a9cc9aa8b27ed57f5c6b60579b0bb",
+  "applications": {
+    "kubectl": {
+      "repository": "https://github.com/kubernetes/kubernetes.git",
+      "revision": "1b2171b110bb2a2542e1322035c6583ec86eb976",
+      "version": "v1.36.6",
+      "client_git_version": "v1.36.6+homelab.go1.27.4",
+      "build_date": "2026-10-27T12:02:52Z",
+      "vendor": "docker.io/library/alpine@sha256:0f49f331d9212aff11b932863be4eb01cdf962969aa86dab7d1ee21ac6f5f52b",
+      "reference": "docker.io/alpine/k8s@sha256:2b33c17a9e7fa4a7bc25b3194fefbc3363c863e6c073a5a81bf07fb00b99d92b",
+      "reference_binary_sha256": "29818b6729dc9262b692307470d0558d027725e738be5dd47c760261868a2634",
+      "binary": "/usr/bin/kubectl",
+      "license": "Apache-2.0",
+      "security": {
+        "patch": {
+          "file": "kubectl-security.patch",
+          "sha256": "b371c7018538f0ec3f1da69d2f3b23da27fa2280306615990aadfe4574080b57",
+          "module_sha256": {
+            "go.mod": "0aa9f4995f604e39dd7f17a460492e6837b62b6d57ca4ceec4fb7e13b6ec1564",
+            "go.sum": "e325de2a8d47db8f0ce66059c27499e64ad320c7bd622bcdec87deb6c9cf7697"
+          }
+        },
+        "modules": {
+          "go.opentelemetry.io/otel": "v1.42.0",
+          "go.opentelemetry.io/otel/trace": "v1.42.0",
+          "golang.org/x/net": "v0.62.0",
+          "golang.org/x/text": "v0.44.0"
+        },
+        "runtime_packages": {
+          "zlib": "1.4-r0"
+        },
+        "govulncheck": "v1.9.0",
+        "reviewed_module_advisory_ids": {
+          "source": [],
+          "binary": ["GO-2025-3521", "GO-2025-3547"]
+        }
+      }
+    }
+  }
+}

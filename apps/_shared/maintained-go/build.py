@@ -40,7 +40,7 @@ def main():
     security = settings.get("security")
     patch = Path("/build/security.patch")
     if security:
-        assert settings["app"] == "gluetun"
+        assert settings["app"] in ("gluetun", "kubectl")
         assert hashlib.sha256(patch.read_bytes()).hexdigest() == security["patch"]["sha256"]
         assert not run("git", "status", "--porcelain", "--untracked-files=no")
         paths = {line.split("\t")[2] for line in run("git", "apply", "--numstat", str(patch)).splitlines()}
@@ -62,7 +62,21 @@ def main():
              "-o", "/build/application", "cmd/gluetun/main.go"],
             env={**os.environ, "CGO_ENABLED": "0"}, check=True,
         )
+    elif settings["app"] == "kubectl":
+        assert os.environ["GOWORK"] == "off" and os.environ["GOFLAGS"] == "-mod=readonly"
+        flags = (
+            f"-X k8s.io/component-base/version.gitVersion={settings['client_git_version']} "
+            f"-X k8s.io/component-base/version.gitCommit={settings['revision']} "
+            "-X k8s.io/component-base/version.gitTreeState=dirty "
+            "-X k8s.io/component-base/version.gitMajor=1 "
+            "-X k8s.io/component-base/version.gitMinor=36 "
+            f"-X k8s.io/component-base/version.buildDate={settings['build_date']}"
+        )
+        subprocess.run(["go", "build", "-mod=readonly", "-trimpath", "-ldflags=" + flags,
+                        "-o", "/build/application", "./cmd/kubectl"],
+                       env={**os.environ, "CGO_ENABLED": "0"}, check=True)
     else:
+        assert settings["app"] == "stash"
         subprocess.run(
             ["make", "flags-release", "flags-static-pie", "stash",
              "GITHASH=" + settings["githash"],
@@ -76,11 +90,18 @@ def main():
     settings["module_sha256"] = module_hashes
     settings["binary_sha256"] = hashlib.sha256(Path("/build/application").read_bytes()).hexdigest()
     settings["buildinfo"] = run("go", "version", "-m", "/build/application")
+    if settings["app"] == "kubectl":
+        expected_module = ["mod", "k8s.io/kubernetes", settings["version"] + "+dirty"]
+        assert any(line.split() == expected_module for line in settings["buildinfo"].splitlines()), \
+            ("Actual CLI module release metadata differs", settings["buildinfo"])
     if security:
-        subprocess.run(["go", "test", "-mod=readonly", "-short", "./..."],
+        test_packages = (["k8s.io/kubectl/pkg/cmd/" + name for name in ("get", "exec", "rollout", "version")]
+                         if settings["app"] == "kubectl" else ["./..."])
+        subprocess.run(["go", "test", "-mod=readonly", "-short", *test_packages],
                        env={**os.environ, "CGO_ENABLED": "0"}, check=True)
         settings["advisory_scans"] = {}
-        for mode, target in (("source", "./cmd/gluetun"), ("binary", "/build/application")):
+        source_target = "./cmd/kubectl" if settings["app"] == "kubectl" else "./cmd/gluetun"
+        for mode, target in (("source", source_target), ("binary", "/build/application")):
             result = subprocess.check_output(
                 ["go", "run", "golang.org/x/vuln/cmd/govulncheck@" + security["govulncheck"],
                  "-json", "-scan=symbol", "-mode=" + mode, target],
@@ -88,15 +109,27 @@ def main():
             )
             (proof / (mode + "-advisories.jsonl")).write_text(result)
             settings["advisory_scans"][mode] = advisory_summary(result, mode, security["govulncheck"])
+            if "reviewed_module_advisory_ids" in security:
+                assert settings["advisory_scans"][mode]["module_advisory_ids"] == \
+                    security["reviewed_module_advisory_ids"][mode], (mode, "Unreviewed module-only advisory change")
         settings["advisory_binary_sha256"] = hashlib.sha256(Path("/build/application").read_bytes()).hexdigest()
         assert settings["advisory_binary_sha256"] == settings["binary_sha256"]
         assert set(run("git", "diff", "--name-only").splitlines()) == {"go.mod", "go.sum"}
         shutil.copyfile(patch, proof / "security.patch")
-        for name, version in security["modules"].items():
+        license_modules = security["modules"]
+        if settings["app"] == "kubectl":
+            license_modules = {parts[1]: parts[2] for line in settings["buildinfo"].splitlines()
+                               if (parts := line.split()) and parts[0] == "dep"}
+            settings["linked_modules"] = license_modules
+            shutil.copyfile(Path(run("go", "env", "GOROOT")) / "LICENSE", proof / "GO-LICENSE")
+        for name, version in license_modules.items():
             module_directory = run("go", "list", "-m", "-f", "{{.Dir}}", name)
             assert module_directory, (name, "Module source directory missing")
             directory = Path(module_directory)
-            licenses = [p for p in directory.glob("LICENSE*") if p.is_file()]
+            patterns = (("LICENSE*", "LICENCE*", "COPYING*", "NOTICE*")
+                        if settings["app"] == "kubectl" else ("LICENSE*",))
+            licenses = [p for pattern in patterns
+                        for p in directory.glob(pattern) if p.is_file()]
             assert directory.is_dir() and licenses, (name, "Module license missing")
             destination = proof / "module-licenses" / (name + "@" + version)
             destination.mkdir(parents=True)
