@@ -359,11 +359,10 @@ def etcd_tool(policy):
     return policy["etcdutl"][match[1]]
 
 
-def health(policy, pods=None):
-    kube("get", "--raw=/readyz")
-    nodes = items("nodes")
+def check_nodes(policy, nodes, draining_node=None):
     expected = {n["name"]: n for n in policy["nodes"]}
     require({n["metadata"]["name"] for n in nodes} == set(expected), "Cluster membership drifted")
+    require(draining_node is None or draining_node in expected, "Unknown maintenance node")
     for node in nodes:
         name = node["metadata"]["name"]
         require(any(c["type"] == "Ready" and c["status"] == "True"
@@ -371,8 +370,15 @@ def health(policy, pods=None):
         require(all(c["status"] == "False" for c in node["status"]["conditions"]
                     if c["type"] in ("MemoryPressure", "DiskPressure", "PIDPressure")),
                 name + ": node resource pressure")
-        require(bool(node["spec"].get("unschedulable")) == (expected[name]["role"] == "server"),
+        require(bool(node["spec"].get("unschedulable")) ==
+                (expected[name]["role"] == "server" or name == draining_node),
                 name + ": cordon state differs from approved baseline")
+    return expected
+
+
+def health(policy, pods=None, draining_node=None):
+    kube("get", "--raw=/readyz")
+    expected = check_nodes(policy, items("nodes"), draining_node)
     require(get("helmrelease", "monitoring", "kured")["spec"].get("suspend") is True,
             "Kured must remain suspended")
     ns = policy["storage_namespace"]
@@ -401,6 +407,14 @@ def health(policy, pods=None):
     kube("-n", "media", "exec", "deploy/qbittorrent", "-c", "gluetun", "--",
          "/gluetun-entrypoint", "healthcheck")
     return counts
+
+
+def drained_health(policy, node):
+    pods = items("pods")
+    remaining = [p["metadata"]["namespace"] + "/" + p["metadata"]["name"] for p in pods
+                 if p["spec"].get("nodeName") == node["name"] and evictable(p)]
+    require(not remaining, "Drain left active evictable pods: " + ", ".join(remaining[:12]))
+    return health(policy, pods, draining_node=node["name"])
 
 
 def stable_health(policy, budget=None):
@@ -656,6 +670,10 @@ def apply(plan, approval, policy, recovery_directory, token_confirmed, compatibi
         kube("cordon", name)
         run(["kubectl", "--request-timeout=30s", "drain", name, "--ignore-daemonsets",
              "--delete-emptydir-data", "--timeout=10m"], timeout=660)
+        post_drain = drained_health(policy, node)
+        (evidence_directory / (name + "-after-drain.json")).write_text(json.dumps({
+            "node": name, "created_epoch": int(time.time()), "health": post_drain,
+        }, indent=2), encoding="utf-8")
         budget.before_disruption()
         remote(node, payload, privileged=True)
         result = receipt(node, step_id)
