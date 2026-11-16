@@ -1,6 +1,6 @@
 {
-  "source_image": "ghcr.io/blazepower/maintained-rreading-hardcover:1743ef317ad07ad80c3bf5fa8dd7e7d164d1749f@sha256:5f2046190d8c17c4af2d507c8137b351280e65623d6725ef8323718711fa8a26",
-  "selected_amd64": "sha256:5f2046190d8c17c4af2d507c8137b351280e65623d6725ef8323718711fa8a26",
+  "source_image": "ghcr.io/blazepower/maintained-rreading-hardcover:f4759293df0ea7c511de530af7e9a567c582cb57@sha256:50d0f88d1dabc3f706fed15637e301011bd5247d43932ebe09ead431ea5aaae0",
+  "selected_amd64": "sha256:50d0f88d1dabc3f706fed15637e301011bd5247d43932ebe09ead431ea5aaae0",
   "source_bundle_origin_image": "docker.io/blampe/rreading-glasses:hardcover@sha256:3f017a51d9007b715303a20f481c822e4df66485fc9e5f57f6fdf1de840dc02f",
   "source_bundle_sha256": "766392c21c0baf5fa722cb309dc576b89d9fb3323dd32aa45a939dd575db6d1c",
   "filtered_bundle_sha256": "8f402c88c6c63bb1383ce336b1d50b34c9bee0b94e4adff0161cfea524a85d38",

@@ -263,6 +263,12 @@ from the same accepted publication. Exact v0.31.1 source, assets and SQLite
 behavior remain unchanged; serial backup, native live UI and storage checks
 remain required independently of the publication proof.
 
+Stash's [PR455](https://github.com/blazepower/rishik-homelab-rke2/pull/455)
+activation passed actual running PID1/file hash, native v0.31.1 and HTTPS UI,
+unchanged claims/security, isolated CA init and read-only public-store checks.
+Four native samples and three unchanged full-fleet storage samples passed
+behind a fresh completed, independently remote-inspected retained backup.
+
 The derivatives were deployed serially in
 [PR419](https://github.com/blazepower/rishik-homelab-rke2/pull/419) and
 [PR420](https://github.com/blazepower/rishik-homelab-rke2/pull/420).
@@ -328,7 +334,7 @@ contract, UID, public CA projection, authentication and original database claim.
 These bounded compiler, dependency, TLS and compatibility proofs are not
 universal custom/intermediate TLS, hardware or forensic clearance.
 
-The selected production image is
+The initial owned-source production image was
 `ghcr.io/blazepower/maintained-rreading-hardcover@sha256:5f2046190d8c17c4af2d507c8137b351280e65623d6725ef8323718711fa8a26`,
 published by accepted-master native run
 [42531984345](https://github.com/blazepower/rishik-homelab-rke2/actions/runs/42531984345).
@@ -357,6 +363,20 @@ PostgreSQL's `/tmp` were removed; controller cordon and Kured suspension remain.
 Pre-existing Kyverno tag/registry rule regex evaluation errors occurred on both
 the original and replacement Pods. They were not fixed by this image-only work
 and must not be represented as accepted admission-policy enforcement.
+
+The same-source Go 1.27.4 refresh selects linux/amd64 manifest
+`sha256:50d0f88d1dabc3f706fed15637e301011bd5247d43932ebe09ead431ea5aaae0`
+from [publication 43814772147](https://github.com/blazepower/rishik-homelab-rke2/actions/runs/43814772147).
+Its independently pulled actual ELF SHA-256 is
+`50f5c8dbbc8488599ebcbb9f0d3070a62aa4a6c5e7da8293f2d3e9e73937deed`;
+the source revision remains `f3855259d93cb8d9899bb940155c571b08c53262`.
+Only the app image and its public-CA source binding change. Preserve the exact
+filtered CA bytes/read-only projection, `/main serve`, existing security
+(including its writable root filesystem), credentials and original PostgreSQL
+identity/claim. Fresh retained backup, exact-head native CA checks, existing
+network-path response probes and unchanged storage gates remain required.
+Registry ELF/image binding is not a direct running PID1 hash or renewed
+real-cache/forensic clearance.
 
 ## cert-manager
 
