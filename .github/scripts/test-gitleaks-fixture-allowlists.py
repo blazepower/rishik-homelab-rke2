@@ -43,6 +43,13 @@ class FixtureAllowlistTests(unittest.TestCase):
         findings = self.scan("Authorization: " + "Bearer" + " " + value + "\n")
         self.assertTrue(any(x["RuleID"] == "bearer-token" for x in findings))
 
+    def test_public_module_patch_does_not_hide_unrelated_api_credentials(self):
+        patch = CONFIG.parent / "apps/_shared/http-addon-owned/security.patch"
+        text = patch.read_text()
+        self.assertEqual(self.scan(text), [])
+        text += '\nclient_secret = "' + uuid.uuid4().hex + '-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"\n'
+        self.assertTrue(any(x["RuleID"] == "generic-api-key" for x in self.scan(text)))
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

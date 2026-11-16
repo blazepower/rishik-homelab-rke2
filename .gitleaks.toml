@@ -110,6 +110,13 @@ paths = [
 ]
 
 regexes = [
+  # Exact public Go checksum values in the HTTP patch, not path or generic hash exemptions.
+  '''^JnJkREXzWxUdCuPFpIWZiPispT9xVV59uiuyR2bPlnU=$''',
+  '''^cDtW1TcFsMi1RJc8khwCKB4VhzwV04aKqbYtNOXuiK0=$''',
+  '''^uW7XQbcu1eoiQS7uMJvLOjPMl04bTbmY1VeRPxvbspI=$''',
+  '''^ibO8IP6RMp6JImv47JIW6ZUcZky98zLnzaGIsD6yQWM=$''',
+  '''^Yk7MDGJBGaxJVDcLYpT6rmWCoetjwijwQ8Y2zECJipY=$''',
+  '''^NPxFutNkKNa8UfLd2CMlEuhIPMQgDQ6DXNKG9sHbJU8=$''',
   # Allow references to secrets (not the secrets themselves)
   '''existingSecret:''',
   '''secretKeyRef:''',
