@@ -86,8 +86,9 @@ restrictions. Its only persistent writable area is
 The held exporter flag reuses its **existing read-only `/host/root` mount**;
 it adds no host mount, capability, privileged Pod or unattended action.
 
-Current recording rules require successful source-matched checks and an
-attempt no older than 30 minutes; cached security values also expire at the
+Current recording rules require successful source-matched checks from the
+latest attempt per node, no older than 30 minutes. An older healthy duplicate
+scrape cannot hide a newer failure. Cached security values also expire at the
 24-hour publication boundary between timer runs. Reboot state is positive
 when either a current OS flag or newer installed generic ABI is positive.
 It is zero only when **both** checks are current, successful zeros; otherwise

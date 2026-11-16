@@ -129,6 +129,9 @@ def reboot_dashboard_cases():
         ("a different fresh scrape cannot authorize a future source's zeros", inventory,
          node_observation(nodes[0], attempt="120+30x4", job="future") +
          node_observation(nodes[0], flag=None, kernel=None, job="fresh"), None, {}),
+        ("an older healthy duplicate cannot hide a newer failed observation", inventory,
+         node_observation(nodes[0], attempt="0x4", metadata="0x4", job="old") +
+         node_observation(nodes[0], flag=None, kernel=None, security=None, attempt="_ 30x3", job="new"), None, {}),
     ]
     tests = []
     node_expression = "(" + expressions[1] + ")"
@@ -166,7 +169,12 @@ def node_observer_cases(node_rules):
         ("failed security check is not zero patches", node_observation(node, success={"security": 0}),
          "1m", [0, 0, None, 0]),
         ("frozen file goes stale despite continuing successful scrapes",
-         node_observation(node, attempt="0x100", repeats=100), "31m", [None, None, None, None]),
+         node_observation(node, attempt="0x100", metadata="0x100", repeats=100),
+         "31m", [None, None, None, None]),
+        ("latest failed generation excludes older still-recent healthy data",
+         node_observation(node, attempt="0x4", metadata="0x4", job="old") +
+         node_observation(node, flag=None, kernel=None, security=None, attempt="_ 30x3", job="new"),
+         "1m", [None, None, None, None]),
         ("security publication expires between otherwise fresh successful attempts",
          node_observation(node, metadata="0x3001", repeats=3001), "25h", [0, 0, None, 0]),
     ]

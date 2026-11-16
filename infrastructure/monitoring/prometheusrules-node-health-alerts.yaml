@@ -42,6 +42,11 @@ spec:
           expr: >-
             (homelab_node_observer_last_attempt_seconds <= time())
             and (homelab_node_observer_last_attempt_seconds >= time() - 1800)
+            and (
+              homelab_node_observer_last_attempt_seconds
+              == on (node) group_left ()
+              max by (node) (homelab_node_observer_last_attempt_seconds)
+            )
 
         - record: homelab:node_reboot_flag:current
           expr: >-

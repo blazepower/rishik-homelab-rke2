@@ -34,7 +34,11 @@ def run(command, **kwargs):
 def image_identity(image):
     value, = json.loads(run(["docker", "image", "inspect", image], capture_output=True).stdout)
     observer.require(value["Os"] == "linux" and value["Architecture"] == "amd64", "Wrong native image platform")
-    observer.require(image in value["RepoDigests"], "Pulled subject not retained in native image identity")
+    def canonical(subject):
+        return subject.removeprefix("docker.io/").removeprefix("library/")
+    observer.require(canonical(image) in {canonical(subject) for subject in value["RepoDigests"]},
+                     "Pulled exact subject not retained: " + json.dumps(
+                         {"expected": image, "actual_repo_digests": value["RepoDigests"]}))
     return {"subject": image, "engine_image_id": value["Id"], "repo_digests": value["RepoDigests"]}
 
 
