@@ -3,13 +3,14 @@
   "publication": "https://github.com/blazepower/rishik-homelab-rke2/actions/runs/42276975925",
   "images": {
     "gluetun": {
-      "declared_imageID": "ghcr.io/blazepower/maintained-gluetun@sha256:936ec95dd313b5eb36658facb52c54c1e0b9530f738f734523f75e287e3ce8aa",
+      "declared_imageID": "ghcr.io/blazepower/maintained-gluetun@sha256:c74b287ddbb7c9b48c31ef147476c9e4ed6a338b993b018250c829f9e5dd9ed7",
       "factory_amd64": "docker.io/qmcgaw/gluetun@sha256:1baa76576dea1dfbafbd62bb635daf40fd87171f63273c2fdfe630418783011e",
       "application_version": "v3.41.3",
       "source_revision": "3d1e20c5551e9cae1f9d938dc7b7214a6987f27e",
       "source_repository": "https://github.com/passteque/gluetun",
-      "compiler": "go1.27.3",
-      "binary_sha256": "a7f685801c859b40050413ef7dada47305dd48e0acad8814516bb3e3a6149aac",
+      "compiler": "go1.27.4",
+      "publication": "https://github.com/blazepower/rishik-homelab-rke2/actions/runs/43814769131",
+      "binary_sha256": "771616685d8a969f6222d39b405f3f2b06f0516af4c3c4a7e969319de53fc97b",
       "vendor_public_stores_preserved": true
     },
     "stash": {
