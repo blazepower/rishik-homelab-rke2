@@ -39,6 +39,13 @@ CASES = [
     ("ghcr.io:5000/example/app:1.2", True, False),
     ("ghcr.io:5000/example/app", False, False),
     ("localhost:5000/example/app:latest", False, False),
+    ("mirror.gcr.io/aquasec/trivy:0.76.1", True, True),
+    ("mirror.gcr.io/aquasec/trivy-operator:0.36.1", True, True),
+    ("mirror.gcr.io/aquasec/trivy@" + DIGEST, True, True),
+    ("mirror.gcr.io/aquasec/trivy-operator:latest", False, True),
+    ("mirror.gcr.io/aquasec/trivy-extra:1.0", True, False),
+    ("mirror.gcr.io/other/trivy:1.0", True, False),
+    ("mirror.gcr.io.untrusted.example/aquasec/trivy:1.0", True, False),
 ]
 
 

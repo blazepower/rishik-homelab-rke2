@@ -14,7 +14,7 @@ This document describes the Kyverno policy engine deployment and the cluster pol
 
 Kyverno is deployed via Flux HelmRelease in the `kyverno` namespace:
 
-- **Version**: 1.16.0
+- **Version**: tracked in `infrastructure/policies/kyverno-install/helmrelease-kyverno.yaml`
 - **Namespace**: `kyverno`
 - **Components**: Admission Controller, Background Controller, Cleanup Controller, Reports Controller
 
@@ -31,7 +31,12 @@ All Kyverno components have explicit resource requests and limits:
 
 ## Cluster Policies
 
-All policies are deployed in **Audit** mode for safe initial rollout. Change to `Enforce` mode after verifying policies work as expected.
+Validation policies are staged individually. `block-risky-capabilities`,
+`disallow-host-namespaces`, `enforce-namespace-labels` and `restrict-host-ports`
+are already **Enforce**. Remaining validation policies stay **Audit** until
+current workload violations, required exceptions and recovery behavior are
+reviewed. Mutation rules do not become preventative validation controls by
+changing this setting.
 
 ### 1. Require Resources and Limits
 
@@ -89,8 +94,15 @@ Enforces image hygiene by:
 - Blocking images tagged `:latest`
 - Blocking images without explicit tags
 - Requiring images from trusted registries: `docker.io`, `ghcr.io`, `quay.io`, `gcr.io`, `registry.k8s.io`, `mcr.microsoft.com`, `lscr.io`
+- Allowing only `aquasec/trivy` and `aquasec/trivy-operator` on `mirror.gcr.io`,
+  used by the installed scanner; other mirror repositories remain untrusted.
 
 Docker Hub library images (e.g., `nginx:1.21`) are allowed.
+
+The native policy tests cover normal/init/ephemeral containers, generated
+controller rules, digest pins and mirror lookalikes. The privilege-escalation
+rule separately tests explicit `false`, `true`, missing fields and missing
+security contexts: its default applies only to null, never to explicit `false`.
 
 ### 7. Require Image Signatures
 
