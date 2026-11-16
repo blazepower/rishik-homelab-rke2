@@ -272,7 +272,6 @@ def baseline(suite, cli, evidence, directory):
             results.append({
                 "policy": source_name, "rule": prefix + rule_name, "kind": kind,
                 "resources": [case["object"]["metadata"]["name"]],
-                "namespace": case["object"]["metadata"].get("namespace", ""),
                 "result": case["expected"],
             })
         (folder / "kyverno-test.yaml").write_text(yaml.safe_dump({

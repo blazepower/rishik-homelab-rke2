@@ -15,6 +15,7 @@ import (
 	vpolengine "github.com/kyverno/kyverno/pkg/cel/policies/vpol/engine"
 	engineapi "github.com/kyverno/kyverno/pkg/engine/api"
 	admissionv1 "k8s.io/api/admission/v1"
+	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	authenticationv1 "k8s.io/api/authentication/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -137,6 +138,10 @@ func run() error {
 		if len(response.Policies) != 1 {
 			return fmt.Errorf("%s: expected exactly one policy response, received %d",
 				test.ID, len(response.Policies))
+		}
+		if len(response.Policies[0].Actions) != 1 ||
+			!response.Policies[0].Actions.Has(admissionregistrationv1.Deny) {
+			return fmt.Errorf("%s: existing enforcement must remain Deny", test.ID)
 		}
 		actual := result{ID: test.ID, Policy: test.Policy, Status: "skip", RuleStatuses: []string{}}
 		for _, rule := range response.Policies[0].Rules {
