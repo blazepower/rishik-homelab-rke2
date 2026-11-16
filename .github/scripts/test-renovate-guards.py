@@ -156,6 +156,10 @@ def test_upgrade_coordination(config: dict) -> bool:
             ) is False,
         ),
         (
+            "Owned node detector image replacement requires full artifact acceptance",
+            effective_option(config, "ghcr.io/blazepower/npd-owned", "enabled") is False,
+        ),
+        (
             "The storage hold does not disable unrelated infrastructure",
             all(
                 effective_option(

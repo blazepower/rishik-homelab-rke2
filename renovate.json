@@ -265,6 +265,12 @@
       "enabled": false
     },
     {
+      "description": "Owned supported-minor NPD artifacts require source, all-three-binary, native, OS and exact-chart acceptance before a separate immutable activation",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["ghcr.io/blazepower/npd-owned"],
+      "enabled": false
+    },
+    {
       "description": "Keep Descheduler on 0.36.x while Kubernetes is 1.34; 0.37 tests only Kubernetes 1.35 through 1.37",
       "matchDatasources": ["helm"],
       "matchPackageNames": ["descheduler"],

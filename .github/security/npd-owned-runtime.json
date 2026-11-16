@@ -1,0 +1,63 @@
+{
+  "scope": "Published supported-1.35 NPD source upgrade with all-three-program compiler and two-package APT patches. Not production acceptance, a fully patched Debian rootfs, exploitability assessment or forensic clearance.",
+  "image": "ghcr.io/blazepower/npd-owned@sha256:e8da6dac03a6cddeecc1b89dcb19e78d5e92baf85db0634df92f93958b5622d3",
+  "publication": "https://github.com/blazepower/rishik-homelab-rke2/actions/runs/43874142288",
+  "recipe_revision": "4063470a92ecbcaf26062539db2b35e5b6594058",
+  "source_version": "v1.35.4",
+  "source_revision": "b1f6e344138cbea2d569a81619654c37f321b7f8",
+  "supported_api_minor": "1.35",
+  "compiler": "go1.27.4",
+  "factory_amd64": "registry.k8s.io/node-problem-detector/node-problem-detector@sha256:f6344d2b881400e369d0ae3401c985dc2b8c922f47c1f01eebf012d1f6b9c94e",
+  "chart": {
+    "version": "2.3.14",
+    "url": "https://charts.deliveryhero.io/charts/node-problem-detector-2.3.14.tgz",
+    "sha256": "192248313bcda86b7d21db4c7d435754dea0c6a41ee950d83e45c37b99c2609c"
+  },
+  "binaries": {
+    "node-problem-detector": "f97cbd1d51e92b82c7552c577de116ccbe6040493999a8df99366832df7cd62a",
+    "health-checker": "f43ce3bc16974b3a1aaf5620495fb0fb8f41f3aae8ba648ebfc1dd65aef10ec9",
+    "log-counter": "6d8e40376c1322770b09821b7fe7ae09ff3829e39631589b7da7331f8cc8e07c"
+  },
+  "go_advisories": {
+    "scanner": "govulncheck v1.9.0",
+    "actual_database_last_modified": "2026-11-11T02:51:11Z",
+    "all_six_source_and_binary_symbol_or_package_wide_findings": 0,
+    "main_module_only_ids": ["GO-2022-0635", "GO-2022-0646", "GO-2026-5932", "GO-2026-6860", "GO-2026-6866"],
+    "health_module_only_ids": [],
+    "log_module_only_ids": ["GO-2026-6860", "GO-2026-6866"],
+    "scope": "Actual source and all three symbolled published ELFs; raw records retained in the publication artifact, not general hostile-input or future-advisory clearance."
+  },
+  "runtime_packages": {
+    "status_sha256": "e07f2fbbe225021f84c2becbdeb703431ba5770189daa53e13022ffcb15891bd",
+    "installed_package_count": 83,
+    "unchanged_complete_package_sections": 81,
+    "updates": {"apt": "2.6.2", "libapt-pkg6.0": "2.6.2"}
+  },
+  "local_published_os_scan": {
+    "scanner": "Trivy 0.76.2",
+    "anonymous_remote_pull_verified": true,
+    "report_sha256": "4dcb6904a9a27ad510cea826be25bc0a8a1fbec6826dccb70d3c3a1957b40e5b",
+    "actual_db_updated": "2026-11-16T07:10:39.763774809Z",
+    "actual_db_downloaded": "2026-11-16T12:42:50.6529193Z",
+    "severity_package_tuples": {"CRITICAL": 1, "HIGH": 38, "MEDIUM": 98, "LOW": 86, "UNKNOWN": 5},
+    "apt_CVE_2026_109518_remaining": 0,
+    "scope": "Exact published image OS-only local scan; not a natural cluster report. Counts are package/CVE tuples, not unique vulnerabilities or exploits. All severities including UNKNOWN retained.",
+    "remaining_assessment": [
+      "Remaining HIGH/CRITICAL rows declare no fixed bookworm version in this actual Debian-backed report; do not downgrade to older security-index packages or infer unaffected status.",
+      "Debian qualifies CVE-2023-45853 because bookworm zlib does not build the affected MiniZip component; raw CRITICAL is retained, not waived or erased.",
+      "The systemd-homed record is component-specific, not evidence that every libsystemd call is vulnerable. This is not a blanket clearance.",
+      "CVE-2026-76844 has conflicting webpack description versus Debian zlib assignment. Retain the conflict and CVE-2026-85091 rather than silently discarding either.",
+      "CGO journal helpers use dlopen: direct DT_NEEDED libc-only output does not establish complete dynamic-library reachability.",
+      "Other local mount/partition, gzip, ACL, PAM namespace, infocmp and Perl ArchiveTar records remain unresolved; unused-command assumptions are not exploitability proof."
+    ]
+  },
+  "activation_contract": {
+    "monitors": ["kernel-monitor.json", "systemd-monitor.json", "readonly-monitor.json"],
+    "kube_api_qps": 5,
+    "kube_api_burst": 10,
+    "heartbeat": "5m0s",
+    "resources_unchanged": true,
+    "rbac_mounts_security_and_daemonset_strategy_unchanged": true,
+    "host_maintenance": false
+  }
+}
