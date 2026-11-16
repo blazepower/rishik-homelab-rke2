@@ -40,6 +40,14 @@ host APT state. Run `audit` and `plan` locally for OS updates/reboot state.
 The kernel pin must be reviewed against refreshed Ubuntu APT metadata before
 each OS run; discovery currently automates RKE2 pins, not Ubuntu kernel pins.
 
+Existing reboot alerts consume `kured_reboot_required`. With Kured suspended,
+that series can be absent, which is not the same as a zero reboot requirement.
+`NodeRebootTelemetryMissing` compares it with the Kubernetes node inventory and
+warns per missing node. This exposes the monitoring gap; it does not collect
+host package/kernel state or prove patch compliance. Until independent host
+telemetry is provisioned, use the read-only local `audit` for those facts.
+Do not enable Kured solely to restore this metric.
+
 ## Maintenance stages
 
 1. OS/kernel/headless maintenance: worker2 canary, worker1, controller.

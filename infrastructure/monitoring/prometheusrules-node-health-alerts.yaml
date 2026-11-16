@@ -54,7 +54,20 @@ spec:
             severity: info
           annotations:
             summary: "Node {{ $labels.node }} has pending reboot"
-            description: "Node {{ $labels.node }} requires a reboot. Kured will handle this during the maintenance window."
+            description: "Node {{ $labels.node }} requires a reboot. Use guarded node maintenance; do not assume automatic reboot is enabled."
+
+        - alert: NodeRebootTelemetryMissing
+          expr: kube_node_info unless on(node) kured_reboot_required
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Reboot telemetry missing for {{ $labels.node }}"
+            description: >-
+              Kubernetes reports this node but no reboot-required sample is available.
+              Existing reboot alerts cannot distinguish a patched node from missing
+              telemetry. Check the observer without enabling autonomous reboots;
+              use the local node-maintenance audit to inspect actual host state.
 
     - name: node-problem-detector-alerts
       rules:
