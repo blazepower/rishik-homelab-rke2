@@ -34,6 +34,41 @@ mutation, generation and exception resources before that upgrade, preserving
 the four enforced controls. Deprecated policy resources or stale reports are
 not proof that the new engine still enforces them.
 
+### Held CEL migration acceptance
+
+The `fix/kyverno-cel-migration` candidate is isolated from Flux: no installation,
+chart pin, production policy, or production exception is changed. Its renderer
+is `.github/scripts/kyverno-cel-candidate.py`. Rendered files are **not approved
+for application**. Stage one covers the four existing Enforce policies (eight
+rules), not the remaining Audit validations or the three mutation policies.
+Their migration and a protected live admission/recovery rehearsal remain
+prerequisites to chart 3.10.
+
+The candidate binds the reviewed source specifications and both existing
+Tailscale/MetalLB exceptions to canonical hashes. It explicitly covers Pods,
+all seven existing generated controller kinds, and `pods/ephemeralcontainers`.
+The original per-rule namespace/name exclusions and the narrow exception
+kind/name/label/service-account/container conditions are retained; neither
+exception grants a waiver to another rule.
+
+Legacy Enforce rules also default to **allowing updates of already-invalid
+objects when both old and new objects violate the same rule**. Removing that
+behavior silently could break recovery. Narrow per-rule UPDATE exceptions
+preserve the skip outcome; they do not excuse creation or a valid-to-invalid
+transition. A future decision to remove grandfathering requires a separate
+violation/recovery review. The admission-only infrastructure exceptions must
+not hide background violations: the actual versioned background scanner
+constructs CREATE requests with empty UserInfo.
+
+The isolated acceptance workflow uses the actual 1.19.2 release CLI for legacy
+CREATE baselines, then builds the shared engine from checksum-verified upstream
+Go modules for **both 1.19.2 and 1.20.0**. The synthetic wire-request harness
+supplies distinct old/new objects and actual subresource fields; CLI fixture
+updates alone cannot prove these transitions. No kubeconfig, cluster client,
+production test Pod, generated admission policy, or real application data is
+used. Source/engine acceptance is not evidence of live webhook activation,
+policy reports, controller availability, or recovery safety.
+
 ## Resource Configuration
 
 All Kyverno components have explicit resource requests and limits:
