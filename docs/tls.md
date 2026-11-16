@@ -238,6 +238,17 @@ shipped application. These recipe changes do not replace the production image
 digests recorded below: publication and serial activation retain their native,
 backup, public-store and storage gates.
 
+The Gluetun refresh selects linux/amd64 manifest
+`sha256:c74b287ddbb7c9b48c31ef147476c9e4ed6a338b993b018250c829f9e5dd9ed7`
+from [publication 43814769131](https://github.com/blazepower/rishik-homelab-rke2/actions/runs/43814769131).
+Its independently pulled Go 1.27.4 ELF is
+`771616685d8a969f6222d39b405f3f2b06f0516af4c3c4a7e969319de53fc97b`.
+The per-image publication in `maintained-go-runtime.json` binds each serial
+refresh; the top-level publication retains the initial campaign reference.
+Application version/source, vendor layers and public-store guards are unchanged.
+Native live VPN/forwarding and full storage acceptance remain separate from
+this registry/build proof.
+
 The derivatives were deployed serially in
 [PR419](https://github.com/blazepower/rishik-homelab-rke2/pull/419) and
 [PR420](https://github.com/blazepower/rishik-homelab-rke2/pull/420).

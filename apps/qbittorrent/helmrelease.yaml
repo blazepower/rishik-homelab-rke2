@@ -50,7 +50,7 @@ spec:
           ca-copy-gluetun:
             image:
               repository: ghcr.io/blazepower/maintained-gluetun
-              tag: "1979b5b01c0c5640c12e36b811c1e544100d4c62@sha256:936ec95dd313b5eb36658facb52c54c1e0b9530f738f734523f75e287e3ce8aa"
+              tag: "f4759293df0ea7c511de530af7e9a567c582cb57@sha256:c74b287ddbb7c9b48c31ef147476c9e4ed6a338b993b018250c829f9e5dd9ed7"
             command: ["/bin/sh", "/ca-guard/copy-ca-overlay.sh", "gluetun"]
             securityContext:
               allowPrivilegeEscalation: false
@@ -84,7 +84,7 @@ spec:
           gluetun:
             image:
               repository: ghcr.io/blazepower/maintained-gluetun
-              tag: "1979b5b01c0c5640c12e36b811c1e544100d4c62@sha256:936ec95dd313b5eb36658facb52c54c1e0b9530f738f734523f75e287e3ce8aa"
+              tag: "f4759293df0ea7c511de530af7e9a567c582cb57@sha256:c74b287ddbb7c9b48c31ef147476c9e4ed6a338b993b018250c829f9e5dd9ed7"
             env:
               - name: VPN_SERVICE_PROVIDER
                 value: "protonvpn"
