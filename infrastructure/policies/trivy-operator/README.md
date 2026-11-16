@@ -12,6 +12,14 @@ scan cache while retaining the shared vulnerability database. It does not disabl
 vulnerability/secret scanning or registry TLS verification, add privileges,
 introduce Redis, or modify application Pods.
 
+Operator 0.36.1 reads the custom-volume configuration at startup. The chart's own
+`checksum/config` does not track it. `podAnnotations.checksum/scan-cache` therefore
+binds the volumes, mounts and public cache configuration to the operator Pod
+template so Flux/Helm rolls the operator when they change. The acceptance script
+recomputes that checksum from the actual rendered settings; update it alongside
+those settings. Merely updating the ConfigMaps does not activate the mounts in an
+already-running operator.
+
 Keep the two-Job limit, one-hour diagnostic retention, worker2 placement and
 per-container resource bounds. Memory cache discards per-process analysis after
 the scan; subsequent scans repeat that analysis. The Job limit is not a scanner
@@ -21,7 +29,7 @@ limit, so fresh coverage can still lag. Missing or unmatched reports are not zer
 findings.
 
 `python3 -B .github/scripts/test-trivy-scan-cache.py` renders the exact pinned
-chart and uses its actual scanner image and volume wiring. On a Linux Docker
+chart and uses its actual scanner image, volume wiring and rollout checksum. On a Linux Docker
 host it first proves an exclusive filesystem-cache lock causes failure, then
 proves the mounted configuration allows an offline, non-root, network-isolated
 fixture scan while the same lock is held. `--render-only` checks chart wiring

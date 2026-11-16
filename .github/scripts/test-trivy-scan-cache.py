@@ -46,6 +46,15 @@ def rendered_config(directory):
     scanner, = [c for c in configs if "trivy.repository" in c]
     image = scanner["trivy.repository"] + ":" + scanner["trivy.tag"]
     jobs, = [c for c in configs if "scanJob.customVolumes" in c]
+    deployment, = [r for r in resources if r and r["kind"] == "Deployment"]
+    startup_config = {
+        "volumes": json.loads(jobs["scanJob.customVolumes"]),
+        "mounts": json.loads(jobs["scanJob.customVolumesMount"]),
+        "config": cache["data"],
+    }
+    checksum = hashlib.sha256(json.dumps(startup_config, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    assert deployment["spec"]["template"]["metadata"]["annotations"].get("checksum/scan-cache") == checksum, \
+        "Operator rollout must track the actual startup volumes, mounts and public cache configuration"
     volume, = [v for v in json.loads(jobs["scanJob.customVolumes"])
                if v.get("configMap", {}).get("name") == cache["metadata"]["name"]]
     mount, = [m for m in json.loads(jobs["scanJob.customVolumesMount"]) if m["name"] == volume["name"]]
