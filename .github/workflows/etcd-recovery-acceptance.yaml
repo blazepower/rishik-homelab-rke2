@@ -1,0 +1,63 @@
+---
+name: Native etcd Recovery Acceptance
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - fix/etcd-native-recovery
+    paths:
+      - .github/scripts/test-etcd-recovery-native.py
+      - .github/scripts/node-maintenance-host.py
+      - .github/workflows/etcd-recovery-acceptance.yaml
+      - node-config/maintenance/policy.json
+  pull_request:
+    paths:
+      - .github/scripts/test-etcd-recovery-native.py
+      - .github/scripts/node-maintenance-host.py
+      - .github/workflows/etcd-recovery-acceptance.yaml
+      - node-config/maintenance/policy.json
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native:
+    name: Synthetic native etcd upgrade and recovery
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout held source without persisted credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Prepare hash-pinned primary tools without executing them
+        run: >-
+          python3 -B .github/scripts/test-etcd-recovery-native.py prepare
+          --tools "$RUNNER_TEMP/etcd-recovery-tools"
+          --evidence "$RUNNER_TEMP/etcd-recovery-evidence"
+
+      - name: Rehearse as unprivileged user in a private loopback-only namespace
+        run: |
+          sudo unshare --net -- sh -eu -c '
+            ip link set lo up
+            exec setpriv --reuid="$1" --regid="$2" --clear-groups --no-new-privs \
+              env GITHUB_ACTIONS=true GITHUB_SHA="$3" \
+              python3 -B .github/scripts/test-etcd-recovery-native.py run \
+              --tools "$4" --evidence "$5"
+          ' sh "$(id -u)" "$(id -g)" "$GITHUB_SHA" \
+            "$RUNNER_TEMP/etcd-recovery-tools" "$RUNNER_TEMP/etcd-recovery-evidence"
+
+      - name: Preserve public-synthetic acceptance or failure evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: native-etcd-recovery
+          path: ${{ runner.temp }}/etcd-recovery-evidence
+          if-no-files-found: error
+          retention-days: 7

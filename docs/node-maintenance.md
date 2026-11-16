@@ -148,6 +148,33 @@ integrity/native status is **not** a restore rehearsal. The current supported
 layout is the existing tarball RKE2 install and default data/snapshot paths;
 custom layouts stop rather than guessing.
 
+### Held native-tool recovery rehearsal
+
+`Native etcd Recovery Acceptance` exercises the policy-pinned primary 3.6/3.7
+tools on public synthetic data in hosted Linux CI. Preparation reuses the host
+runner's pinned downloader/extractor. Native execution is unprivileged inside a
+private loopback-only network namespace and reuses its snapshot checksum helper.
+It restores each snapshot with the matching minor's `etcdutl`, restarts the
+restored server and compares the complete synthetic keyspace, including prior
+updates/deletions and a subsequent write. It also checks fresh cluster/member
+identities, revision bumping, compacted-revision rejection and refusal of
+corrupted/truncated snapshots by both the helper and actual restore tool.
+
+The transition test cleanly stops 3.6 and starts 3.7 on the same synthetic data,
+proves the cluster version advances without changing membership/keyspace, then
+takes and restores a new 3.7 snapshot. It never substitutes an older binary onto
+an upgraded data directory or assumes cross-minor snapshot compatibility.
+See the primary [3.6-to-3.7 guide](https://etcd.io/docs/v3.7/upgrades/upgrade_3_7/)
+and [recovery guidance](https://etcd.io/docs/v3.7/op-guide/recovery/).
+
+This held source is **not production or RKE2 recovery acceptance**: no actual
+cluster access, bootstrap encryption/token recovery, Kubernetes informer reset,
+application data, private off-node destination or vendor-binary security
+clearance is covered. It does not change any maintenance/recovery gate, approve
+a downtime window, install tools on hosts or perform an automatic restore.
+
+### Live checks and operator execution
+
 The controller's off-node directory mount, owner and mode are checked through
 read-only SSH **before any node is cordoned**, even for a worker-first OS run.
 This stops a missing recovery destination before worker disruption rather than
