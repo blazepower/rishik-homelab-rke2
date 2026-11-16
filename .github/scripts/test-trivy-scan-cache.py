@@ -87,7 +87,7 @@ def scan(image, directory, config=None, target=None):
     ]
     if config:
         args += ["--mount", f"type=bind,source={config},target={target},readonly"]
-    args += [image, "--cache-dir", "/tmp/trivy/.cache", "--skip-version-check", "image",
+    args += [image, "--cache-dir", "/tmp/trivy/.cache", "image", "--skip-version-check",
              "--scanners", "secret", "--offline-scan", "--format", "json", "--input", "/fixture.tar"]
     identifier = command(*args).strip()
     assert re.fullmatch(r"[a-f0-9]{64}", identifier), "Docker did not return an owned container ID"
