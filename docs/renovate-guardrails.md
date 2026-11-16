@@ -59,7 +59,11 @@ held `tag: 5.33.2`. Every reconcile therefore restored the broken image.
   markers (`alpha`, `beta`, `rc`, `preview`, etc.). The rule is package-scoped
   and marker-aware rather than rejecting every hyphenated Docker tag, so stable
   compatibility/build tags such as `-alpine`, `-bookworm`, and `-ls123` remain
-  eligible.
+  eligible. Sure alone uses `loose` versioning: default Docker versioning treats
+  `alpha.2` as a compatibility suffix and rejects stable or `-hotfix.1` updates
+  before the allowed-version filter can help. Keep manual merge approval and the
+  review queue limit; discovering an update is not runtime CA, migration, or
+  recovery acceptance.
 - **Flux bootstrap controllers are upgraded as one official Flux release.**
   Individual image updates in `gotk-components.yaml` are disabled; regenerate
   the complete bundle, including matching CRDs and RBAC, when reviewing a new

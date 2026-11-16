@@ -115,6 +115,19 @@ def test_upgrade_coordination(config: dict) -> bool:
     ]
     checks.extend([
         (
+            "Sure stable updates can leave the Docker alpha compatibility suffix in every image manager",
+            all(
+                effective_option(
+                    config, "ghcr.io/we-promise/sure", "versioning", manager=manager,
+                ) == "loose"
+                for manager in ("kubernetes", "helm-values", "custom.regex")
+            ),
+        ),
+        (
+            "Sure version selection does not change unrelated Docker compatibility streams",
+            effective_option(config, "node", "versioning") in (None, "docker"),
+        ),
+        (
             "Flux coordination hold does not disable unrelated images",
             effective_option(config, "nginx", "enabled", file_path=bootstrap) is not False,
         ),
@@ -317,6 +330,7 @@ def main() -> int:
         GuardTest("sure rejects alpha prerelease", *image_parts("ghcr.io/we-promise/sure:0.7.2-alpha.4"), True),
         GuardTest("sure rejects release candidate", *image_parts("ghcr.io/we-promise/sure:0.8.0-rc1"), True),
         GuardTest("sure allows stable release", *image_parts("ghcr.io/we-promise/sure:0.8.0"), False),
+        GuardTest("sure allows published stable security hotfix", *image_parts("ghcr.io/we-promise/sure:0.7.6-hotfix.1"), False),
         GuardTest("sure allows distro suffix", *image_parts("ghcr.io/we-promise/sure:0.8.0-alpine"), False),
         GuardTest("unrelated image allows prerelease-like compatibility suffix", *image_parts("node:24-alpine"), False),
         GuardTest("maintenance kubectl allows current cluster minor", *image_parts("docker.io/alpine/k8s:1.34.12"), False),

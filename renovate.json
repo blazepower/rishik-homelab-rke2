@@ -234,9 +234,10 @@
       "dependencyDashboardApproval": true
     },
     {
-      "description": "Sure Finance: only recommend stable releases, even while the current pin is a prerelease. Reject explicit prerelease channel markers without treating every Docker hyphen suffix (such as distro or build suffixes) as unstable.",
+      "description": "Sure Finance: use loose versioning to leave the current Docker alpha compatibility suffix for stable releases. Reject explicit prerelease channel markers without treating every Docker hyphen suffix (such as distro or build suffixes) as unstable.",
       "matchDatasources": ["docker"],
       "matchPackageNames": ["ghcr.io/we-promise/sure"],
+      "versioning": "loose",
       "allowedVersions": "!/(^|[._-])(alpha|beta|rc|preview|pre|dev|snapshot|nightly|canary)([._-]|[0-9]|$)/i",
       "respectLatest": false
     },
