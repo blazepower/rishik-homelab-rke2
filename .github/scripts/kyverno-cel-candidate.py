@@ -315,7 +315,8 @@ def build_mutations():
                     " path:'/spec/template/spec/topologySpreadConstraints/-',"
                     " value:Object{maxSkew:1, topologyKey:'kubernetes.io/hostname',"
                     " whenUnsatisfiable:'ScheduleAnyway', labelSelector:"
-                    " {'matchLabels': object.spec.selector.matchLabels}}}]"
+                    " (has(object.spec.selector.matchLabels) ?"
+                    " {'matchLabels': object.spec.selector.matchLabels} : object.spec.selector)}}]"
                 )
                 rules = [{"apiGroups": ["apps"], "apiVersions": ["v1"],
                           "operations": ["CREATE", "UPDATE"], "resources": ["deployments"]}]

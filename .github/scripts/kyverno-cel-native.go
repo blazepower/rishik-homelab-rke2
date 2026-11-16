@@ -44,6 +44,7 @@ type testCase struct {
 	LegacyExpected        string                     `json:"legacyExpected"`
 	ExpectedPatched       *unstructured.Unstructured `json:"expectedPatched"`
 	LegacyExpectedPatched *unstructured.Unstructured `json:"legacyExpectedPatched"`
+	LegacyExpectedError   bool                       `json:"legacyExpectedError"`
 }
 
 type suite struct {

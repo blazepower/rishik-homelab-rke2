@@ -99,6 +99,10 @@ Topology patches initialize the empty list and append a bare object in one
 JSONPatch expression: actual 1.19.2 panics serializing an Object nested in a
 list, whereas 1.20.0 fixes that upstream serializer. Neither SDK is patched or
 waived; both must execute the same candidate and exact output expectations.
+A separate held selector repair covers valid Deployments with only
+`matchExpressions`: prove the original missing-`matchLabels` variable failure,
+then require the candidate to use that Deployment's existing full selector.
+Ordinary label selectors and existing nonempty constraints remain unchanged.
 
 The isolated acceptance workflow uses the actual 1.19.2 release CLI for legacy
 CREATE/DELETE validation and exact mutation baselines, then builds the shared engines from checksum-verified upstream

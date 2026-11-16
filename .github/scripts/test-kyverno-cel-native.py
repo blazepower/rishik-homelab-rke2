@@ -371,7 +371,7 @@ def mutation_fixtures(policies):
     by_name = {policy["metadata"]["name"]: policy for policy in policies}
     cases = []
 
-    def add(policy, label, obj, patched):
+    def add(policy, label, obj, patched, legacy_error=False):
         for operation in ("CREATE", "UPDATE"):
             original, expected = deepcopy(obj), deepcopy(patched)
             name = "mutation-" + str(len(cases))
@@ -390,6 +390,7 @@ def mutation_fixtures(policies):
                 "id": f"mutation-{len(cases):04d}:{label}-{operation}",
                 "policy": policy, "object": original, "expectedPatched": expected,
                 "legacyExpectedPatched": legacy,
+                "legacyExpectedError": legacy_error,
                 "oldObject": deepcopy(original) if operation == "UPDATE" else None,
                 "operation": operation, "subresource": "", "username": USER,
             })
@@ -446,6 +447,18 @@ def mutation_fixtures(policies):
                     }]
                 add(name, label, obj, patched)
                 add(name, label + "-idempotent", patched, patched)
+            obj = resource("Deployment", {"containers": [{"name": "main", "image": "busybox:1.37.0"}]})
+            obj["spec"]["selector"] = {"matchExpressions": [{
+                "key": "app", "operator": "In", "values": ["fixture"],
+            }]}
+            patched = deepcopy(obj)
+            pod_spec(patched)["topologySpreadConstraints"] = [{
+                "maxSkew": 1, "topologyKey": "kubernetes.io/hostname",
+                "whenUnsatisfiable": "ScheduleAnyway",
+                "labelSelector": deepcopy(obj["spec"]["selector"]),
+            }]
+            add(name, "match-expressions-only", obj, patched, legacy_error=True)
+            add(name, "match-expressions-idempotent", patched, patched)
         else:
             defaults = {key[2:-1]: value for key, value in
                         rule["mutate"]["patchStrategicMerge"]["metadata"]["annotations"].items()}
@@ -477,7 +490,7 @@ def mutation_fixtures(policies):
 
 def mutation_baseline(suite, cli, evidence, directory):
     sources = candidate.reviewed_sources(candidate.REVIEWED_MUTATIONS)
-    count = 0
+    count, negative = 0, 0
     for policy in suite["mutationPolicies"]:
         labels = policy["metadata"]["labels"]
         source = deepcopy(sources[labels["homelab.rishik.dev/legacy-policy"]])
@@ -485,7 +498,8 @@ def mutation_baseline(suite, cli, evidence, directory):
                                   if rule["name"] == labels["homelab.rishik.dev/legacy-rule"]]
         for operation in ("CREATE", "UPDATE"):
             cases = [case for case in suite["mutationCases"]
-                     if case["policy"] == policy["metadata"]["name"] and case["operation"] == operation]
+                     if case["policy"] == policy["metadata"]["name"] and case["operation"] == operation
+                     and not case["legacyExpectedError"]]
             folder = directory / (policy["metadata"]["name"] + "-" + operation.lower())
             folder.mkdir()
             (folder / "policy.yaml").write_text(yaml.safe_dump(source), encoding="utf-8")
@@ -504,7 +518,26 @@ def mutation_baseline(suite, cli, evidence, directory):
                     json.dumps(details, indent=2) + "\n", encoding="utf-8")
                 raise RuntimeError(f"Exact original-engine patched objects differ: {folder.name}")
             count += len(cases)
-    return count
+            for case in [case for case in suite["mutationCases"]
+                         if case["policy"] == policy["metadata"]["name"] and case["operation"] == operation
+                         and case["legacyExpectedError"]]:
+                if labels["homelab.rishik.dev/legacy-policy"] != "mutate-topology-spread":
+                    raise RuntimeError("Unexpected original mutation error expectation")
+                path = folder / "expressions-only.yaml"
+                path.write_text(yaml.safe_dump(case["object"]), encoding="utf-8")
+                completed = subprocess.run(
+                    [str(cli), "apply", str(folder / "policy.yaml"), "--resource", str(path),
+                     "--set", "request.operation=" + operation],
+                    cwd=ROOT, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=120,
+                )
+                (evidence / (folder.name + "-selector-error.log")).write_text(
+                    completed.stdout, encoding="utf-8")
+                if completed.returncode != 1 or not re.search(
+                    r"(?is)(variable|JMESPath).*matchLabels", completed.stdout
+                ):
+                    raise RuntimeError("Original selector failure was not proved: " + completed.stdout)
+                negative += 1
+    return count, negative
 
 
 def baseline(suite, cli, evidence, directory):
@@ -617,6 +650,11 @@ def run(args):
         "original_and_candidate_exact_objects_checked_separately": True,
         "production_activated": False,
     }
+    receipt["intentional_selector_repair"] = {
+        "original": "probe original matchLabels variable failure for a valid expressions-only selector",
+        "candidate": "use that Deployment's existing full selector when matchLabels is absent",
+        "production_activated": False,
+    }
     receipt["intentional_audit_repair"] = {
         "policy": AUDIT_REPAIR,
         "original": "unquoted false identifier makes the Boolean false/missing Audit cases pass",
@@ -639,7 +677,9 @@ def run(args):
         baseline_dir = temporary / "legacy"
         baseline_dir.mkdir()
         receipt["legacy_expectations_passed"] = baseline(suite, cli, evidence, baseline_dir)
-        receipt["legacy_exact_mutations_passed"] = mutation_baseline(suite, cli, evidence, baseline_dir)
+        exact, negative = mutation_baseline(suite, cli, evidence, baseline_dir)
+        receipt["legacy_exact_mutations_passed"] = exact
+        receipt["legacy_expected_selector_errors_proved"] = negative
         env = os.environ.copy()
         env.update({"GOTOOLCHAIN": "local", "GOSUMDB": "sum.golang.org", "CGO_ENABLED": "0"})
         go_version = command(["go", "version"], ROOT, evidence, "go-version.txt", env)
