@@ -32,13 +32,17 @@ def main():
     assert hashes(lock["module_sha256"]) == lock["module_sha256"]
     for name, versions in lock["modules"].items():
         assert run("go", "list", "-mod=readonly", "-m", "-f", "{{.Version}}", name) == versions["to"]
-    subprocess.run(["go", "mod", "download", "all"], check=True)
     ui = json.loads(Path("/build/ui-files.json").read_text())
     assert ui and hashes("web/ui/" + name for name in ui) == {
         "web/ui/" + name: checksum for name, checksum in ui.items()}
     assert {path.relative_to("web/ui").as_posix()
             for path in Path("web/ui/static").rglob("*") if path.is_file()} == ui.keys()
     subprocess.run(["bash", "scripts/compress_assets.sh"], check=True)
+    subprocess.run(["go", "list", "-deps", "-test", "-mod=readonly", "-tags=netgo,builtinassets",
+                    "./web/...", "./cmd/prometheus", "./cmd/promtool"],
+                   stdout=subprocess.DEVNULL, check=True)
+    assert hashes(lock["module_sha256"]) == lock["module_sha256"], run(
+        "git", "diff", "--", "go.mod", "go.sum")
     output = Path("/build/bin")
     proof = Path("/build/provenance")
     output.mkdir()
@@ -72,12 +76,17 @@ def main():
                        "-json", "-scan=symbol", "-mode=" + mode]
             if mode == "source":
                 command.append("-tags=netgo,builtinassets")
-            text = run(*command, target)
+            scan = subprocess.run([*command, target], stdout=subprocess.PIPE,
+                                  stderr=subprocess.PIPE, text=True)
+            text = scan.stdout
             (proof / (name + "-" + mode + ".jsonl")).write_text(text)
+            assert scan.returncode in (0, 3), (name, mode, scan.returncode, scan.stderr[-12000:])
             evidence["advisory_scans"][mode] = advisory_summary(text, mode, lock["govulncheck"])
+            assert scan.returncode == 0, (name, mode, "Advisory scanner rejected artifact", scan.stderr[-12000:])
         assert evidence["sha256"] == hashlib.sha256(binary.read_bytes()).hexdigest()
         lock["actual_binaries"][name] = evidence
-    assert hashes(lock["module_sha256"]) == lock["module_sha256"]
+    assert hashes(lock["module_sha256"]) == lock["module_sha256"], run(
+        "git", "diff", "--", "go.mod", "go.sum")
     assert set(run("git", "diff", "--name-only").splitlines()) == {"go.mod", "go.sum"}
     for name, version in modules.items():
         directory = Path(run("go", "list", "-m", "-f", "{{.Dir}}", name))

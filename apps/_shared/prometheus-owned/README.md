@@ -14,6 +14,9 @@ Actual linked dependency comparisons must reject changes outside those six
 pairs. Both ELF programs retain symbol tables and use the patched compiler.
 Source and binary advisory checks reject function and package-wide findings;
 module-only matches and authoritative database timestamps remain in evidence.
+Prefetch only the selected real upstream test packages with `go list -deps -test`
+and verify the frozen module hashes immediately afterward. A blanket
+`go mod download all` adds unrelated checksum entries and is not accepted.
 
 The final stage inherits the exact vendor filesystem and execution identity,
 including its non-root user, entrypoint, working directory and CA stores.
