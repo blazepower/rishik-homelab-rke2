@@ -54,7 +54,10 @@ jobs:
           echo '357eaf1df8bc24ddd5a73979fadeaae6a032e8710f11af264229756e4956bf4a  kyverno.tar.gz' | sha256sum --check
           tar -xzf kyverno.tar.gz kyverno
 
-      - name: Test tag and registry rules with Kyverno 1.19.2
+      - name: Test desired-engine upgrade guard
+        run: python3 -B .github/scripts/test-kyverno-upgrade-safety.py
+
+      - name: Test desired engine and native tag and registry rules
         run: python3 -B .github/scripts/test-kyverno-image-policy.py --kyverno ./kyverno
 
       - name: Test explicit false and missing escalation settings
