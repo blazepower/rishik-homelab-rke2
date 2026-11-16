@@ -50,6 +50,24 @@ def wait_http(container):
     raise RuntimeError("Native startup failed:\n" + docker("logs", container).stdout[-12000:])
 
 
+def select_amd64_digest(manifest, published_digest):
+    assert manifest["schemaVersion"] == 2, "Unexpected published manifest schema"
+    if "manifests" not in manifest:
+        assert manifest["mediaType"] in (
+            "application/vnd.oci.image.manifest.v1+json",
+            "application/vnd.docker.distribution.manifest.v2+json",
+        ), "Unexpected published manifest type"
+        return published_digest
+    candidates = [
+        child["digest"] for child in manifest["manifests"]
+        if child.get("platform", {}).get("os") == "linux"
+        and child.get("platform", {}).get("architecture") == "amd64"
+    ]
+    assert len(candidates) == 1, "Published index must identify exactly one linux/amd64 image"
+    assert re.fullmatch(r"sha256:[0-9a-f]{64}", candidates[0]), "Invalid platform manifest digest"
+    return candidates[0]
+
+
 def proof_binary(image, app, scratch, builder):
     container = docker("create", image).stdout.strip()
     try:
@@ -209,12 +227,15 @@ def main():
             result = docker("push", tag).stdout
             digest = re.search(r"digest: (sha256:[0-9a-f]{64})", result)
             assert digest, result
-            immutable = tag.split(":")[0] + "@" + digest[1]
+            published = tag.split(":")[0] + "@" + digest[1]
+            manifest = json.loads(docker("buildx", "imagetools", "inspect", "--raw", published).stdout)
+            amd64 = select_amd64_digest(manifest, digest[1])
+            immutable = tag.split(":")[0] + "@" + amd64
             docker("pull", immutable)
             assert json.loads(docker("image", "inspect", immutable).stdout)[0]["Id"] == report["image_id"]
             registry_proof = proof_binary(immutable, app, scratch, lock["builder"])
             assert registry_proof["sha256"] == report["binary"]["sha256"]
-            report.update(published=True, image=immutable, amd64_digest=digest[1])
+            report.update(published=True, image=immutable, published_image=published, amd64_digest=amd64)
         report["limitations"] = "Compiler/public source and bounded native behavior only; not universal custom/intermediate TLS or forensic clearance. Existing GitOps CA guards remain required."
         output = ROOT / ("maintained-go-" + args.app + "-evidence.json")
         output.write_text(json.dumps(report, indent=2))

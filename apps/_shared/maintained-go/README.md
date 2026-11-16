@@ -5,7 +5,7 @@ HelmRelease is changed here. Deployment remains a separate serial operation
 behind fresh storage/backup gates; retain all existing read-only CA guards.
 
 `sources.json` locks public source, original amd64 runtime, app version and the
-Go 1.27.3 musl builder. The runtime inherits every vendor layer, configuration,
+Go 1.27.4 musl builder. The runtime inherits every vendor layer, configuration,
 entrypoint, user and healthcheck. Only the application binary is replaced;
 license and corresponding-source/build evidence are added under
 `/usr/share/maintained-go`. Original upstream repositories and exact revisions
@@ -19,8 +19,8 @@ backend/login assets, and original version linker values. Stash's historical
 derivative is **not** an official Stash distribution.
 
 The locked gqlgen version cannot load Go 1.27 export data. Its generated
-source is prepared separately with pinned Go 1.26.10; both stages reject
-changes to go.mod/go.sum. The shipped application is compiled with Go 1.27.3,
+source is prepared separately with pinned Go 1.26.11; both stages reject
+changes to go.mod/go.sum. The shipped application is compiled with Go 1.27.4,
 and acceptance checks that actual runtime ELF, not the generator toolchain.
 
 Hosted Linux CI copies the actual rebuilt ELF out of the runtime image,
@@ -36,6 +36,10 @@ PRs never publish. After exact-head PR checks and merge, explicitly dispatch
 artifact is pushed without rebuilding, pulled by immutable digest and its
 actual ELF checked again. Evidence artifacts include immutable amd64 image
 values, source revisions, compiler output and bounded behavior results.
+An OCI index digest is recorded separately from its unique linux/amd64 runtime
+manifest. Platform selection excludes attestation descriptors and rejects
+missing or ambiguous runtimes; the selected manifest is pulled and its actual
+ELF must still match the accepted local artifact before it is recorded.
 
 The Hardcover rreading-glasses factory provenance identifies revision
 `97dd4a676d435abc400fac93f303a725cde6b0d9`, unavailable from public upstream
@@ -45,7 +49,7 @@ replacement-source line is locked in `../rreading-owned/source.json`. Its
 public GPL fork preserves the selected signed PR587 base, adds the queue-owned
 pending metric fix tracked in upstream issue612, and patches advisory-affected
 dependencies. The separate `rreading-owned-build.yaml` publisher requires
-the actual clean Go 1.27.3 image to pass original race regressions, native
+the actual clean Go 1.27.4 image to pass original race regressions, native
 TLS/API/restored-cache tests, and source plus binary advisory gates before
 master-only publication. Production activation remains separate, with real-cache
 and cold-factory rollback compatibility, fresh durable backup and unchanged

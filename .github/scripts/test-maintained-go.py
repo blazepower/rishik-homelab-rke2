@@ -13,6 +13,31 @@ module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 
 
+class PlatformDigestTest(unittest.TestCase):
+    def test_selects_runtime_instead_of_index_or_attestation(self):
+        digest = "sha256:" + "a" * 64
+        manifest = {"schemaVersion": 2, "manifests": [
+            {"digest": "sha256:" + "b" * 64, "platform": {"os": "unknown", "architecture": "unknown"}},
+            {"digest": digest, "platform": {"os": "linux", "architecture": "amd64"}},
+        ]}
+        self.assertEqual(module.select_amd64_digest(manifest, "sha256:" + "c" * 64), digest)
+
+    def test_accepts_a_direct_runtime_manifest(self):
+        digest = "sha256:" + "a" * 64
+        for media in ("application/vnd.oci.image.manifest.v1+json",
+                      "application/vnd.docker.distribution.manifest.v2+json"):
+            with self.subTest(media=media):
+                self.assertEqual(module.select_amd64_digest(
+                    {"schemaVersion": 2, "mediaType": media}, digest,
+                ), digest)
+
+    def test_rejects_missing_ambiguous_or_invalid_runtime(self):
+        runtime = {"digest": "sha256:" + "a" * 64, "platform": {"os": "linux", "architecture": "amd64"}}
+        for children in ([], [runtime, runtime], [{**runtime, "digest": "not-a-sha256"}]):
+            with self.subTest(children=children), self.assertRaises(AssertionError):
+                module.select_amd64_digest({"schemaVersion": 2, "manifests": children}, "sha256:" + "b" * 64)
+
+
 class ArtifactGateTest(unittest.TestCase):
     def setUp(self):
         self.directory = module.ROOT / ".maintained-go-unit"
