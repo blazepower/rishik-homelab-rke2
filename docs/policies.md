@@ -18,6 +18,22 @@ Kyverno is deployed via Flux HelmRelease in the `kyverno` namespace:
 - **Namespace**: `kyverno`
 - **Components**: Admission Controller, Background Controller, Cleanup Controller, Reports Controller
 
+### Upgrade acceptance
+
+The native image-policy test reads the exact desired chart's metadata from the
+official Kyverno Helm repository and requires its `appVersion` to match the
+actual hash-verified test CLI. An upgrade must not pass policy tests on the
+previous engine; update the CLI pin and checksum together with the reviewed
+chart change.
+
+Chart 3.10.0 deploys Kyverno 1.20.0.
+[Kyverno's migration guide](https://kyverno.io/docs/guides/migration-to-cel/)
+states that 1.20 removes legacy `ClusterPolicy`, `Policy`, `CleanupPolicy` and
+legacy policy-exception support. Migrate and test the existing validation,
+mutation, generation and exception resources before that upgrade, preserving
+the four enforced controls. Deprecated policy resources or stale reports are
+not proof that the new engine still enforces them.
+
 ## Resource Configuration
 
 All Kyverno components have explicit resource requests and limits:

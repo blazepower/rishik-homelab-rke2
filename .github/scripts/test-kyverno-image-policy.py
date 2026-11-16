@@ -2,14 +2,19 @@
 """Exercise the actual image policy with the native Kyverno CLI."""
 
 import argparse
+import io
 from pathlib import Path
+import re
 import subprocess
+import tarfile
 import tempfile
+import urllib.request
 
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 POLICY = ROOT / "infrastructure/policies/kyverno-policies/cluster-policies/disallow-latest-tag.yaml"
+RELEASE = ROOT / "infrastructure/policies/kyverno-install/helmrelease-kyverno.yaml"
 DIGEST = "sha256:" + "a" * 64
 CASES = [
     (registry + "/example/app:1.2", True, True)
@@ -49,7 +54,40 @@ CASES = [
 ]
 
 
+def require_matching_engine(chart_version, metadata, native_version):
+    if metadata["name"] != "kyverno" or metadata["version"] != chart_version:
+        raise RuntimeError("Downloaded metadata does not match the desired Kyverno chart")
+    expected = metadata["appVersion"].removeprefix("v")
+    if native_version != expected:
+        raise RuntimeError(
+            f"Desired chart {chart_version} deploys Kyverno {expected}, but native tests use "
+            f"{native_version}. Update the hash-pinned test CLI and verify policy API compatibility "
+            "before upgrading; Kyverno 1.20 removes legacy policy execution."
+        )
+
+
+def verify_engine(kyverno):
+    release = yaml.safe_load(RELEASE.read_text(encoding="utf-8"))
+    chart_version = release["spec"]["chart"]["spec"]["version"]
+    if not re.fullmatch(r"\d+\.\d+\.\d+", chart_version):
+        raise RuntimeError("Kyverno native acceptance requires an exact stable chart version")
+    url = f"https://kyverno.github.io/kyverno/kyverno-{chart_version}.tgz"
+    with urllib.request.urlopen(url, timeout=30) as response:
+        archive = response.read(8 * 1024 * 1024 + 1)
+    if len(archive) > 8 * 1024 * 1024:
+        raise RuntimeError("Kyverno chart metadata archive exceeds the expected size limit")
+    with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as chart:
+        metadata = yaml.safe_load(chart.extractfile("kyverno/Chart.yaml").read())
+    output = subprocess.check_output([kyverno, "version"], text=True)
+    match = re.search(r"(?m)^Version:\s*v?(\d+\.\d+\.\d+)\s*$", output)
+    if not match:
+        raise RuntimeError("Cannot verify the actual native Kyverno CLI version")
+    require_matching_engine(chart_version, metadata, match[1])
+    print(f"PASS: desired chart {chart_version} and actual native CLI both use Kyverno {match[1]}")
+
+
 def run(kyverno, policy=POLICY):
+    verify_engine(kyverno)
     resources, results = [], []
     for field in ("containers", "initContainers", "ephemeralContainers"):
         for index, (image, tag_ok, registry_ok) in enumerate(CASES):
