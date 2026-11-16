@@ -34,6 +34,7 @@ type testCase struct {
 	Username          string                     `json:"username"`
 	Expected          string                     `json:"expected"`
 	ExpectedException bool                       `json:"expectedException"`
+	ExpectedActions   []string                   `json:"expectedActions"`
 }
 
 type suite struct {
@@ -139,9 +140,13 @@ func run() error {
 			return fmt.Errorf("%s: expected exactly one policy response, received %d",
 				test.ID, len(response.Policies))
 		}
-		if len(response.Policies[0].Actions) != 1 ||
-			!response.Policies[0].Actions.Has(admissionregistrationv1.Deny) {
-			return fmt.Errorf("%s: existing enforcement must remain Deny", test.ID)
+		if len(response.Policies[0].Actions) != len(test.ExpectedActions) {
+			return fmt.Errorf("%s: changed original validation actions", test.ID)
+		}
+		for _, action := range test.ExpectedActions {
+			if !response.Policies[0].Actions.Has(admissionregistrationv1.ValidationAction(action)) {
+				return fmt.Errorf("%s: missing original validation action %s", test.ID, action)
+			}
 		}
 		actual := result{ID: test.ID, Policy: test.Policy, Status: "skip", RuleStatuses: []string{}}
 		for _, rule := range response.Policies[0].Rules {

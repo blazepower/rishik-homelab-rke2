@@ -39,10 +39,11 @@ not proof that the new engine still enforces them.
 The `fix/kyverno-cel-migration` candidate is isolated from Flux: no installation,
 chart pin, production policy, or production exception is changed. Its renderer
 is `.github/scripts/kyverno-cel-candidate.py`. Rendered files are **not approved
-for application**. Stage one covers the four existing Enforce policies (eight
-rules), not the remaining Audit validations or the three mutation policies.
-Their migration and a protected live admission/recovery rehearsal remain
-prerequisites to chart 3.10.
+for application**. The validation stage covers all eleven existing validation
+policies: eight Enforce rules and ten Audit rules. Audit actions are checked
+against the reviewed original specifications, never promoted to Deny. The
+three mutation policies and a protected live admission/recovery rehearsal
+remain prerequisites to chart 3.10.
 
 The candidate binds the reviewed source specifications and both existing
 Tailscale/MetalLB exceptions to canonical hashes. It explicitly covers Pods,
@@ -59,6 +60,12 @@ transition. A future decision to remove grandfathering requires a separate
 violation/recovery review. The admission-only infrastructure exceptions must
 not hide background violations: the actual versioned background scanner
 constructs CREATE requests with empty UserInfo.
+
+This is a compatibility migration, not a claim of complete Pod Security
+Standards coverage. For example, the original run-as-nonroot Audit rule accepts
+pod-level true even when a container explicitly sets false, and the original
+AppArmor Audit rule inspects legacy annotations. Their separate hardening and
+modern-field review must precede any promotion to Enforce.
 
 The isolated acceptance workflow uses the actual 1.19.2 release CLI for legacy
 CREATE baselines, then builds the shared engine from checksum-verified upstream

@@ -26,11 +26,15 @@ USER = "system:serviceaccount:policy-test:synthetic"
 
 
 def resource(kind, spec, namespace="policy-test", name="fixture"):
+    spec = deepcopy(spec)
+    annotations = spec.pop("_annotations", None)
     metadata = {"name": name, "labels": {"app": "fixture"}}
     if kind == "Namespace":
         return {"apiVersion": "v1", "kind": kind, "metadata": metadata}
     metadata["namespace"] = namespace
     template = {"metadata": {"labels": {"app": "fixture"}}, "spec": deepcopy(spec)}
+    if annotations is not None:
+        (metadata if kind == "Pod" else template["metadata"])["annotations"] = annotations
     if kind == "Pod":
         body, api = spec, "v1"
     elif kind == "CronJob":
@@ -59,6 +63,99 @@ def pod_spec(obj):
 
 def variants(rule):
     clean = {"containers": [{"name": "main", "image": "busybox:1.37.0"}]}
+    if rule in ("disallow-latest-tag", "validate-trusted-registries"):
+        module_spec = importlib.util.spec_from_file_location(
+            "image_cases", Path(__file__).with_name("test-kyverno-image-policy.py")
+        )
+        image_cases = importlib.util.module_from_spec(module_spec)
+        module_spec.loader.exec_module(image_cases)
+        results = [("valid", clean, True)]
+        for field in ("containers", "initContainers", "ephemeralContainers"):
+            for index, (image, tag_ok, registry_ok) in enumerate(image_cases.CASES):
+                spec = deepcopy(clean)
+                spec[field] = [{"name": "tested", "image": image}]
+                results.append((field + "-" + str(index), spec,
+                                tag_ok if rule == "disallow-latest-tag" else registry_ok))
+        return results
+    if rule in ("deny-privilege-escalation", "require-run-as-nonroot", "require-drop-all",
+                "restrict-added-capabilities", "restrict-seccomp-containers", "validate-resources"):
+        safe = {
+            "deny-privilege-escalation": {"securityContext": {"allowPrivilegeEscalation": False}},
+            "require-run-as-nonroot": {"securityContext": {"runAsNonRoot": True}},
+            "require-drop-all": {"securityContext": {"capabilities": {"drop": ["ALL"]}}},
+            "restrict-added-capabilities": {},
+            "restrict-seccomp-containers": {},
+            "validate-resources": {"resources": {
+                "requests": {"cpu": "10m", "memory": "16Mi"},
+                "limits": {"cpu": "100m", "memory": "64Mi"},
+            }},
+        }[rule]
+        clean["containers"][0].update(deepcopy(safe))
+        results = [("valid", clean, True)]
+        for field in ("containers", "initContainers", "ephemeralContainers"):
+            options = []
+            if rule == "deny-privilege-escalation":
+                options = [("false", {"allowPrivilegeEscalation": False}, True),
+                           ("true", {"allowPrivilegeEscalation": True}, False),
+                           ("empty", {}, False), ("missing", None, False)]
+            elif rule == "require-run-as-nonroot":
+                options = [("true", {"runAsNonRoot": True}, True),
+                           ("false", {"runAsNonRoot": False}, False),
+                           ("empty", {}, False), ("missing", None, False)]
+            elif rule == "require-drop-all":
+                options = [(label, {"capabilities": {"drop": drop}}, allowed)
+                           for label, drop, allowed in (
+                               ("all", ["ALL"], True), ("extra", ["NET_RAW", "ALL"], True),
+                               ("empty", [], False), ("lowercase", ["all"], False))]
+                options.append(("missing", None, False))
+            elif rule == "restrict-added-capabilities":
+                options = [(cap.lower(), {"capabilities": {"add": [cap]}}, allowed)
+                           for cap, allowed in (
+                               ("CHOWN", True), ("DAC_OVERRIDE", True), ("FOWNER", True),
+                               ("FSETID", True), ("KILL", True), ("SETGID", True), ("SETUID", True),
+                               ("SETPCAP", True), ("NET_BIND_SERVICE", True), ("SYS_CHROOT", True),
+                               ("SETFCAP", True), ("SYS_ADMIN", False), ("NET_ADMIN", False),
+                               ("SYS_PTRACE", False), ("NET_RAW", False))]
+                options.append(("missing", None, True))
+            elif rule == "restrict-seccomp-containers":
+                options = [(value.lower(), {"seccompProfile": {
+                    "type": value, **({"localhostProfile": "synthetic.json"} if value == "Localhost" else {})
+                }}, value != "Unconfined") for value in ("RuntimeDefault", "Localhost", "Unconfined")]
+                options.append(("missing", None, True))
+            else:
+                for category in ("requests", "limits"):
+                    for quantity in ("cpu", "memory"):
+                        missing = deepcopy(safe["resources"])
+                        del missing[category][quantity]
+                        options.append((category + "-" + quantity, missing, False))
+                options.append(("missing", None, False))
+            for label, context, allowed in options:
+                spec = deepcopy(clean)
+                tested = {"name": "tested", "image": "busybox:1.37.0"}
+                if context is not None:
+                    tested["resources" if rule == "validate-resources" else "securityContext"] = context
+                spec[field] = [tested]
+                results.append((field + "-" + label, spec, allowed))
+                if rule == "require-run-as-nonroot" and label in ("false", "missing"):
+                    inherited = deepcopy(spec)
+                    inherited["securityContext"] = {"runAsNonRoot": True}
+                    results.append((field + "-" + label + "-pod-true", inherited, True))
+        return results
+    if rule == "restrict-seccomp-pod":
+        return [("missing", clean, True)] + [
+            (value.lower(), {**clean, "securityContext": {"seccompProfile": {
+                "type": value, **({"localhostProfile": "synthetic.json"} if value == "Localhost" else {})
+            }}}, value != "Unconfined") for value in ("RuntimeDefault", "Localhost", "Unconfined")
+        ]
+    if rule == "restrict-apparmor-profiles":
+        results = [("missing", clean, True)]
+        for field in ("containers", "initContainers", "ephemeralContainers"):
+            for profile in ("runtime/default", "localhost/synthetic", "unconfined"):
+                spec = deepcopy(clean)
+                spec[field] = [{"name": "tested", "image": "busybox:1.37.0"}]
+                spec["_annotations"] = {"container.apparmor.security.beta.kubernetes.io/tested": profile}
+                results.append((field + "-" + profile, spec, profile != "unconfined"))
+        return results
     results = [("absent", clean, True)]
     if rule == "deny-privileged-containers":
         for field in ("containers", "initContainers", "ephemeralContainers"):
@@ -97,6 +194,12 @@ def variants(rule):
 def fixtures(policies, exceptions):
     sources = candidate.reviewed_sources()
     cases = []
+    actions = {
+        policy["metadata"]["name"]: [
+            "Deny" if sources[policy["metadata"]["labels"]["homelab.rishik.dev/legacy-policy"]]
+            ["spec"]["validationFailureAction"] == "Enforce" else "Audit"
+        ] for policy in policies
+    }
 
     def add(policy, label, obj, expected, old=None, operation="CREATE", subresource="",
             username=USER, exception=False, keep_name=False):
@@ -109,6 +212,7 @@ def fixtures(policies, exceptions):
             "id": f"{len(cases):04d}:{label}", "policy": policy, "object": obj,
             "oldObject": old, "operation": operation, "subresource": subresource,
             "username": username, "expected": expected, "expectedException": exception,
+            "expectedActions": actions[policy],
         })
 
     for policy in policies:
@@ -140,7 +244,8 @@ def fixtures(policies, exceptions):
                         "pass" if allowed else "fail")
                 good = resource(kind, options[0][1])
                 bad = resource(kind, next(spec for _, spec, allowed in options if not allowed))
-            for old, new, expected in ((good, bad, "fail"), (bad, bad, "skip"),
+            grandfather = "skip" if actions[name] == ["Deny"] else "fail"
+            for old, new, expected in ((good, bad, "fail"), (bad, bad, grandfather),
                                        (bad, good, "pass"), (good, good, "pass")):
                 add(name, f"{rule_name}-{kind}-update-{expected}", new, expected, old,
                     operation="UPDATE", exception=expected == "skip")
@@ -283,8 +388,8 @@ def baseline(suite, cli, evidence, directory):
         count += len(results)
     output = command([str(cli), "test", str(directory), "--require-tests", "--fail-only",
                       "--remove-color"], ROOT, evidence, "legacy-cli.log")
-    summary = re.search(r"(\d+) tests passed and (\d+) tests failed", output)
-    if not summary or tuple(map(int, summary.groups())) != (count, 0):
+    summary = re.search(r"Test Summary:\s*(\d+) out of (\d+) tests failed", output)
+    if not summary or tuple(map(int, summary.groups())) != (0, count):
         raise RuntimeError(f"Native legacy summary did not prove all {count} expected results")
     return count
 
@@ -295,7 +400,7 @@ def run(args):
     policies, exceptions = candidate.build()
     suite = fixtures(policies, exceptions)
     (evidence / "suite.json").write_text(json.dumps(suite, indent=2) + "\n", encoding="utf-8")
-    receipt = {"outcome": "incomplete", "scope": "held-enforced-controls-only",
+    receipt = {"outcome": "incomplete", "scope": "held-validation-controls-only",
                "sdk_version": args.sdk_version, "requests_expected": len(suite["cases"]),
                "policies": len(policies), "exceptions": len(exceptions),
                "production_activation": False}
