@@ -92,6 +92,20 @@ def check_transition(current, target):
             "Refusing downgrade or skipped Kubernetes minor")
 
 
+def check_client_skew(client, current, target=None):
+    def minor(value):
+        match = re.fullmatch(r"v?(\d+)\.(\d+)\.\d+(?:\+[A-Za-z0-9._-]+)?", value)
+        require(match is not None, "Unsupported kubectl/API version: " + value)
+        return int(match[1]), int(match[2])
+
+    client_minor = minor(client)
+    for server in (current, target) if target else (current,):
+        server_minor = minor(server)
+        require(client_minor[0] == server_minor[0] and abs(client_minor[1] - server_minor[1]) <= 1,
+                f"kubectl {client} is outside supported one-minor skew of API {server}; "
+                "select a client compatible with both current and target API versions")
+
+
 def remote(node, payload, privileged=False):
     encoded = base64.b64encode(canonical(payload)).decode()
     command = ["python3", "-c", HOST_SOURCE, encoded]
@@ -379,6 +393,16 @@ def build_plan(policy, action, minor, inventory):
             check_transition(node["status"]["nodeInfo"]["kubeletVersion"], release["version"])
         require(len({n["status"]["nodeInfo"]["kubeletVersion"] for n in nodes}) == 1,
                 "Mixed versions require recovery assessment before a new fleet run")
+    versions = json.loads(kube("version", "-o", "json"))
+    require(all(isinstance(versions.get(key), dict)
+                and isinstance(versions[key].get("gitVersion"), str)
+                for key in ("clientVersion", "serverVersion")),
+            "kubectl did not return client and API versions; no maintenance")
+    client = {"client": versions["clientVersion"]["gitVersion"], "server": versions["serverVersion"]["gitVersion"]}
+    try:
+        check_client_skew(client["client"], client["server"], release["version"] if release else None)
+    except RuntimeError as error:
+        blockers.append(str(error))
     order = policy["nodes"] if action == "rke2" else sorted(policy["nodes"], key=lambda n: (
         n["role"] == "server", n["name"] != "rishik-worker2"))
     for node in order:
@@ -420,7 +444,7 @@ def build_plan(policy, action, minor, inventory):
         "policy_sha256": sha(POLICY.read_bytes()), "runner_sha256": sha(Path(__file__).read_bytes()),
         "host_sha256": sha(HOST.read_bytes()), "action": action, "release": release,
         "outage_budget": {"maximum_seconds": MAX_OUTAGE_SECONDS, "recovery_reserve_seconds": RECOVERY_RESERVE_SECONDS},
-        "nodes": order, "bindings": bindings, "quarantine": protected, "blockers": sorted(set(blockers)),
+        "nodes": order, "bindings": bindings, "kubectl": client, "quarantine": protected, "blockers": sorted(set(blockers)),
         "impact": "Serial drains delete reviewed emptyDir data. OS: host reboot and disable desktop, printing, "
                   "Bluetooth, mDNS advertisement and modem services; preserve networking/storage/GPU drivers. "
                   "RKE2: service restarts. Controller step interrupts the sole API/etcd server. "
@@ -533,8 +557,8 @@ def apply(plan, approval, policy, recovery_directory, token_confirmed, compatibi
                        ".".join(str(x) for x in version(plan["release"]["version"])[:2]) if plan["release"] else None,
                        inventory)
     require(not fresh["blockers"] and all(fresh[key] == plan[key]
-            for key in ("bindings", "nodes", "release", "quarantine")),
-            "Cluster/host/package state changed; generate a new plan")
+            for key in ("bindings", "nodes", "release", "quarantine", "kubectl")),
+            "Cluster/host/package/client state changed or blockers appeared; generate a new plan")
     server = next(n for n in policy["nodes"] if n["role"] == "server")
     protection = remote(server, {"operation": "recovery-audit", "recovery_directory": recovery_directory})
     require(protection.get("off_node_directory_verified") is True, "Controller recovery directory was not verified")

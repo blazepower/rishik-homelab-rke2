@@ -92,6 +92,24 @@ class MaintenanceTests(unittest.TestCase):
             {"key": "app", "operator": "NotIn", "values": ["plex"]},
         ]}, labels))
 
+    def test_kubectl_must_cover_both_current_and_target_api(self):
+        m.check_client_skew("v1.34.2", "v1.35.10+rke2r1")
+        m.check_client_skew("v1.36.6", "v1.35.10+rke2r1", "v1.36.6+rke2r1")
+        m.check_client_skew("v1.36.6", "v1.36.6+rke2r1", "v1.37.2+rke2r1")
+        for client, current, target in [
+            ("v1.34.2", "v1.35.10+rke2r1", "v1.36.6+rke2r1"),
+            ("v1.35.10", "v1.36.6+rke2r1", "v1.37.2+rke2r1"),
+            ("v1.37.2", "v1.35.10+rke2r1", "v1.36.6+rke2r1"),
+            ("v2.35.0", "v1.35.10+rke2r1", None),
+        ]:
+            with self.subTest(client=client, target=target), self.assertRaisesRegex(RuntimeError, "one-minor skew"):
+                m.check_client_skew(client, current, target)
+
+    def test_unparseable_and_prerelease_clients_are_not_accepted(self):
+        for value in ("", "unknown", "v1.36", "v1.36.0-rc.1"):
+            with self.subTest(value=value), self.assertRaisesRegex(RuntimeError, "Unsupported"):
+                m.check_client_skew(value, "v1.35.10+rke2r1")
+
     def test_plan_cannot_be_replayed_or_tampered(self):
         plan = {
             "created_epoch": 100, "cluster_uid": "cluster", "action": "os",
@@ -171,7 +189,7 @@ class MaintenanceTests(unittest.TestCase):
 
     def test_failure_retains_lock_and_never_maintains_second_node(self):
         policy = json.loads(m.POLICY.read_text())
-        plan = {"action": "os", "release": None, "quarantine": {}, "nodes": policy["nodes"], "bindings": {
+        plan = {"action": "os", "release": None, "quarantine": {}, "kubectl": {}, "nodes": policy["nodes"], "bindings": {
             node["name"]: {"boot_id": "boot", "source_version": "v1.35.10+rke2r1",
                            "pending_packages": []} for node in policy["nodes"]}}
         fresh = {**plan, "blockers": []}
@@ -200,7 +218,7 @@ class MaintenanceTests(unittest.TestCase):
 
     def test_missing_recovery_protection_stops_before_lock_or_cordon(self):
         policy = json.loads(m.POLICY.read_text())
-        plan = {"action": "os", "release": None, "bindings": {}, "nodes": [], "quarantine": {}}
+        plan = {"action": "os", "release": None, "bindings": {}, "nodes": [], "quarantine": {}, "kubectl": {}}
         with patch.object(m, "check_plan"), patch.object(m, "get", return_value={"metadata": {"uid": "cluster"}}), \
                 patch.object(m, "audit_nodes", return_value={}), \
                 patch.object(m, "build_plan", return_value={**plan, "blockers": []}), \
@@ -210,6 +228,25 @@ class MaintenanceTests(unittest.TestCase):
                 m.apply(plan, "approval", policy, "/private/recovery", True, False)
             finally:
                 kube.assert_not_called()
+
+    def test_client_drift_or_unsupported_client_stops_before_lock_and_host_operations(self):
+        policy = json.loads(m.POLICY.read_text())
+        plan = {"action": "rke2", "release": policy["rke2_releases"]["1.36"], "bindings": {},
+                "nodes": [], "quarantine": {},
+                "kubectl": {"client": "v1.35.10", "server": "v1.35.10+rke2r1"}}
+        for drift in ({"blockers": ["kubectl outside supported skew"]},
+                      {"kubectl": {"client": "v1.36.6", "server": "v1.35.10+rke2r1"}}):
+            with self.subTest(drift=drift), patch.object(m, "check_plan"), \
+                    patch.object(m, "get", return_value={"metadata": {"uid": "cluster"}}), \
+                    patch.object(m, "audit_nodes", return_value={}), \
+                    patch.object(m, "build_plan", return_value={**plan, "blockers": [], **drift}), \
+                    patch.object(m, "remote") as remote, patch.object(m, "kube") as kube, \
+                    self.assertRaises(RuntimeError):
+                try:
+                    m.apply(plan, "approval", policy, "/private/recovery", True, True)
+                finally:
+                    remote.assert_not_called()
+                    kube.assert_not_called()
 
     def test_headless_upgrade_never_removes_packages_or_stops_server_dependencies(self):
         state = {"boot_id": "boot", "pending_packages": ["Inst synthetic (1.0)"],
@@ -302,19 +339,25 @@ class MaintenanceTests(unittest.TestCase):
                      "apt_metadata_epoch": m.time.time(), "boot_id": "boot",
                      "kernel": "test", "pending_packages": []} for n in policy["nodes"]}
         resources = {"pods": [pod], "nodes": nodes, "poddisruptionbudgets": [pdb]}
+        versions = {"clientVersion": {"gitVersion": "v1.35.10"}, "serverVersion": {"gitVersion": "v1.35.10+rke2r1"}}
         with patch.object(m, "items", side_effect=lambda r: resources.get(r, [])), \
-                patch.object(m, "get", return_value={"metadata": {"uid": "cluster"}}), patch.object(m, "health"):
+                patch.object(m, "get", return_value={"metadata": {"uid": "cluster"}}), patch.object(m, "health"), \
+                patch.object(m, "kube", side_effect=lambda *args: json.dumps(versions)):
             os_plan = m.build_plan(policy, "os", None, inventory)
             rke_plan = m.build_plan(policy, "rke2", "1.36", inventory)
+            versions["clientVersion"]["gitVersion"] = "v1.34.2"
+            unsupported = m.build_plan(policy, "rke2", "1.36", inventory)
         self.assertEqual([n["name"] for n in os_plan["nodes"]],
                          ["rishik-worker2", "rishik-worker1", "rishik-controller"])
         self.assertEqual(rke_plan["nodes"][0]["role"], "server")
         self.assertTrue(any("app-pdb" in b for b in os_plan["blockers"]))
+        self.assertEqual(os_plan["kubectl"]["client"], "v1.35.10")
+        self.assertTrue(any("one-minor skew" in b for b in unsupported["blockers"]))
 
     def test_successful_os_run_is_serial_and_keeps_controller_cordoned(self):
         policy = json.loads(m.POLICY.read_text())
         order = [policy["nodes"][1], policy["nodes"][2], policy["nodes"][0]]
-        plan = {"action": "os", "release": None, "quarantine": {}, "nodes": order, "bindings": {
+        plan = {"action": "os", "release": None, "quarantine": {}, "kubectl": {}, "nodes": order, "bindings": {
             n["name"]: {"boot_id": "old", "source_version": "v1.35.10+rke2r1", "pending_packages": []} for n in order}}
         states = {n["name"]: {"boot_id": "old", "pending_packages": []} for n in order}
         lock, calls, privileged_steps = {}, [], []
