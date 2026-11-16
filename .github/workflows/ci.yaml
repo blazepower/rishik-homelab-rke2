@@ -39,6 +39,20 @@ env:
   CRDS_CATALOG_SCHEMA_LOCATION: "/tmp/crds-catalog/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json"
 
 jobs:
+  trivy-cache-acceptance:
+    name: Trivy Scan Cache Acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install chart test dependency
+        run: pip install PyYAML
+
+      - name: Reproduce exclusive scan-cache failure and verify the rendered configuration
+        run: python3 -B .github/scripts/test-trivy-scan-cache.py
+
   kyverno-image-policy:
     name: Kyverno Image Policy
     runs-on: ubuntu-latest
