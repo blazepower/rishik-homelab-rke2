@@ -95,6 +95,10 @@ neither baseline is normalized by sorting or silently treated as equivalent.
 `IfNeeded` matches the inspected live resource webhook. Only JSONPatch is tested:
 the offline bridge rejects ApplyConfiguration rather than approximating its
 schema-dependent structural merge with a deduced converter.
+Topology patches initialize the empty list and append a bare object in one
+JSONPatch expression: actual 1.19.2 panics serializing an Object nested in a
+list, whereas 1.20.0 fixes that upstream serializer. Neither SDK is patched or
+waived; both must execute the same candidate and exact output expectations.
 
 The isolated acceptance workflow uses the actual 1.19.2 release CLI for legacy
 CREATE/DELETE validation and exact mutation baselines, then builds the shared engines from checksum-verified upstream
