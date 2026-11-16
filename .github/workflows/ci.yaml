@@ -192,6 +192,9 @@ jobs:
       - name: Test owned image build guardrails
         run: python3 .github/scripts/test-owned-image-builds.py
 
+      - name: Test exact-chart node detector activation safeguards
+        run: python3 -B .github/scripts/test-npd-activation.py
+
       - name: Test media codec policy
         run: python3 .github/scripts/test-media-codec-policy.py
 

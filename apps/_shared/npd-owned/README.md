@@ -61,6 +61,13 @@ plane. The disposable test accepts these exact flags with API export disabled;
 it does not claim to measure real API request rates. The active chart 2.3.14
 supports `image.digest` and `settings.extraArgs`; pin that exact chart on
 activation rather than leaving the existing wildcard version.
+Chart 2.3.14 concatenates `extraArgs` entries without inserting spaces. Supply
+`--kube-api-qps=5 --kube-api-burst=10` as one entry; two separate entries form
+an invalid argument. `test-npd-activation.py` renders the SHA-locked actual chart
+and rejects lost readonly coverage, unaccepted images, restored 500/500 defaults,
+and this concatenation trap. The scoped publication ledger is
+`.github/security/npd-owned-runtime.json`; it is not production acceptance.
+Renovate must not replace the owned image without repeating its acceptance.
 
 The reviewed Debian factory still has OS package findings. This producer fixes
 APT advisory CVE-2026-109518 (`apt` and `libapt-pkg6.0` 2.6.1 -> 2.6.2), not all

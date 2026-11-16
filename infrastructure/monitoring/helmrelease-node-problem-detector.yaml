@@ -8,6 +8,7 @@ spec:
   chart:
     spec:
       chart: node-problem-detector
+      version: "2.3.14"
       sourceRef:
         kind: HelmRepository
         name: deliveryhero
@@ -20,6 +21,10 @@ spec:
     remediation:
       retries: 3
   values:
+    image:
+      repository: ghcr.io/blazepower/npd-owned
+      tag: ""
+      digest: sha256:e8da6dac03a6cddeecc1b89dcb19e78d5e92baf85db0634df92f93958b5622d3
     metrics:
       enabled: true
       serviceMonitor:
@@ -35,6 +40,9 @@ spec:
       log_monitors:
         - /config/kernel-monitor.json
         - /config/systemd-monitor.json
+        - /config/readonly-monitor.json
+      extraArgs:
+        - "--kube-api-qps=5 --kube-api-burst=10"
       custom_plugin_monitors: []
     tolerations:
       - key: node-role.kubernetes.io/control-plane
