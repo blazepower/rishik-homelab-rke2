@@ -38,5 +38,16 @@ RBAC settings, natural rollout and actual three-node observation. Upstream moved
 `readonly-monitor.json`; activation must explicitly retain the current kernel
 and systemd monitors **and add this readonly monitor**, or existing filesystem
 alerts would silently lose coverage. All three actual config files are hashed
-against the exact public source, including after publication. Keep
+against the exact public source, including after publication.
+
+Upstream also changes the effective API rate ceiling: production v0.8.19 uses
+client-go's default 5 QPS/10 burst, while v1.35.4 defaults to 500/500. Activation
+must explicitly set `--kube-api-qps=5 --kube-api-burst=10`, preserving the existing
+5-minute heartbeat rather than silently increasing pressure on this control
+plane. The disposable test accepts these exact flags with API export disabled;
+it does not claim to measure real API request rates. The active chart 2.3.14
+supports `image.digest` and `settings.extraArgs`; pin that exact chart on
+activation rather than leaving the existing wildcard version.
+
+Keep
 the controller cordoned and Kured suspended; this is not node maintenance.

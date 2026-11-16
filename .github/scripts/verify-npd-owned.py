@@ -121,20 +121,21 @@ def native(image, scratch, suffix):
         docker("run", "-d", "--name", name, *restrictions, "--entrypoint", "/node-problem-detector",
                image, "--hostname-override=synthetic", "--enable-k8s-exporter=false",
                "--port=0", "--prometheus-address=127.0.0.1", "--prometheus-port=20257",
+               "--kube-api-qps=5", "--kube-api-burst=10",
                "--config.custom-plugin-monitor=/fixture/monitor.json")
         transitions = [metric(0)]
         (fixture / "unhealthy").touch()
         transitions.append(metric(1))
         (fixture / "unhealthy").unlink()
         transitions.append(metric(0))
-        log_args = ["--log-path=/fixture/journal", "--lookback=1m", "--delay=0s",
+        log_args = ["--log-path=/fixture/journal", "--journald-source=kernel", "--lookback=1m", "--delay=0s",
                     "--pattern=synthetic", "--count=1"]
         log = docker("run", "--rm", *restrictions, "--entrypoint", "/home/kubernetes/bin/log-counter",
                      image, *log_args, check=False)
         assert log.returncode == 0, log.stdout
         invalid = docker("run", "--rm", *restrictions, "--entrypoint", "/home/kubernetes/bin/log-counter",
                          image, *log_args, "--pattern=[", check=False)
-        assert invalid.returncode != 0, "Invalid journal regex reported success"
+        assert invalid.returncode == 2 and "error parsing regexp" in invalid.stdout, invalid.stdout
         health_args = ["--component=cri", "--enable-repair=false", "--crictl-path=/fixture/crictl",
                        "--cri-socket-path=unix:///fixture/synthetic.sock", "--health-check-timeout=2s"]
         health = docker("run", "--rm", *restrictions, "--entrypoint", "/home/kubernetes/bin/health-checker",
@@ -143,7 +144,7 @@ def native(image, scratch, suffix):
         (fixture / "crictl").write_text("#!/bin/sh\nexit 1\n")
         unhealthy = docker("run", "--rm", *restrictions, "--entrypoint", "/home/kubernetes/bin/health-checker",
                            image, *health_args, check=False)
-        assert unhealthy.returncode != 0, "Failed synthetic CRI command reported healthy"
+        assert unhealthy.returncode in (1, 2), unhealthy.stdout
         state = json.loads(docker("inspect", name).stdout)[0]["State"]
         assert state["Running"] and not state["OOMKilled"], state
         return {"version": version, "condition_gauge_values": [0, 1, 0],
