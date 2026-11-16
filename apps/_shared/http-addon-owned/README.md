@@ -22,6 +22,8 @@ function or package-only matches. Module-only IDs and DB timestamps are retained
 not waived or described as universal clearance. Upstream short tests run without
 production configuration; module licenses, the patch and all scan streams ship
 under `/usr/share/http-addon-owned`.
+Six public checksum false positives in the generated patch have exact
+match-only gitleaks exceptions, with an unrelated-credential detection control.
 
 GitHub-hosted CI creates two disposable, explicitly scoped Kubernetes 1.35
 clusters: the exact factory baseline, then the actual local candidate images.

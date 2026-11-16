@@ -37,7 +37,8 @@ def fetch(url, digest, path):
 
 
 def validate_buildinfo(info, lock):
-    assert info.splitlines()[0] == "/proof/application: " + lock["compiler"]
+    assert info.splitlines() and info.splitlines()[0] == "/proof/application: " + lock["compiler"], (
+        "Unexpected actual ELF compiler output", info.splitlines()[:4])
     assert all(value in info for value in ("CGO_ENABLED=0", "GOOS=linux", "GOARCH=amd64"))
     for module, version in lock["required_modules"].items():
         assert re.search(r"^\s+dep\s+" + re.escape(module) + r"\s+" + re.escape(version) + r"\s",
@@ -329,6 +330,7 @@ def main():
     try:
         with tempfile.TemporaryDirectory(prefix="http-addon-owned-") as directory:
             scratch = Path(directory)
+            docker("pull", "--platform", "linux/amd64", lock["builder"])
             run("git", "clone", "--quiet", "--depth", "1", "--branch", lock["version"],
                 lock["repository"], str(scratch / "upstream"))
             assert run("git", "-C", str(scratch / "upstream"), "rev-parse", "HEAD").stdout.strip() == lock["revision"]
