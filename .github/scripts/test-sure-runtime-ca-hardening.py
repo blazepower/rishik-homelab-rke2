@@ -1,4 +1,5 @@
 """Sure-specific chart checks and network-isolated, exact-image Linux acceptance."""
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -19,6 +20,7 @@ VALUES = yaml.safe_load((APP / "helmrelease.yaml").read_text())["spec"]["values"
 DEFAULTS = yaml.safe_load((CHART / "values.yaml").read_text())
 FACTORY = json.loads((APP / "factory-ca.json").read_text())
 IMAGE = VALUES["image"]["repository"] + ":" + VALUES["image"]["tag"]
+BASELINE_IMAGE = "ghcr.io/we-promise/sure@sha256:0b58098fc7f5c189f348abcc64be1858d7789f8f724b8465d0a2a2c48a4e4b55"
 POSTGRES = DEFAULTS["postgresql"]["image"]["repository"] + ":" + DEFAULTS["postgresql"]["image"]["tag"]
 REDIS = DEFAULTS["redis"]["image"]["repository"] + ":" + DEFAULTS["redis"]["image"]["tag"]
 
@@ -150,11 +152,11 @@ class SureChartTests(unittest.TestCase):
                          {item["sha256"].lower() for item in canonical["blocked_spkis"]})
         self.assertEqual(("\r\n".join(keys) + "\r\n").splitlines(), keys)
 
-    def test_same_vendor_version_is_pinned_and_factory_manifest_is_immutable(self):
+    def test_candidate_security_release_is_pinned_and_stock_public_ca_inventory_is_preserved(self):
         self.assertEqual(VALUES["image"]["tag"],
-                         "0.7.2-alpha.2@sha256:b5d6d822fdef24c1af06ad455ce003139a2bd50cb6cf76a84a147dfd06b0e3dc")
+                         "0.7.6-hotfix.1@sha256:002cde609f3af4b69ba2564c2482f3996e1fe29092dd169962b9b6ed943fcb10")
         self.assertEqual(FACTORY["image_amd64"],
-                         "ghcr.io/we-promise/sure@sha256:0b58098fc7f5c189f348abcc64be1858d7789f8f724b8465d0a2a2c48a4e4b55")
+                         "ghcr.io/we-promise/sure@sha256:950209a9c52dec8d8ec5bcd6e46d39b65de07b9205d2877e6d5e1b94d851b220")
         self.assertEqual(len(FACTORY["entries"]), 453)
         self.assertEqual(FACTORY["counts"]["system"]["after"], 148)
         self.assertEqual(FACTORY["counts"]["aws"]["after"], 134)
@@ -265,7 +267,7 @@ class SureLinuxAcceptance(unittest.TestCase):
     def setUpClass(cls):
         if not shutil.which("docker"):
             raise AssertionError("Linux acceptance requires the approved Docker runner")
-        for image in (IMAGE, POSTGRES, REDIS):
+        for image in (IMAGE, BASELINE_IMAGE, POSTGRES, REDIS):
             subprocess.run(["docker", "pull", "--platform=linux/amd64", image],
                            check=True, capture_output=True, timeout=300)
 
@@ -284,8 +286,8 @@ class SureLinuxAcceptance(unittest.TestCase):
         for name in reversed(self.containers):
             subprocess.run(["docker", "rm", "--force", "--volumes", name], capture_output=True, timeout=45)
 
-    def docker(self, *args, timeout=90, check=True):
-        result = subprocess.run(["docker", *args], capture_output=True, timeout=timeout)
+    def docker(self, *args, timeout=90, check=True, data=None):
+        result = subprocess.run(["docker", *args], input=data, capture_output=True, timeout=timeout)
         if check:
             self.assertEqual(result.returncode, 0, "Isolated Docker operation failed: " + " ".join(args[:2]))
         return result
@@ -391,29 +393,140 @@ class SureLinuxAcceptance(unittest.TestCase):
         options = self.app_options(output)
         for key, value in environment.items():
             options += ["--env=" + key + "=" + value]
-        rails = self.create(options=options, network=network)
+        rails = self.create(options=[*options, "--cpus=0.2", "--memory=512m", "--memory-swap=512m"],
+                            network=network)
         self.docker("start", rails)
         readiness = (
             "require 'net/http';r=Net::HTTP.start('127.0.0.1',3000,open_timeout:1,read_timeout:2)"
             "{|h|h.get('/')};exit((200..399).include?(r.code.to_i) ? 0 : 1)"
         )
-        self.wait_ready(["exec", rails, "ruby", "-e", readiness], 180,
+        self.wait_ready(["exec", rails, "ruby", "-e", readiness], 360,
                         "original Rails entrypoint/db:prepare with read-only root and three writable runtime directories")
         schema = self.docker("exec", postgres, "psql", "-U", "fixture", "-d", "sure_fixture",
                              "-Atc", "SELECT COUNT(*) FROM schema_migrations").stdout
         self.assertGreater(int(schema.strip()), 0)
-        sidekiq = self.create(options=[*options, "--entrypoint=bundle"], command=["exec", "sidekiq"], network=network)
+        sidekiq = self.create(options=[*options, "--cpus=1", "--memory=1536m", "--memory-swap=1536m",
+                                      "--entrypoint=bundle"], command=["exec", "sidekiq"], network=network)
         self.docker("start", sidekiq)
         self.wait_ready(sidekiq_probe_command(sidekiq), 90,
                         "original bundle exec sidekiq process registration in disposable Redis")
         for container in (rails, sidekiq):
             state = json.loads(self.docker("inspect", "--format={{json .State}}", container).stdout)
             self.assertTrue(state["Running"])
+            self.docker("exec", container, "bundle", "exec", "ruby", "-rnet/imap", "-rjson", "-e",
+                        'spec=Gem.loaded_specs.fetch("net-imap");'
+                        'abort "unexpected application IMAP binding" unless spec.version==Gem::Version.new("0.6.6");'
+                        'puts JSON.generate({bundled_net_imap:spec.version.to_s,'
+                        'scope:"Separate Bundler probe; installed default gem remains reported, not suppressed."})')
             self.docker("exec", container, "ruby", "-e", NATIVE_PROBE)
             self.docker("exec", "--user=0:0", container, "ruby", "-e", READONLY_PROBE)
             self.docker("exec", container, "ruby", "-rsocket", "-e",
                         "abort 'non-loopback interface' unless Socket.getifaddrs.all?"
                         "{|a|!a.addr||!a.addr.ip?||['127.0.0.1','::1'].include?(a.addr.ip_address)}")
+
+    def test_current_schema_upgrade_and_old_version_backup_restore_preserve_synthetic_financial_records(self):
+        output, _, code = self.initialize()
+        self.assertEqual(code, 0)
+        (self.base / "fixtures").mkdir()
+        owner = self.create(options=["--entrypoint=ruby"], command=["-e", "sleep 900"])
+        self.docker("start", owner)
+        self.assertEqual(self.docker("inspect", "--format={{.HostConfig.NetworkMode}}", owner).stdout.strip(), b"none")
+        network = "container:" + owner
+        postgres = self.create(POSTGRES, options=[
+            "--user=70:70", "--tmpfs=/pgdata:rw,uid=70,gid=70,mode=0700",
+            "--tmpfs=/var/run/postgresql:rw,uid=70,gid=70,mode=0775",
+            "--env=PGDATA=/pgdata", "--env=POSTGRES_DB=sure_fixture", "--env=POSTGRES_USER=fixture",
+            "--env=POSTGRES_PASSWORD=public-test-fixture",  # gitleaks:allow
+        ], network=network)
+        redis = self.create(REDIS, options=["--read-only", "--user=1000:1000", "--entrypoint=redis-server"],
+                            command=["--bind", "127.0.0.1", "--save", "", "--appendonly", "no"], network=network)
+        self.docker("start", postgres)
+        self.docker("start", redis)
+        self.wait_ready(["exec", postgres, "pg_isready", "-U", "fixture", "-d", "sure_fixture"], 60,
+                        "disposable old-schema database")
+        self.wait_ready(["exec", redis, "redis-cli", "ping"], 30, "disposable migration queue")
+
+        def rails_options(database):
+            options = [*self.app_options(output), "--cpus=0.2", "--memory=512m", "--memory-swap=512m"]
+            environment = {
+                "RAILS_ENV": "production", "SECRET_KEY_BASE": "1" * 128,
+                "SELF_HOSTING_ENABLED": "true", "RAILS_FORCE_SSL": "false", "RAILS_ASSUME_SSL": "false",
+                "DB_HOST": "127.0.0.1", "POSTGRES_DB": database, "TMPDIR": "/rails/tmp",
+                "POSTGRES_USER": "fixture", "POSTGRES_PASSWORD": "public-test-fixture",  # gitleaks:allow
+                "REDIS_URL": "redis://127.0.0.1:6379/1",
+            }
+            return options + ["--env=" + key + "=" + value for key, value in environment.items()]
+
+        def sql(statement, database="sure_fixture"):
+            return self.docker("exec", postgres, "psql", "-v", "ON_ERROR_STOP=1", "-U", "fixture",
+                               "-d", database, "-Atc", statement).stdout.strip()
+
+        readiness = (
+            "require 'net/http';r=Net::HTTP.start('127.0.0.1',3000,open_timeout:1,read_timeout:2)"
+            "{|h|h.get('/')};exit((200..399).include?(r.code.to_i) ? 0 : 1)"
+        )
+        old = self.create(BASELINE_IMAGE, options=rails_options("sure_fixture"), network=network)
+        self.docker("start", old)
+        self.wait_ready(["exec", old, "ruby", "-e", readiness], 360, "current-release schema/startup fixture")
+        sql("""
+            BEGIN;
+            INSERT INTO families (id,name,currency,created_at,updated_at,auto_sync_on_login,data_enrichment_enabled)
+              VALUES ('10000000-0000-4000-8000-000000000001','Public synthetic family','USD',now(),now(),false,false);
+            INSERT INTO depositories (id,created_at,updated_at)
+              VALUES ('10000000-0000-4000-8000-000000000002',now(),now());
+            INSERT INTO accounts (id,family_id,name,accountable_type,accountable_id,balance,cash_balance,currency,
+                                  created_at,updated_at)
+              VALUES ('10000000-0000-4000-8000-000000000003','10000000-0000-4000-8000-000000000001',
+                      'Public synthetic account','Depository','10000000-0000-4000-8000-000000000002',
+                      123.45,123.45,'USD',now(),now());
+            INSERT INTO transactions (id,kind,created_at,updated_at)
+              VALUES ('10000000-0000-4000-8000-000000000004','standard',now(),now());
+            INSERT INTO entries (id,account_id,entryable_type,entryable_id,amount,currency,date,name,created_at,updated_at)
+              VALUES ('10000000-0000-4000-8000-000000000005','10000000-0000-4000-8000-000000000003',
+                      'Transaction','10000000-0000-4000-8000-000000000004',19.99,'USD','2026-01-02',
+                      'Public synthetic transaction',now(),now());
+            COMMIT;
+        """)
+        snapshot = """
+            SELECT jsonb_build_object(
+              'family',(SELECT jsonb_build_array(id,name,currency) FROM families
+                        WHERE id='10000000-0000-4000-8000-000000000001'),
+              'account',(SELECT jsonb_build_array(id,family_id,name,balance,cash_balance,currency) FROM accounts
+                         WHERE id='10000000-0000-4000-8000-000000000003'),
+              'entry',(SELECT jsonb_build_array(id,account_id,entryable_type,entryable_id,amount,currency,date,name)
+                       FROM entries WHERE id='10000000-0000-4000-8000-000000000005'),
+              'transaction',(SELECT jsonb_build_array(id,kind) FROM transactions
+                             WHERE id='10000000-0000-4000-8000-000000000004'));
+        """
+        before = json.loads(sql(snapshot))
+        self.assertTrue(all(value is not None for value in before.values()))
+        self.assertEqual(before["account"][3:6], [123.45, 123.45, "USD"])
+        self.assertEqual(before["entry"][4:7], [19.99, "USD", "2026-01-02"])
+        old_migrations = int(sql("SELECT COUNT(*) FROM schema_migrations"))
+        self.docker("stop", "--time=30", old)
+        backup = self.docker("exec", postgres, "pg_dump", "-U", "fixture", "-d", "sure_fixture",
+                             "--format=custom").stdout
+        self.assertTrue(backup.startswith(b"PGDMP"))
+        candidate = self.create(options=rails_options("sure_fixture"), network=network)
+        self.docker("start", candidate)
+        self.wait_ready(["exec", candidate, "ruby", "-e", readiness], 360,
+                        "new-release migration of the actual old-version synthetic schema")
+        self.assertGreater(int(sql("SELECT COUNT(*) FROM schema_migrations")), old_migrations)
+        self.assertEqual(json.loads(sql(snapshot)), before)
+        self.docker("stop", "--time=30", candidate)
+        self.docker("exec", postgres, "createdb", "-U", "fixture", "sure_restore")
+        self.docker("exec", "-i", postgres, "pg_restore", "-U", "fixture", "--no-owner",
+                    "--exit-on-error", "-d", "sure_restore", data=backup)
+        self.assertEqual(int(sql("SELECT COUNT(*) FROM schema_migrations", "sure_restore")), old_migrations)
+        restored = self.create(BASELINE_IMAGE, options=rails_options("sure_restore"), network=network)
+        self.docker("start", restored)
+        self.wait_ready(["exec", restored, "ruby", "-e", readiness], 360,
+                        "old release boot on a separately restored pre-upgrade backup, never the migrated database")
+        self.assertEqual(json.loads(sql(snapshot, "sure_restore")), before)
+        self.assertEqual(int(sql("SELECT COUNT(*) FROM schema_migrations", "sure_restore")), old_migrations)
+        print(json.dumps({"synthetic_upgrade_and_old_version_restore": True,
+                          "backup_sha256": hashlib.sha256(backup).hexdigest(),
+                          "scope": "Public synthetic records only; not production data/migration or restore clearance."}))
 
     def wait_ready(self, command, seconds, description):
         deadline = time.monotonic() + seconds

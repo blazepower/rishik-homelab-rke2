@@ -1,5 +1,5 @@
 {
-  "image_amd64": "ghcr.io/we-promise/sure@sha256:0b58098fc7f5c189f348abcc64be1858d7789f8f724b8465d0a2a2c48a4e4b55",
+  "image_amd64": "ghcr.io/we-promise/sure@sha256:950209a9c52dec8d8ec5bcd6e46d39b65de07b9205d2877e6d5e1b94d851b220",
   "default_file": "/usr/lib/ssl/cert.pem",
   "default_dir": "/usr/lib/ssl/certs",
   "default_aliases": {
@@ -1825,7 +1825,7 @@
       "sha256": "8cc726cf62c554561e89e1237495bea3026b1709ba7153fed3401fcd489b5aaf"
     }
   },
-  "entrypoint_sha256": "09d75ebf4f8ebee5a4229e0eafac71aa4b8a9c994d011c44f4449445ca09b1d3",
+  "entrypoint_sha256": "4ed0dc6d095b249a9ddfe767c7e08703c46bd4045c215acfafb31ec3a7f23f71",
   "counts": {
     "system": {
       "before": 150,

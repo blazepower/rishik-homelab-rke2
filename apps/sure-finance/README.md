@@ -4,12 +4,35 @@ Sure is a community fork of the now-abandoned Maybe Finance personal finance app
 
 ## Overview
 
-This deployment uses a local Helm chart located at `charts/maybe-finance` to deploy the Sure Finance application (appVersion 0.5.0).
+This deployment uses the local `charts/maybe-finance` chart and pins Sure
+`0.7.6-hotfix.1` by immutable image digest.
 
 Sure consists of:
-- **Application** - Rails-based web application (ghcr.io/maybe-finance/maybe) running on port 3000
+- **Application** - Rails-based web application (`ghcr.io/we-promise/sure`) running on port 3000
 - **PostgreSQL** - Database running on port 5432
 - **Redis** - Cache and job queue running on port 6379
+
+## Security release acceptance
+
+The upstream security hotfix includes Rails/ActiveStorage 8.1.4.1, Rack 3.2.8
+and Nokogiri 1.19.7. The exact AMD64 image's 453 public CA files and aliases are
+unchanged; retain all eleven blocked SPKIs and the existing read-only barriers.
+The updated entrypoint writes a version stamp under the already-writable
+`/rails/storage` after `db:prepare`. Do not add writable trust paths.
+
+This is not a schema-neutral image rebuild. Compared with the pinned alpha's
+source, the release adds 112 migrations and changes two older migration files.
+The isolated acceptance fixture upgrades an actual old-version schema containing
+public synthetic financial records, then boots the old image on a separately
+restored pre-upgrade backup. It never boots the old version on the migrated
+database, accesses production data, or permits outbound bank/API traffic.
+That fixture is not production migration or restore clearance: review the data
+transformations and verify protected, fresh recovery before activation.
+
+The new public image still has reported OS, default-gem and embedded-SBOM
+findings. A newer tag and successful native startup do not mean the whole image
+is vulnerability-free. Keep those findings and any runtime applicability
+assessment separate; do not suppress them to pass the upgrade.
 
 ## Links
 
@@ -138,7 +161,7 @@ The sealed secret will be automatically applied when the Flux GitOps system sync
 
 ## Application Configuration
 
-- **Image**: `ghcr.io/maybe-finance/maybe:0.5.0`
+- **Image**: `ghcr.io/we-promise/sure:0.7.6-hotfix.1` (digest-pinned in the HelmRelease)
 - **Port**: 3000
 - **Environment Variables**: Configured via sealed secret `sure-credentials`
   - `SECRET_KEY_BASE`: Rails secret key base (required)
