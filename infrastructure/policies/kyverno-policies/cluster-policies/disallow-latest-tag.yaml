@@ -76,26 +76,27 @@ spec:
         message: >-
           Images must come from trusted registries. All containers must use images from
           an allowed registry: docker.io (including index.docker.io), ghcr.io, quay.io, gcr.io,
-          registry.k8s.io, mcr.microsoft.com, lscr.io, or Docker Hub library images.
+          registry.k8s.io, mcr.microsoft.com, lscr.io, Docker Hub library images,
+          or the aquasec/trivy and aquasec/trivy-operator repositories on mirror.gcr.io.
         foreach:
           - list: "request.object.spec.containers"
             deny:
               conditions:
                 any:
-                  - key: "{{ regex_match('^(docker\\.io|index\\.docker\\.io|ghcr\\.io|quay\\.io|gcr\\.io|registry\\.k8s\\.io|mcr\\.microsoft\\.com|lscr\\.io)/', image_normalize(element.image)) }}"
+                  - key: "{{ regex_match('^((docker\\.io|index\\.docker\\.io|ghcr\\.io|quay\\.io|gcr\\.io|registry\\.k8s\\.io|mcr\\.microsoft\\.com|lscr\\.io)/|mirror\\.gcr\\.io/aquasec/(trivy|trivy-operator)(:|@))', image_normalize(element.image)) }}"
                     operator: Equals
                     value: false
           - list: "request.object.spec.initContainers || []"
             deny:
               conditions:
                 any:
-                  - key: "{{ regex_match('^(docker\\.io|index\\.docker\\.io|ghcr\\.io|quay\\.io|gcr\\.io|registry\\.k8s\\.io|mcr\\.microsoft\\.com|lscr\\.io)/', image_normalize(element.image)) }}"
+                  - key: "{{ regex_match('^((docker\\.io|index\\.docker\\.io|ghcr\\.io|quay\\.io|gcr\\.io|registry\\.k8s\\.io|mcr\\.microsoft\\.com|lscr\\.io)/|mirror\\.gcr\\.io/aquasec/(trivy|trivy-operator)(:|@))', image_normalize(element.image)) }}"
                     operator: Equals
                     value: false
           - list: "request.object.spec.ephemeralContainers || []"
             deny:
               conditions:
                 any:
-                  - key: "{{ regex_match('^(docker\\.io|index\\.docker\\.io|ghcr\\.io|quay\\.io|gcr\\.io|registry\\.k8s\\.io|mcr\\.microsoft\\.com|lscr\\.io)/', image_normalize(element.image)) }}"
+                  - key: "{{ regex_match('^((docker\\.io|index\\.docker\\.io|ghcr\\.io|quay\\.io|gcr\\.io|registry\\.k8s\\.io|mcr\\.microsoft\\.com|lscr\\.io)/|mirror\\.gcr\\.io/aquasec/(trivy|trivy-operator)(:|@))', image_normalize(element.image)) }}"
                     operator: Equals
                     value: false
