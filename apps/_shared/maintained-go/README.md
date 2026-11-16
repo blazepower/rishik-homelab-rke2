@@ -22,13 +22,23 @@ Exact post-patch module-file hashes reject drift; application source, version,
 VPN settings and original linker values remain unchanged. The manifest declares
 these changes separately: this Gluetun build is no longer compiler-only.
 
-The inherited Alpine 3.22 runtime also upgrades **only** `pcre2=10.46-r1`.
-Native acceptance compares the actual before/after APK inventories and rejects
-any undeclared package, version or architecture change. Inherited vendor layers
-remain intact, but this explicitly permitted package overlay means whole-rootfs
-identity is not claimed. PCRE2's Alpine backport addresses CVE-2026-89157 and
-CVE-2026-89161; the former's 32-bit applicability must not be generalized to
-the other advisory.
+The inherited Alpine 3.22 runtime upgrades **only** the six packages locked in
+`security.runtime_packages`: `pcre2=10.46-r1`, `libcrypto3=3.5.9-r0`,
+`libssl3=3.5.9-r0`, `musl=1.2.5-r13`, `musl-utils=1.2.5-r13` and `zlib=1.4-r0`.
+These versions are available in the original stable branch's signed amd64
+package index; no edge repository, floating upgrade or distribution migration
+is used. The ABI-coupled OpenSSL libraries are pinned together. Native acceptance
+compares the complete actual before/after APK inventories and rejects any
+undeclared package, version or architecture change. Inherited vendor layers
+remain intact, but the explicit package overlay is not whole-rootfs identity.
+
+The primary [Alpine 3.22 security database](https://secdb.alpinelinux.org/v3.22/main.json)
+records the OpenSSL fixes at 3.5.8-r0, musl CVE-2026-107891 at 1.2.5-r13,
+zlib CVE-2026-85091 at 1.3.2-r1 and CVE-2026-4738 at 1.4-r0.
+The scanner reported these library findings as **UNKNOWN**, some with scores
+up to 8.1: zero HIGH/CRITICAL counters were not evidence of a patched image.
+PCRE2's backport addresses CVE-2026-89157 and CVE-2026-89161; the former's
+32-bit applicability must not be generalized to the other advisory.
 
 The actual patched source passes upstream short tests and govulncheck v1.9.0
 source **and actual built-binary** scans. JSON mode can return exit zero with
