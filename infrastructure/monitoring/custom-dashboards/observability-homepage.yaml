@@ -1638,6 +1638,7 @@ data:
           },
           "fieldConfig": {
             "defaults": {
+              "noValue": "Unknown",
               "color": {
                 "mode": "thresholds"
               },
@@ -1661,6 +1662,17 @@ data:
                     }
                   },
                   "type": "value"
+                },
+                {
+                  "options": {
+                    "match": "null+nan",
+                    "result": {
+                      "color": "gray",
+                      "index": 2,
+                      "text": "Unknown"
+                    }
+                  },
+                  "type": "special"
                 }
               ],
               "thresholds": {
@@ -1707,12 +1719,15 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum(kured_reboot_required) OR on() vector(0)",
+              "expr": "sum(max by (node) (kured_reboot_required) and on (node) kube_node_info) unless on () (count(kube_node_info unless on (node) kured_reboot_required) > 0)",
+              "instant": true,
+              "range": false,
               "legendFormat": "Pending Reboots",
               "refId": "A"
             }
           ],
           "title": "Kured Pending Reboots",
+          "description": "Current known cluster members only. Unknown if any member lacks reboot telemetry; missing data is not zero. Duplicate scrapes are counted once.",
           "type": "stat",
           "uid": "panel-kured-pending"
         },

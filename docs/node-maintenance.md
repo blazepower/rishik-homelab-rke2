@@ -48,6 +48,14 @@ host package/kernel state or prove patch compliance. Until independent host
 telemetry is provisioned, use the read-only local `audit` for those facts.
 Do not enable Kured solely to restore this metric.
 
+The held reboot-dashboard correction uses current instant queries, not a
+historical `lastNotNull` result. The cluster total is Unknown unless every
+current member has reboot telemetry. Per-node cards preserve known positives
+and show missing members as explicit gray Unknown values; duplicate scrapes
+and nonmember series do not inflate counts. These are honest missing-data
+semantics, not a replacement host observer or patch-compliance claim. Native
+isolated promtool fixtures cover missing/partial/full coverage and membership.
+
 ## Maintenance stages
 
 1. OS/kernel/headless maintenance: worker2 canary, worker1, controller.

@@ -170,8 +170,10 @@ data:
               "color": { "mode": "thresholds" },
               "mappings": [
                 { "options": { "0": { "color": "green", "index": 0, "text": "No Reboot" } }, "type": "value" },
-                { "options": { "1": { "color": "orange", "index": 1, "text": "Reboot Needed" } }, "type": "value" }
+                { "options": { "1": { "color": "orange", "index": 1, "text": "Reboot Needed" } }, "type": "value" },
+                { "options": { "match": "null+nan", "result": { "color": "gray", "index": 2, "text": "Unknown" } }, "type": "special" }
               ],
+              "noValue": "Unknown",
               "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1 }] }
             },
             "overrides": []
@@ -189,12 +191,15 @@ data:
           "targets": [
             {
               "datasource": { "type": "prometheus", "uid": "prometheus" },
-              "expr": "kured_reboot_required",
+              "expr": "(max by (node) (kured_reboot_required) and on (node) kube_node_info) or on (node) (0 / 0 * (max by (node) (kube_node_info) unless on (node) kured_reboot_required))",
+              "instant": true,
+              "range": false,
               "legendFormat": "{{ node }}",
               "refId": "A"
             }
           ],
           "title": "Nodes Requiring Reboot",
+          "description": "Current member status only: missing reboot telemetry is an explicit unknown (NaN), never a healthy zero. Known positive reboot requirements remain visible during partial coverage.",
           "type": "stat"
         },
         {

@@ -9,6 +9,8 @@ on:
       - .github/scripts/test-storage-health-alerts.py
       - infrastructure/monitoring/prometheusrules-storage-health-alerts.yaml
       - infrastructure/monitoring/helmrelease-kube-prometheus-stack.yaml
+      - infrastructure/monitoring/custom-dashboards/observability-homepage.yaml
+      - infrastructure/monitoring/custom-dashboards/configmap-node-health-dashboard.yaml
 
 permissions:
   contents: read
@@ -29,14 +31,14 @@ jobs:
       - name: Install rule fixture dependency
         run: pip install PyYAML
 
-      - name: Evaluate actual rules with production-version native promtool
+      - name: Evaluate actual rules and current reboot dashboards with pinned native promtool
         run: >-
           python3 -B .github/scripts/test-storage-health-alerts.py
           --docker --evidence storage-alert-ci.json
 
       - name: Record native acceptance
         run: |
-          echo '### Native storage alert evaluation (no automated remediation)' >> "$GITHUB_STEP_SUMMARY"
+          echo '### Native storage and reboot dashboard evaluation (no automated remediation)' >> "$GITHUB_STEP_SUMMARY"
           echo '```json' >> "$GITHUB_STEP_SUMMARY"
           cat storage-alert-ci.json | tee -a "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"

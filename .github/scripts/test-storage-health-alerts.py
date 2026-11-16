@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise the actual storage rule with the production-version native promtool."""
+"""Exercise actual storage alerts and reboot dashboards with pinned native promtool."""
 
 import argparse
 import json
@@ -51,6 +51,68 @@ def case(name, series, evaluations):
     }
 
 
+def reboot_dashboard_cases():
+    directory = ROOT / "infrastructure" / "monitoring" / "custom-dashboards"
+    expressions = []
+    for filename, key, panel_id in [
+        ("observability-homepage.yaml", "observability-homepage.json", 33),
+        ("configmap-node-health-dashboard.yaml", "node-health.json", 7),
+    ]:
+        dashboard = json.loads(yaml.safe_load((directory / filename).read_text(encoding="utf-8"))["data"][key])
+        panel = next(p for p in dashboard["panels"] if p["id"] == panel_id)
+        target, = panel["targets"]
+        assert target.get("instant") is True and target.get("range") is False, (
+            "Current reboot status must not reduce old range samples with lastNotNull")
+        defaults = panel["fieldConfig"]["defaults"]
+        assert defaults.get("noValue") == "Unknown"
+        assert any(mapping["type"] == "special" and mapping["options"]["match"] == "null+nan" and
+                   mapping["options"]["result"]["text"] == "Unknown" and
+                   mapping["options"]["result"]["color"] == "gray" for mapping in defaults["mappings"]), (
+            "Missing/NaN reboot telemetry must not use a healthy value/color")
+        expressions.append(target["expr"])
+    nodes = ("fixture-a", "fixture-b", "fixture-c")
+    inventory = [{"series": f'kube_node_info{{node="{node}",job="inventory"}}', "values": "1x4"}
+                 for node in nodes]
+
+    def telemetry(values, job="kured"):
+        return [{"series": f'kured_reboot_required{{node="{node}",job="{job}"}}', "values": f"{value}x4"}
+                for node, value in values.items()]
+
+    zero = {node: 0 for node in nodes}
+    mixed = dict(zip(nodes, (1, 0, 1)))
+    partial = {nodes[0]: 1}
+    scenarios = [
+        ("missing telemetry is unknown", inventory, [], None, {}),
+        ("partial coverage preserves known positives but not a cluster zero",
+         inventory, telemetry(partial), None, partial),
+        ("complete measured zeros are healthy", inventory, telemetry(zero), 0, zero),
+        ("complete measured requirements are counted", inventory, telemetry(mixed), 2, mixed),
+        ("nonmember metrics are ignored", inventory, telemetry({**zero, "outside": 1}), 0, zero),
+        ("duplicate scrapes count a node once", inventory,
+         telemetry({**zero, nodes[0]: 1}) + telemetry({nodes[0]: 1}, "duplicate"), 1,
+         {**zero, nodes[0]: 1}),
+        ("missing membership is unknown", [], telemetry(zero), None, {}),
+        ("duplicate inventories do not double count", inventory + [
+            {"series": f'kube_node_info{{node="{nodes[0]}",job="duplicate"}}', "values": "1x4"}],
+         telemetry(mixed), 2, mixed),
+    ]
+    tests = []
+    for name, members, reboot, total, known in scenarios:
+        expected_nodes = sorted({entry["series"].split('node="')[1].split('"')[0] for entry in members})
+        tests.append({
+            "name": "reboot dashboard: " + name, "interval": "30s", "input_series": members + reboot,
+            "promql_expr_test": [
+                {"expr": expressions[0], "eval_time": "1m",
+                 "exp_samples": [] if total is None else [{"labels": "{}", "value": total}]},
+                {"expr": expressions[1], "eval_time": "1m", "exp_samples": [
+                    {"labels": f'{{node="{node}"}}', "value": known.get(node, float("nan"))}
+                    for node in expected_nodes
+                ]},
+            ],
+        })
+    return tests
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--docker", action="store_true", required=True)
@@ -89,6 +151,7 @@ def main():
                     queue="0 900 0 15 30 45 60 75 90 105 120"),
              [("1m30s", []), ("3m", [])]),
     ]
+    tests.extend(reboot_dashboard_cases())
     subprocess.run(["docker", "pull", IMAGE], check=True)
     with tempfile.TemporaryDirectory() as temporary:
         directory = Path(temporary)
@@ -114,9 +177,10 @@ def main():
         subprocess.run([*command, "check", "rules", "/rules/rules.yaml"], check=True)
         subprocess.run([*command, "test", "rules", "/rules/tests.yaml"], check=True)
     evidence = {"image": IMAGE, "native_promtool_version": native_version.group(1), "test_cases": len(tests),
-                "alert_evaluations": sum(len(test["alert_rule_test"]) for test in tests),
-                "skips": 0, "source": "Actual PrometheusRule spec; no copied expression",
-                "production_changes": "Alert evaluation only; no automated remediation"}
+                "alert_evaluations": sum(len(test.get("alert_rule_test", [])) for test in tests),
+                "promql_evaluations": sum(len(test.get("promql_expr_test", [])) for test in tests),
+                "skips": 0, "source": "Actual PrometheusRule spec and current Grafana queries; no copied expression",
+                "production_changes": "Offline native evaluation only; no production mutation or automated remediation"}
     if args.evidence:
         args.evidence.write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(evidence, indent=2))
