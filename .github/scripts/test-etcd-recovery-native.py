@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import signal
 import socket
 import subprocess
 import time
@@ -91,7 +92,7 @@ class Native:
         self.evidence = evidence
         self.commands = evidence / "commands.jsonl"
         require(not self.commands.exists(), "Use a fresh native evidence directory")
-        self.env = {"PATH": os.defpath, "LC_ALL": "C", "ETCDCTL_API": "3",
+        self.env = {"PATH": os.defpath, "LC_ALL": "C",
                     "HOME": str(evidence), "TMPDIR": str(evidence)}
         manifest = json.loads((tools / "manifest.json").read_text())
         require(manifest["source_files"] == source(), "Prepared source changed")
@@ -152,7 +153,7 @@ class Native:
                 "--initial-advertise-peer-urls=" + spec["peer"],
                 "--initial-cluster=" + spec["name"] + "=" + spec["peer"],
                 "--initial-cluster-token=public-synthetic-rehearsal",
-                "--log-level=warn"]
+                "--log-level=info"]
         log_path = self.evidence / (spec["name"] + "-" + minor + ".log")
         with log_path.open("x") as log:
             process = subprocess.Popen(args, stdout=log, stderr=log, env=self.env)
@@ -170,7 +171,8 @@ class Native:
                     time.sleep(0.2)
                 yield spec
             finally:
-                if process.poll() is None:
+                requested_stop = process.poll() is None
+                if requested_stop:
                     process.terminate()
                     try:
                         process.wait(timeout=15)
@@ -178,7 +180,17 @@ class Native:
                         process.kill()
                         process.wait(timeout=5)
                         raise RuntimeError("Owned native server required forced cleanup")
-                require(process.returncode == 0, f"Native server failed; inspect {log_path.name}")
+                with (self.evidence / "server-lifecycle.jsonl").open("a") as output:
+                    output.write(json.dumps({"args": args, "pid": process.pid,
+                                             "requested_sigterm": requested_stop,
+                                             "returncode": process.returncode}) + "\n")
+                # Both exact releases re-raise SIGTERM after completing registered shutdown hooks.
+                require(requested_stop and process.returncode == -signal.SIGTERM,
+                        f"Unexpected native server shutdown; inspect {log_path.name}")
+                messages = [json.loads(line) for line in log_path.read_text().splitlines()]
+                require(any(item.get("msg") == "received signal; shutting down"
+                            and item.get("signal") == "terminated" for item in messages),
+                        "Native server did not acknowledge the requested graceful shutdown")
 
     def state(self, minor, server, expected):
         result = json.loads(self.ctl(minor, server, "get", PREFIX, "--prefix").stdout)

@@ -164,6 +164,8 @@ The transition test cleanly stops 3.6 and starts 3.7 on the same synthetic data,
 proves the cluster version advances without changing membership/keyspace, then
 takes and restores a new 3.7 snapshot. It never substitutes an older binary onto
 an upgraded data directory or assumes cross-minor snapshot compatibility.
+Shutdown acceptance requires the requested SIGTERM acknowledgement and the
+upstream signal-re-raise exit, not an unexplained zero exit or forced kill.
 See the primary [3.6-to-3.7 guide](https://etcd.io/docs/v3.7/upgrades/upgrade_3_7/)
 and [recovery guidance](https://etcd.io/docs/v3.7/op-guide/recovery/).
 
