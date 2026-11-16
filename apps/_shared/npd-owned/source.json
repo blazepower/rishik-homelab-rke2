@@ -8,6 +8,11 @@
   "compiler": "go1.27.4",
   "govulncheck": "v1.9.0",
   "runtime_package_status_sha256": "659ccdc26081f6c5db0fcff6b162dd42a9786e712e44b34d817b266fb7dd8ead",
+  "monitor_config_sha256": {
+    "kernel-monitor.json": "ff258f99954306042785c869e86f30b6ebf91e6e63c491050794bddc40f965b8",
+    "systemd-monitor.json": "dc66ecf63ff88ebfd3f6fcb9789bce115989325cfe208e400a25c5ecb8cb667c",
+    "readonly-monitor.json": "d3cbf6ebca0238c304d929d240201b03b9c9e3678f11756eb957d051cacf68ab"
+  },
   "module_sha256": {
     "go.mod": "8103ed66f8bd034ed84c15bce05efc149a47ada79211899a77402b596589668d",
     "go.sum": "fd6d9831c0d1fa3d3ff777622f8f5d206d54c0bee19ea96ba744f6d879e3d083"

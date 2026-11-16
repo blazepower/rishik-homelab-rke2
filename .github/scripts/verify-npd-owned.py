@@ -29,6 +29,10 @@ def binary_proof(image, lock, scratch, vendor=False):
         docker("cp", container + ":/var/lib/dpkg/status", str(package_status))
         assert hashlib.sha256(package_status.read_bytes()).hexdigest() == \
             lock["runtime_package_status_sha256"], "Inherited runtime package metadata changed"
+        for name, sha in lock["monitor_config_sha256"].items():
+            path = scratch / name
+            docker("cp", container + ":/config/" + name, str(path))
+            assert hashlib.sha256(path.read_bytes()).hexdigest() == sha, (name, "Monitor configuration changed")
         source = None
         if not vendor:
             docker("cp", container + ":/usr/share/npd-owned/source.json", str(scratch / "source.json"))
@@ -46,10 +50,12 @@ def binary_proof(image, lock, scratch, vendor=False):
             evidence = source["actual_binaries"][name]
             assert sha == evidence["sha256"]
             assert evidence["symbol_table_verified"] is True
-            info = docker("run", "--rm", "--network", "none", "--mount",
+            info = docker("run", "--rm", "--network", "none", "--read-only",
+                          "--cap-drop=ALL", "--security-opt=no-new-privileges", "--mount",
                           f"type=bind,src={scratch},dst=/proof,readonly", lock["builder"],
                           "go", "version", "-m", "/proof/" + name).stdout
-            assert info.splitlines()[0].endswith(": " + lock["compiler"])
+            compiler = re.search(r"^/proof/" + re.escape(name) + r": (go\S+)$", info, re.MULTILINE)
+            assert compiler and compiler[1] == lock["compiler"], (name, info)
             assert "CGO_ENABLED=1" in info and "-tags=journald" in info
             for mode in ("source", "binary"):
                 filename = name + "-" + mode + ".jsonl"
@@ -85,8 +91,8 @@ def native(image, scratch, suffix):
     (fixture / "monitor.json").write_text(json.dumps(config))
     name = "npd-native-" + suffix
     restrictions = ["--network", "none", "--read-only", "--cap-drop=ALL",
-                    "--security-opt=no-new-privileges", "--pids-limit=64", "--memory=256m",
-                    "--cpus=1", "--tmpfs", "/tmp:rw,noexec,nosuid,size=32m",
+                    "--security-opt=no-new-privileges", "--pids-limit=64", "--memory=128m",
+                    "--cpus=0.1", "--tmpfs", "/tmp:rw,noexec,nosuid,size=32m",
                     "--mount", f"type=bind,src={fixture},dst=/fixture,readonly"]
 
     def metric(expected):
@@ -98,10 +104,11 @@ def native(image, scratch, suffix):
                 "printf 'GET /metrics HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3; cat <&3",
                 check=False,
             )
-            for line in result.stdout.splitlines():
-                if line.startswith("problem_gauge{") and 'type="SyntheticProblem"' in line:
-                    if float(line.rsplit(" ", 1)[1]) == expected:
-                        return line
+            samples = [line for line in result.stdout.splitlines()
+                       if line.startswith("problem_gauge{") and 'type="SyntheticProblem"' in line]
+            values = [float(line.rsplit(" ", 1)[1]) for line in samples]
+            if values and all(value in (0, 1) for value in values) and max(values) == expected:
+                return "\n".join(samples)
             if docker("inspect", "-f", "{{.State.Running}}", name).stdout.strip() != "true":
                 break
             time.sleep(1)
@@ -137,7 +144,10 @@ def native(image, scratch, suffix):
         unhealthy = docker("run", "--rm", *restrictions, "--entrypoint", "/home/kubernetes/bin/health-checker",
                            image, *health_args, check=False)
         assert unhealthy.returncode != 0, "Failed synthetic CRI command reported healthy"
+        state = json.loads(docker("inspect", name).stdout)[0]["State"]
+        assert state["Running"] and not state["OOMKilled"], state
         return {"version": version, "condition_gauge_values": [0, 1, 0],
+                "memory_limit_bytes": 134217728, "cpu_limit_cores": 0.1, "oom_killed": False,
                 "condition_samples": transitions, "empty_journal_exit": log.returncode,
                 "invalid_journal_regex_exit": invalid.returncode, "synthetic_cri_healthy_exit": health.returncode,
                 "synthetic_cri_failed_exit": unhealthy.returncode,
@@ -169,6 +179,7 @@ def main():
         shutil.copyfile(ROOT / "apps" / "_shared" / "maintained-go" / "build.py",
                         scratch / "maintained_build.py")
         docker("pull", lock["vendor"])
+        docker("pull", lock["builder"])
         original = json.loads(docker("image", "inspect", lock["vendor"]).stdout)[0]
         report["vendor_binaries"] = binary_proof(lock["vendor"], lock, scratch, vendor=True)
         docker("build", "--platform", "linux/amd64", "--progress", "plain",

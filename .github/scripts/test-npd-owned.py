@@ -14,11 +14,12 @@ spec.loader.exec_module(npd)
 
 
 class ThreeProgramProofTest(unittest.TestCase):
-    def execute(self, wrong_compiler=None, changed_helper=None, positive_helper=None):
+    def execute(self, wrong_compiler=None, changed_helper=None, positive_helper=None, changed_config=False):
         names = ("node-problem-detector", "health-checker", "log-counter")
         raw = {name: ("synthetic " + name).encode() for name in names}
         lock = {"compiler": "go1.27.4", "govulncheck": "v1.9.0", "builder": "fixture",
                 "runtime_package_status_sha256": hashlib.sha256(b"packages").hexdigest(),
+                "monitor_config_sha256": {"kernel-monitor.json": hashlib.sha256(b"config").hexdigest()},
                 "binaries": {name: {"path": "/" + name} for name in names}}
         source = json.loads(json.dumps(lock))
         source["actual_binaries"] = {}
@@ -47,6 +48,8 @@ class ThreeProgramProofTest(unittest.TestCase):
                 name = args[1].rsplit("/", 1)[1]
                 if name == "status":
                     data = b"packages"
+                elif name == "kernel-monitor.json":
+                    data = b"tampered" if changed_config else b"config"
                 elif name == "source.json":
                     data = json.dumps(source).encode()
                 elif name in scans:
@@ -77,6 +80,10 @@ class ThreeProgramProofTest(unittest.TestCase):
     def test_rejects_raw_helper_finding_even_when_summary_claims_zero(self):
         with self.assertRaises(AssertionError):
             self.execute(positive_helper="health-checker")
+
+    def test_rejects_silently_changed_monitor_coverage(self):
+        with self.assertRaises(AssertionError):
+            self.execute(changed_config=True)
 
 
 if __name__ == "__main__":

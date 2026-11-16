@@ -23,7 +23,9 @@ claimed patched by this compiler change. Native CI compares vendor and owned
 custom-plugin healthy/failure/recovery metrics, deliberately empty journal
 library operation and invalid-regex failure, plus synthetic CRI success/failure.
 Everything runs network-none, read-only and capability-free with repair disabled;
-no real node, host PID/device/journal/socket, kubeconfig, API or private data.
+the actual current 100m CPU/128Mi memory limits are exercised without raising
+production resources, and the detector must remain running without OOM.
+No real node, host PID/device/journal/socket, kubeconfig, API or private data.
 Empty-journal ABI acceptance is not evidence of real journal ingestion or API
 condition reporting, and public TLS is not exercised.
 
@@ -31,5 +33,10 @@ No PR publishes. Explicit master publication pushes the accepted artifact once,
 then verifies immutable platform selection, complete Config/RootFS/platform/time
 identity and **all three** actual ELF/scan proofs after pull. Deployment requires
 a separate immutable image activation, current-minor check, unchanged resource/
-RBAC/monitor settings, natural rollout and actual three-node observation. Keep
+RBAC settings, natural rollout and actual three-node observation. Upstream moved
+`ReadonlyFilesystem` detection out of `kernel-monitor.json` into the separate
+`readonly-monitor.json`; activation must explicitly retain the current kernel
+and systemd monitors **and add this readonly monitor**, or existing filesystem
+alerts would silently lose coverage. All three actual config files are hashed
+against the exact public source, including after publication. Keep
 the controller cordoned and Kured suspended; this is not node maintenance.
