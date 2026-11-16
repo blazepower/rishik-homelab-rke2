@@ -87,6 +87,11 @@ idempotence, nontrivial namespace exclusions, and preserved existing annotations
 It retains the original false-value security-default behavior: explicit
 `allowPrivilegeEscalation: false` also replaces `capabilities.drop` with `ALL`,
 while explicit true is preserved and ephemeral containers are not defaulted.
+One explicit mutation-order repair is held: the actual original strategic merge
+groups patched containers before untouched true-valued containers. The candidate
+instead preserves input regular/init container order, avoiding changes to init
+startup sequence. Separate exact original/candidate objects record that delta;
+neither baseline is normalized by sorting or silently treated as equivalent.
 `IfNeeded` matches the inspected live resource webhook. Only JSONPatch is tested:
 the offline bridge rejects ApplyConfiguration rather than approximating its
 schema-dependent structural merge with a deduced converter.

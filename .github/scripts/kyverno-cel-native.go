@@ -31,18 +31,19 @@ import (
 )
 
 type testCase struct {
-	ID                string                     `json:"id"`
-	Policy            string                     `json:"policy"`
-	Object            *unstructured.Unstructured `json:"object"`
-	OldObject         *unstructured.Unstructured `json:"oldObject"`
-	Operation         string                     `json:"operation"`
-	Subresource       string                     `json:"subresource"`
-	Username          string                     `json:"username"`
-	Expected          string                     `json:"expected"`
-	ExpectedException bool                       `json:"expectedException"`
-	ExpectedActions   []string                   `json:"expectedActions"`
-	LegacyExpected    string                     `json:"legacyExpected"`
-	ExpectedPatched   *unstructured.Unstructured `json:"expectedPatched"`
+	ID                    string                     `json:"id"`
+	Policy                string                     `json:"policy"`
+	Object                *unstructured.Unstructured `json:"object"`
+	OldObject             *unstructured.Unstructured `json:"oldObject"`
+	Operation             string                     `json:"operation"`
+	Subresource           string                     `json:"subresource"`
+	Username              string                     `json:"username"`
+	Expected              string                     `json:"expected"`
+	ExpectedException     bool                       `json:"expectedException"`
+	ExpectedActions       []string                   `json:"expectedActions"`
+	LegacyExpected        string                     `json:"legacyExpected"`
+	ExpectedPatched       *unstructured.Unstructured `json:"expectedPatched"`
+	LegacyExpectedPatched *unstructured.Unstructured `json:"legacyExpectedPatched"`
 }
 
 type suite struct {

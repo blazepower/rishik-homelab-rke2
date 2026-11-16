@@ -368,6 +368,7 @@ def command(args, cwd, evidence, log, env=None):
 
 def mutation_fixtures(policies):
     sources = candidate.reviewed_sources(candidate.REVIEWED_MUTATIONS)
+    by_name = {policy["metadata"]["name"]: policy for policy in policies}
     cases = []
 
     def add(policy, label, obj, patched):
@@ -375,9 +376,20 @@ def mutation_fixtures(policies):
             original, expected = deepcopy(obj), deepcopy(patched)
             name = "mutation-" + str(len(cases))
             original["metadata"]["name"] = expected["metadata"]["name"] = name
+            legacy = deepcopy(expected)
+            labels = by_name[policy]["metadata"]["labels"]
+            if labels["homelab.rishik.dev/legacy-policy"] == "add-security-defaults":
+                field = ("initContainers" if labels["homelab.rishik.dev/legacy-rule"].endswith("init-containers")
+                         else "containers")
+                if field in pod_spec(legacy):
+                    # Actual original SMP groups patched targets before untouched true-valued targets.
+                    pod_spec(legacy)[field].sort(
+                        key=lambda item: item.get("securityContext", {}).get("allowPrivilegeEscalation") is True
+                    )
             cases.append({
                 "id": f"mutation-{len(cases):04d}:{label}-{operation}",
                 "policy": policy, "object": original, "expectedPatched": expected,
+                "legacyExpectedPatched": legacy,
                 "oldObject": deepcopy(original) if operation == "UPDATE" else None,
                 "operation": operation, "subresource": "", "username": USER,
             })
@@ -485,7 +497,7 @@ def mutation_baseline(suite, cli, evidence, directory):
                      "--output", str(output)], ROOT, evidence, folder.name + ".log")
             documents = list(yaml.safe_load_all(output.read_text(encoding="utf-8")))
             actual = {doc["metadata"]["name"]: doc for doc in documents if doc is not None}
-            expected = {case["object"]["metadata"]["name"]: case["expectedPatched"] for case in cases}
+            expected = {case["object"]["metadata"]["name"]: case["legacyExpectedPatched"] for case in cases}
             if actual != expected:
                 details = {"actual": actual, "expected": expected}
                 (evidence / (folder.name + "-mismatch.json")).write_text(
@@ -599,6 +611,12 @@ def run(args):
     receipt["mutation_requests_expected"] = len(suite["mutationCases"])
     receipt["mutation_policies"] = len(suite["mutationPolicies"])
     receipt["scope"] = "held-validation-and-mutation-controls"
+    receipt["intentional_mutation_order_repair"] = {
+        "original": "actual SMP groups patched containers before untouched true-valued containers",
+        "candidate": "preserve input regular/init container order, including init startup order",
+        "original_and_candidate_exact_objects_checked_separately": True,
+        "production_activated": False,
+    }
     receipt["intentional_audit_repair"] = {
         "policy": AUDIT_REPAIR,
         "original": "unquoted false identifier makes the Boolean false/missing Audit cases pass",
