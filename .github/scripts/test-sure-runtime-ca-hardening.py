@@ -317,7 +317,7 @@ class SureLinuxAcceptance(unittest.TestCase):
         state = json.loads(self.docker("inspect", "--format={{json .State}}", init).stdout)
         return output, result, state["ExitCode"]
 
-    def app_options(self, output):
+    def app_options(self, output, database="sure_fixture"):
         options = ["--read-only", "--user=1000:1000"]
         for source, target in (
             ("os-certs", "/etc/ssl/certs"), ("os-sources", "/usr/share/ca-certificates"),
@@ -329,7 +329,35 @@ class SureLinuxAcceptance(unittest.TestCase):
             options += ["--tmpfs", path + ":rw,uid=1000,gid=1000,mode=0775"]
         options += ["--volume", str(self.tools) + ":/ca-test-tools:ro"]
         options += ["--volume", str(self.base / "fixtures") + ":/sure-public-fixtures:ro"]
-        return options
+        environment = {
+            "RAILS_ENV": "production", "SECRET_KEY_BASE": "1" * 128,
+            "SELF_HOSTING_ENABLED": "true", "RAILS_FORCE_SSL": "false", "RAILS_ASSUME_SSL": "false",
+            "DB_HOST": "127.0.0.1", "POSTGRES_DB": database, "TMPDIR": "/rails/tmp",
+            "POSTGRES_USER": "fixture", "POSTGRES_PASSWORD": "public-test-fixture",  # gitleaks:allow
+            "REDIS_URL": "redis://127.0.0.1:6379/1",
+        }
+        return options + ["--env=" + key + "=" + value for key, value in environment.items()]
+
+    def start_isolated_database_and_queue(self):
+        owner = self.create(options=["--entrypoint=ruby"], command=["-e", "sleep 900"])
+        self.docker("start", owner)
+        self.assertEqual(self.docker("inspect", "--format={{.HostConfig.NetworkMode}}", owner).stdout.strip(), b"none")
+        network = "container:" + owner
+        postgres = self.create(POSTGRES, options=[
+            "--user=70:70", "--cpus=1", "--memory=1g", "--memory-swap=1g",
+            "--tmpfs=/pgdata:rw,uid=70,gid=70,mode=0700",
+            "--tmpfs=/var/run/postgresql:rw,uid=70,gid=70,mode=0775",
+            "--env=PGDATA=/pgdata", "--env=POSTGRES_DB=sure_fixture", "--env=POSTGRES_USER=fixture",
+            "--env=POSTGRES_PASSWORD=public-test-fixture",  # gitleaks:allow
+        ], network=network)
+        redis = self.create(REDIS, options=["--read-only", "--user=1000:1000", "--entrypoint=redis-server"],
+                            command=["--bind", "127.0.0.1", "--save", "", "--appendonly", "no"], network=network)
+        self.docker("start", postgres)
+        self.docker("start", redis)
+        self.wait_ready(["exec", postgres, "pg_isready", "-U", "fixture", "-d", "sure_fixture"], 60,
+                        "disposable production-resource-bounded database")
+        self.wait_ready(["exec", redis, "redis-cli", "ping"], 30, "disposable isolated queue")
+        return network, postgres
 
     def test_bad_policy_or_factory_drift_prevents_initializer_success_before_app_start(self):
         tools = self.base / "tools"
@@ -365,34 +393,8 @@ class SureLinuxAcceptance(unittest.TestCase):
         fixture_data = self.docker("start", "--attach", baseline).stdout
         json.loads(fixture_data)
         (fixtures / "public-negative-roots.json").write_bytes(fixture_data)
-        owner = self.create(options=["--entrypoint=ruby"], command=["-e", "sleep 900"])
-        self.docker("start", owner)
-        self.assertEqual(self.docker("inspect", "--format={{.HostConfig.NetworkMode}}", owner).stdout.strip(), b"none")
-        network = "container:" + owner
-        postgres = self.create(POSTGRES, options=[
-            "--user=70:70", "--tmpfs=/pgdata:rw,uid=70,gid=70,mode=0700",
-            "--tmpfs=/var/run/postgresql:rw,uid=70,gid=70,mode=0775",
-            "--env=PGDATA=/pgdata", "--env=POSTGRES_DB=sure_fixture", "--env=POSTGRES_USER=fixture",
-            "--env=POSTGRES_PASSWORD=public-test-fixture",  # gitleaks:allow
-        ], network=network)
-        redis = self.create(REDIS, options=["--read-only", "--user=1000:1000", "--entrypoint=redis-server"],
-                            command=["--bind", "127.0.0.1", "--save", "", "--appendonly", "no"], network=network)
-        self.docker("start", postgres)
-        self.docker("start", redis)
-        self.wait_ready(["exec", postgres, "pg_isready", "-U", "fixture", "-d", "sure_fixture"], 60,
-                        "fresh disposable PostgreSQL fixture")
-        self.wait_ready(["exec", redis, "redis-cli", "ping"], 30, "fresh disposable Redis fixture")
-        environment = {
-            "RAILS_ENV": "production", "SECRET_KEY_BASE": "1" * 128,
-            "SELF_HOSTING_ENABLED": "true", "RAILS_FORCE_SSL": "false", "RAILS_ASSUME_SSL": "false",
-            "DB_HOST": "127.0.0.1", "POSTGRES_DB": "sure_fixture",
-            "TMPDIR": "/rails/tmp",
-            "POSTGRES_USER": "fixture", "POSTGRES_PASSWORD": "public-test-fixture",  # gitleaks:allow
-            "REDIS_URL": "redis://127.0.0.1:6379/1",
-        }
+        network, postgres = self.start_isolated_database_and_queue()
         options = self.app_options(output)
-        for key, value in environment.items():
-            options += ["--env=" + key + "=" + value]
         rails = self.create(options=[*options, "--cpus=0.2", "--memory=512m", "--memory-swap=512m"],
                             network=network)
         self.docker("start", rails)
@@ -417,7 +419,7 @@ class SureLinuxAcceptance(unittest.TestCase):
                         'spec=Gem.loaded_specs.fetch("net-imap");'
                         'abort "unexpected application IMAP binding" unless spec.version==Gem::Version.new("0.6.6");'
                         'puts JSON.generate({bundled_net_imap:spec.version.to_s,'
-                        'scope:"Separate Bundler probe; installed default gem remains reported, not suppressed."})')
+                        'scope:"Separate Bundler probe; installed base-image gem remains reported, not suppressed."})')
             self.docker("exec", container, "ruby", "-e", NATIVE_PROBE)
             self.docker("exec", "--user=0:0", container, "ruby", "-e", READONLY_PROBE)
             self.docker("exec", container, "ruby", "-rsocket", "-e",
@@ -428,34 +430,10 @@ class SureLinuxAcceptance(unittest.TestCase):
         output, _, code = self.initialize()
         self.assertEqual(code, 0)
         (self.base / "fixtures").mkdir()
-        owner = self.create(options=["--entrypoint=ruby"], command=["-e", "sleep 900"])
-        self.docker("start", owner)
-        self.assertEqual(self.docker("inspect", "--format={{.HostConfig.NetworkMode}}", owner).stdout.strip(), b"none")
-        network = "container:" + owner
-        postgres = self.create(POSTGRES, options=[
-            "--user=70:70", "--tmpfs=/pgdata:rw,uid=70,gid=70,mode=0700",
-            "--tmpfs=/var/run/postgresql:rw,uid=70,gid=70,mode=0775",
-            "--env=PGDATA=/pgdata", "--env=POSTGRES_DB=sure_fixture", "--env=POSTGRES_USER=fixture",
-            "--env=POSTGRES_PASSWORD=public-test-fixture",  # gitleaks:allow
-        ], network=network)
-        redis = self.create(REDIS, options=["--read-only", "--user=1000:1000", "--entrypoint=redis-server"],
-                            command=["--bind", "127.0.0.1", "--save", "", "--appendonly", "no"], network=network)
-        self.docker("start", postgres)
-        self.docker("start", redis)
-        self.wait_ready(["exec", postgres, "pg_isready", "-U", "fixture", "-d", "sure_fixture"], 60,
-                        "disposable old-schema database")
-        self.wait_ready(["exec", redis, "redis-cli", "ping"], 30, "disposable migration queue")
+        network, postgres = self.start_isolated_database_and_queue()
 
         def rails_options(database):
-            options = [*self.app_options(output), "--cpus=0.2", "--memory=512m", "--memory-swap=512m"]
-            environment = {
-                "RAILS_ENV": "production", "SECRET_KEY_BASE": "1" * 128,
-                "SELF_HOSTING_ENABLED": "true", "RAILS_FORCE_SSL": "false", "RAILS_ASSUME_SSL": "false",
-                "DB_HOST": "127.0.0.1", "POSTGRES_DB": database, "TMPDIR": "/rails/tmp",
-                "POSTGRES_USER": "fixture", "POSTGRES_PASSWORD": "public-test-fixture",  # gitleaks:allow
-                "REDIS_URL": "redis://127.0.0.1:6379/1",
-            }
-            return options + ["--env=" + key + "=" + value for key, value in environment.items()]
+            return [*self.app_options(output, database), "--cpus=0.2", "--memory=512m", "--memory-swap=512m"]
 
         def sql(statement, database="sure_fixture"):
             return self.docker("exec", postgres, "psql", "-v", "ON_ERROR_STOP=1", "-U", "fixture",
@@ -511,7 +489,8 @@ class SureLinuxAcceptance(unittest.TestCase):
         self.docker("start", candidate)
         self.wait_ready(["exec", candidate, "ruby", "-e", readiness], 360,
                         "new-release migration of the actual old-version synthetic schema")
-        self.assertGreater(int(sql("SELECT COUNT(*) FROM schema_migrations")), old_migrations)
+        candidate_migrations = int(sql("SELECT COUNT(*) FROM schema_migrations"))
+        self.assertGreater(candidate_migrations, old_migrations)
         self.assertEqual(json.loads(sql(snapshot)), before)
         self.docker("stop", "--time=30", candidate)
         self.docker("exec", postgres, "createdb", "-U", "fixture", "sure_restore")
@@ -526,6 +505,9 @@ class SureLinuxAcceptance(unittest.TestCase):
         self.assertEqual(int(sql("SELECT COUNT(*) FROM schema_migrations", "sure_restore")), old_migrations)
         print(json.dumps({"synthetic_upgrade_and_old_version_restore": True,
                           "backup_sha256": hashlib.sha256(backup).hexdigest(),
+                          "old_schema_migration_count": old_migrations,
+                          "candidate_schema_migration_count": candidate_migrations,
+                          "synthetic_record_groups_preserved": sorted(before),
                           "scope": "Public synthetic records only; not production data/migration or restore clearance."}))
 
     def wait_ready(self, command, seconds, description):

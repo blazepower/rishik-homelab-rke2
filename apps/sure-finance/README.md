@@ -29,7 +29,16 @@ database, accesses production data, or permits outbound bank/API traffic.
 That fixture is not production migration or restore clearance: review the data
 transformations and verify protected, fresh recovery before activation.
 
-The new public image still has reported OS, default-gem and embedded-SBOM
+Some migrations explicitly cannot be reversed: they merge duplicate tags and
+categories, relabel security prices, clear calculated transferred-position cost
+bases, or retire investment-account recurring series. Others remove provider
+identifier columns or invalid exchange rates. The Warsaw-price migration can
+also queue real account syncs when matching data exists. The single-depository
+synthetic fixture does not exercise those branches. An image rollback is not a
+database rollback; do not activate without a protected recovery path and a
+quiesced, consistent pre-upgrade backup.
+
+The new public image still has reported OS, base-image gem and embedded-SBOM
 findings. A newer tag and successful native startup do not mean the whole image
 is vulnerability-free. Keep those findings and any runtime applicability
 assessment separate; do not suppress them to pass the upgrade.
