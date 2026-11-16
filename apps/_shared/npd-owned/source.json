@@ -1,0 +1,32 @@
+{
+  "repository": "https://github.com/kubernetes/node-problem-detector.git",
+  "revision": "b1f6e344138cbea2d569a81619654c37f321b7f8",
+  "version": "v1.35.4",
+  "supported_api_minor": "1.35",
+  "builder": "docker.io/library/golang:1.27.4-bookworm@sha256:4fa7c968ba93f1635670522dbb01a2c78150443e1385746924566079f36570ea",
+  "vendor": "registry.k8s.io/node-problem-detector/node-problem-detector@sha256:f6344d2b881400e369d0ae3401c985dc2b8c922f47c1f01eebf012d1f6b9c94e",
+  "compiler": "go1.27.4",
+  "govulncheck": "v1.9.0",
+  "runtime_package_status_sha256": "659ccdc26081f6c5db0fcff6b162dd42a9786e712e44b34d817b266fb7dd8ead",
+  "module_sha256": {
+    "go.mod": "8103ed66f8bd034ed84c15bce05efc149a47ada79211899a77402b596589668d",
+    "go.sum": "fd6d9831c0d1fa3d3ff777622f8f5d206d54c0bee19ea96ba744f6d879e3d083"
+  },
+  "binaries": {
+    "node-problem-detector": {
+      "path": "/node-problem-detector",
+      "source": "./cmd/nodeproblemdetector",
+      "vendor_sha256": "bd6ad3288b0003150003f1a33bc62b5fdccd5482925c40994cc48a65c7877f75"
+    },
+    "health-checker": {
+      "path": "/home/kubernetes/bin/health-checker",
+      "source": "./cmd/healthchecker",
+      "vendor_sha256": "3ba3f4f2f4354c05096761c75959aa4c03d8ebb99f7f0b8665afb7828cd918d9"
+    },
+    "log-counter": {
+      "path": "/home/kubernetes/bin/log-counter",
+      "source": "./cmd/logcounter",
+      "vendor_sha256": "688f38780798f82f25d57d02f160e98637859c670926a6e9aa3b33f9003cf1b5"
+    }
+  }
+}
