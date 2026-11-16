@@ -1,5 +1,6 @@
 """Unprivileged disposable native acceptance; no production cluster or data."""
 import argparse
+from email.parser import Parser
 import hashlib
 import importlib.util
 import json
@@ -22,13 +23,49 @@ docker = shared.docker
 run = shared.run
 
 
+def package_proof(raw, lock, baseline=None):
+    def sections(data):
+        packages = {}
+        for block in data.decode("utf-8").split("\n\n"):
+            if not block.strip():
+                continue
+            message = Parser().parsestr(block)
+            fields = dict(message.items())
+            assert len({name.lower() for name in message.keys()}) == len(message.keys()), "Duplicate package fields"
+            key = (fields["Package"], fields["Architecture"])
+            assert key not in packages, ("Duplicate installed package", key)
+            assert fields["Status"] == "install ok installed", (key, fields["Status"])
+            packages[key] = fields
+        assert packages, "Missing package metadata"
+        return packages
+
+    original = raw if baseline is None else baseline
+    assert hashlib.sha256(original).hexdigest() == lock["vendor_package_status_sha256"]
+    before, after = sections(original), sections(raw)
+    assert before.keys() == after.keys(), "Installed package set changed"
+    updates = {}
+    for key, fields in before.items():
+        target = lock["runtime_package_updates"].get(key[0]) if baseline is not None else None
+        if target:
+            assert key[1] == target["architecture"] and fields["Version"] == target["from_version"], key
+            assert after[key]["Version"] == target["version"], (key, after[key]["Version"])
+            updates[key[0]] = {"architecture": key[1], "from_version": fields["Version"],
+                               "version": after[key]["Version"]}
+        else:
+            assert fields == after[key], (key, "Undeclared package metadata changed")
+    if baseline is not None:
+        assert updates.keys() == lock["runtime_package_updates"].keys(), "Declared package patch missing"
+    return {"status_sha256": hashlib.sha256(raw).hexdigest(), "package_count": len(after),
+            "unchanged_package_sections": len(after) - len(updates), "updates": updates}
+
+
 def binary_proof(image, lock, scratch, vendor=False):
     container = docker("create", image).stdout.strip()
     try:
-        package_status = scratch / "package-status"
+        package_status = scratch / ("vendor-package-status" if vendor else "package-status")
         docker("cp", container + ":/var/lib/dpkg/status", str(package_status))
-        assert hashlib.sha256(package_status.read_bytes()).hexdigest() == \
-            lock["runtime_package_status_sha256"], "Inherited runtime package metadata changed"
+        packages = package_proof(package_status.read_bytes(), lock,
+                                 None if vendor else (scratch / "vendor-package-status").read_bytes())
         for name, sha in lock["monitor_config_sha256"].items():
             path = scratch / name
             docker("cp", container + ":/config/" + name, str(path))
@@ -64,7 +101,7 @@ def binary_proof(image, lock, scratch, vendor=False):
                     (scratch / filename).read_text(), mode, lock["govulncheck"])
                 assert summary == evidence["advisory_scans"][mode]
             results[name] = {**evidence, "actual_elf_buildinfo": info}
-        return results
+        return results, packages
     finally:
         docker("rm", container)
 
@@ -179,10 +216,17 @@ def main():
             shutil.copyfile(BUILD / filename, scratch / filename)
         shutil.copyfile(ROOT / "apps" / "_shared" / "maintained-go" / "build.py",
                         scratch / "maintained_build.py")
+        patches = scratch / "runtime-patches"
+        patches.mkdir()
+        for name, package in lock["runtime_package_updates"].items():
+            path = patches / (name + ".deb")
+            run("curl", "--fail", "--silent", "--show-error", "--location", "--max-time", "120",
+                package["url"], "--output", str(path))
+            assert hashlib.sha256(path.read_bytes()).hexdigest() == package["sha256"], name
         docker("pull", lock["vendor"])
         docker("pull", lock["builder"])
         original = json.loads(docker("image", "inspect", lock["vendor"]).stdout)[0]
-        report["vendor_binaries"] = binary_proof(lock["vendor"], lock, scratch, vendor=True)
+        report["vendor_binaries"], report["vendor_packages"] = binary_proof(lock["vendor"], lock, scratch, vendor=True)
         docker("build", "--platform", "linux/amd64", "--progress", "plain",
                "--build-arg", "BUILDER=" + lock["builder"], "--build-arg", "VENDOR=" + lock["vendor"],
                "-f", str(BUILD / "Dockerfile"), "-t", tag, str(scratch))
@@ -191,13 +235,13 @@ def main():
         expected["Labels"] = {
             **(expected.get("Labels") or {}),
             "org.opencontainers.image.source": "https://github.com/blazepower/rishik-homelab-rke2",
-            "io.homelab.derivative": "Owned supported-minor NPD rebuild with Go 1.27.4; not an official Kubernetes image",
+            "io.homelab.derivative": "Owned supported-minor NPD with Go 1.27.4 and APT 2.6.2; not an official Kubernetes image",
         }
         assert actual["Config"] == expected, "Undeclared execution configuration changed"
         inherited = original["RootFS"]["Layers"]
         assert actual["RootFS"]["Layers"][:len(inherited)] == inherited
         report["accepted_runtime_identity"] = shared.runtime_identity(actual)
-        report["binaries"] = binary_proof(tag, lock, scratch)
+        report["binaries"], report["runtime_packages"] = binary_proof(tag, lock, scratch)
         report["vendor_native"] = native(lock["vendor"], scratch, "vendor")
         report["native"] = native(tag, scratch, "owned")
         for key in ("version", "condition_gauge_values", "empty_journal_exit", "invalid_journal_lookback_exit",
@@ -220,13 +264,14 @@ def main():
             docker("pull", immutable)
             identity = shared.runtime_identity(json.loads(docker("image", "inspect", immutable).stdout)[0])
             assert identity == report["accepted_runtime_identity"]
-            assert binary_proof(immutable, lock, scratch) == report["binaries"]
+            assert binary_proof(immutable, lock, scratch) == (report["binaries"], report["runtime_packages"])
             report.update(published=True, image=immutable, publication_stage="accepted")
         else:
             report["publication_stage"] = "native_accepted_publication_not_requested"
         report["limitations"] = (
             "Supported-1.35 vendor source upgrade and all-three-program compiler patch, not a server upgrade. "
-            "Inherited Debian libraries/configuration are unchanged; module-only matches and DB times are retained. "
+            "Only two exact Debian APT packages are patched; all other package metadata/configs are unchanged. "
+            "Module-only matches and DB times are retained. Other Debian findings remain. "
             "No whole-rootfs, general API/journal, production, universal PKI or forensic clearance.")
         print(json.dumps(report, indent=2))
     finally:

@@ -12,13 +12,24 @@ spec = importlib.util.spec_from_file_location("npd", Path(__file__).with_name("v
 npd = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(npd)
 
+BASE_PACKAGES = b"\n\n".join(
+    ("Package: " + name + "\nStatus: install ok installed\nArchitecture: amd64\nVersion: " + version).encode()
+    for name, version in (("apt", "2.6.1"), ("libapt-pkg6.0", "2.6.1"), ("libc6", "2.36"))
+)
+PATCHED_PACKAGES = BASE_PACKAGES.replace(b"Version: 2.6.1", b"Version: 2.6.2")
+PACKAGE_LOCK = {
+    "vendor_package_status_sha256": hashlib.sha256(BASE_PACKAGES).hexdigest(),
+    "runtime_package_updates": {name: {"architecture": "amd64", "from_version": "2.6.1", "version": "2.6.2"}
+                                for name in ("apt", "libapt-pkg6.0")},
+}
+
 
 class ThreeProgramProofTest(unittest.TestCase):
     def execute(self, wrong_compiler=None, changed_helper=None, positive_helper=None, changed_config=False):
         names = ("node-problem-detector", "health-checker", "log-counter")
         raw = {name: ("synthetic " + name).encode() for name in names}
         lock = {"compiler": "go1.27.4", "govulncheck": "v1.9.0", "builder": "fixture",
-                "runtime_package_status_sha256": hashlib.sha256(b"packages").hexdigest(),
+                **PACKAGE_LOCK,
                 "monitor_config_sha256": {"kernel-monitor.json": hashlib.sha256(b"config").hexdigest()},
                 "binaries": {name: {"path": "/" + name} for name in names}}
         source = json.loads(json.dumps(lock))
@@ -47,7 +58,7 @@ class ThreeProgramProofTest(unittest.TestCase):
             elif args[0] == "cp":
                 name = args[1].rsplit("/", 1)[1]
                 if name == "status":
-                    data = b"packages"
+                    data = PATCHED_PACKAGES
                 elif name == "kernel-monitor.json":
                     data = b"tampered" if changed_config else b"config"
                 elif name == "source.json":
@@ -63,8 +74,9 @@ class ThreeProgramProofTest(unittest.TestCase):
             return subprocess.CompletedProcess(args, 0, stdout=output)
 
         with tempfile.TemporaryDirectory(prefix=".npd-unit-", dir=npd.ROOT) as directory:
+            (Path(directory) / "vendor-package-status").write_bytes(BASE_PACKAGES)
             with patch.object(npd, "docker", side_effect=docker):
-                return npd.binary_proof("fixture", lock, Path(directory))
+                return npd.binary_proof("fixture", lock, Path(directory))[0]
 
     def test_accepts_all_three_actual_programs(self):
         self.assertEqual(set(self.execute()), {"node-problem-detector", "health-checker", "log-counter"})
@@ -84,6 +96,23 @@ class ThreeProgramProofTest(unittest.TestCase):
     def test_rejects_silently_changed_monitor_coverage(self):
         with self.assertRaises(AssertionError):
             self.execute(changed_config=True)
+
+
+class RuntimePatchProofTest(unittest.TestCase):
+    def test_rejects_an_undeclared_dependency_upgrade(self):
+        with self.assertRaises(AssertionError):
+            npd.package_proof(PATCHED_PACKAGES.replace(b"Version: 2.36", b"Version: 2.37"),
+                              PACKAGE_LOCK, BASE_PACKAGES)
+
+    def test_rejects_a_silently_added_package(self):
+        extra = b"\n\nPackage: unexpected\nStatus: install ok installed\nArchitecture: amd64\nVersion: 1"
+        with self.assertRaises(AssertionError):
+            npd.package_proof(PATCHED_PACKAGES + extra, PACKAGE_LOCK, BASE_PACKAGES)
+
+    def test_rejects_an_incomplete_security_patch(self):
+        with self.assertRaises(AssertionError):
+            npd.package_proof(PATCHED_PACKAGES.replace(b"Version: 2.6.2", b"Version: 2.6.1", 1),
+                              PACKAGE_LOCK, BASE_PACKAGES)
 
 
 if __name__ == "__main__":

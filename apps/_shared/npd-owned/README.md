@@ -18,8 +18,16 @@ module-only records and DB timestamps. Actual linked module/Go licenses and
 raw scans accompany the source/ELF proof. No source or module mutation is allowed.
 
 The runtime inherits the exact supported-minor vendor filesystem/configuration,
-replacing only three programs and adding provenance. Debian libraries are not
-claimed patched by this compiler change. Native CI compares vendor and owned
+replacing three programs, applying two exact Debian APT security packages and
+adding provenance. Official package archives are SHA-256 locked, downloaded
+over HTTPS, and installed by `dpkg` with networking disabled: vulnerable runtime
+APT is never used to fetch its own patch. Build-only APT fetches explicitly
+disable retries, avoiding the vulnerable bootstrap retry behavior without
+disabling signature checks. The 83-package set must remain identical, both
+declared upgrades must reach 2.6.2, and all other 81 complete package metadata
+sections must remain unchanged. Actual package-status hashes are rechecked
+after immutable publication. This does not claim all Debian libraries patched.
+Native CI compares vendor and owned
 custom-plugin healthy/failure/recovery metrics, deliberately empty journal
 library operation and invalid-lookback failure, plus synthetic CRI success/failure.
 Upstream only evaluates regexes while processing records; an empty journal
@@ -52,11 +60,13 @@ it does not claim to measure real API request rates. The active chart 2.3.14
 supports `image.digest` and `settings.extraArgs`; pin that exact chart on
 activation rather than leaving the existing wildcard version.
 
-The reviewed Debian factory still has OS package findings, including the fixed
-APT advisory CVE-2026-109518 (`apt` and `libapt-pkg6.0` 2.6.1 -> 2.6.2).
-The compiler-only producer does not remediate those findings or authorize
-activation without the separate runtime-package assessment/patch. Retain all
-raw severities, including UNKNOWN, and distinguish source-package records
-from actual component applicability rather than silently excluding them.
+The reviewed Debian factory still has OS package findings. This producer fixes
+APT advisory CVE-2026-109518 (`apt` and `libapt-pkg6.0` 2.6.1 -> 2.6.2), not all
+remaining OS records. Activation requires a separate fresh immutable-image scan
+and component-level assessment. Retain all raw severities, including UNKNOWN,
+and distinguish source-package records from actual component applicability
+rather than silently excluding them. In particular, Debian notes that the
+MiniZip code in CVE-2023-45853 was not built by bookworm's zlib source; that
+primary qualification is not a blanket waiver or permission to erase records.
 
 Keep the controller cordoned and Kured suspended; this is not node maintenance.

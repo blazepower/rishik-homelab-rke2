@@ -7,7 +7,23 @@
   "vendor": "registry.k8s.io/node-problem-detector/node-problem-detector@sha256:f6344d2b881400e369d0ae3401c985dc2b8c922f47c1f01eebf012d1f6b9c94e",
   "compiler": "go1.27.4",
   "govulncheck": "v1.9.0",
-  "runtime_package_status_sha256": "659ccdc26081f6c5db0fcff6b162dd42a9786e712e44b34d817b266fb7dd8ead",
+  "vendor_package_status_sha256": "659ccdc26081f6c5db0fcff6b162dd42a9786e712e44b34d817b266fb7dd8ead",
+  "runtime_package_updates": {
+    "apt": {
+      "architecture": "amd64",
+      "from_version": "2.6.1",
+      "version": "2.6.2",
+      "url": "https://security.debian.org/debian-security/pool/updates/main/a/apt/apt_2.6.2_amd64.deb",
+      "sha256": "796fc7fe18866f5b1fb27a115d7339e549d71b7ddbc15b8d6fc4226c243e96d1"
+    },
+    "libapt-pkg6.0": {
+      "architecture": "amd64",
+      "from_version": "2.6.1",
+      "version": "2.6.2",
+      "url": "https://security.debian.org/debian-security/pool/updates/main/a/apt/libapt-pkg6.0_2.6.2_amd64.deb",
+      "sha256": "023a7017b75295fc7037c7a4352847f9516a36a82cc5e1650d6832d238860913"
+    }
+  },
   "monitor_config_sha256": {
     "kernel-monitor.json": "ff258f99954306042785c869e86f30b6ebf91e6e63c491050794bddc40f965b8",
     "systemd-monitor.json": "dc66ecf63ff88ebfd3f6fcb9789bce115989325cfe208e400a25c5ecb8cb667c",
