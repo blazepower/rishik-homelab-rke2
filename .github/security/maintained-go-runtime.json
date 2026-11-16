@@ -1,6 +1,6 @@
 {
   "scope": "Approved exact-version owned compiler derivatives; not historical running-image evidence or universal TLS certification.",
-  "publication": "https://github.com/blazepower/rishik-homelab-rke2/actions/runs/42276975925",
+  "publication": "https://github.com/blazepower/rishik-homelab-rke2/actions/runs/43814769131",
   "images": {
     "gluetun": {
       "declared_imageID": "ghcr.io/blazepower/maintained-gluetun@sha256:c74b287ddbb7c9b48c31ef147476c9e4ed6a338b993b018250c829f9e5dd9ed7",
@@ -14,13 +14,14 @@
       "vendor_public_stores_preserved": true
     },
     "stash": {
-      "declared_imageID": "ghcr.io/blazepower/maintained-stash@sha256:20db267395f0d17882244355975dc78db41abd2c40dbb3a8ffedc2023aea695f",
+      "declared_imageID": "ghcr.io/blazepower/maintained-stash@sha256:92ebe49da42cb090fb2bc18ba7aff2b91128d0688458848cbf07001535cb685a",
       "factory_amd64": "docker.io/stashapp/stash@sha256:736e7cd8f61c815c08fd3048792982a61e619735bb1808cd279f0f2fa857c4b0",
       "application_version": "v0.31.1",
       "source_revision": "4de2351e7cc990d7ccd7cb6c84c275cd53bf6e55",
       "source_repository": "https://github.com/stashapp/stash",
-      "compiler": "go1.27.3",
-      "binary_sha256": "50d5bf7ef11af4964e75045d132e2d3f36244b60c4f06c927ab84d5d1ac4e7dc",
+      "compiler": "go1.27.4",
+      "publication": "https://github.com/blazepower/rishik-homelab-rke2/actions/runs/43814769131",
+      "binary_sha256": "49d6fb5dc19f5d601c5259e029007048e2cb2124b859f2b7a6b2cda993b4cc92",
       "vendor_public_stores_preserved": true
     }
   }
