@@ -97,6 +97,7 @@ def reboot_dashboard_cases():
          telemetry(mixed), 2, mixed),
     ]
     tests = []
+    node_expression = "(" + expressions[1] + ")"
     for name, members, reboot, total, known in scenarios:
         expected_nodes = sorted({entry["series"].split('node="')[1].split('"')[0] for entry in members})
         tests.append({
@@ -104,9 +105,15 @@ def reboot_dashboard_cases():
             "promql_expr_test": [
                 {"expr": expressions[0], "eval_time": "1m",
                  "exp_samples": [] if total is None else [{"labels": "{}", "value": total}]},
-                {"expr": expressions[1], "eval_time": "1m", "exp_samples": [
-                    {"labels": f'{{node="{node}"}}', "value": known.get(node, float("nan"))}
-                    for node in expected_nodes
+                {"expr": f"{node_expression} == on (node) {node_expression}", "eval_time": "1m", "exp_samples": [
+                    {"labels": f'{{node="{node}"}}', "value": known[node]}
+                    for node in expected_nodes if node in known
+                ]},
+                # The pinned matcher rejects NaN-valued expected samples; assert exact NaN membership separately.
+                {"expr": f"count by (node) ({node_expression} != on (node) {node_expression})",
+                 "eval_time": "1m", "exp_samples": [
+                    {"labels": f'{{node="{node}"}}', "value": 1}
+                    for node in expected_nodes if node not in known
                 ]},
             ],
         })
