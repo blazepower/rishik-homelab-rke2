@@ -73,6 +73,13 @@ An OCI index digest is recorded separately from its unique linux/amd64 runtime
 manifest. Platform selection excludes attestation descriptors and rejects
 missing or ambiguous runtimes; the selected manifest is pulled and its actual
 ELF must still match the accepted local artifact before it is recorded.
+Docker-local image IDs are recorded for diagnostics, not used as portable
+runtime identity across an index/platform pull. Acceptance instead requires the
+complete execution configuration, ordered filesystem layer hashes, platform and
+creation metadata to match the accepted local image exactly, then repeats the
+actual ELF/provenance checks. Evidence is retained even when publication fails;
+its explicit stage distinguishes an uploaded-but-unaccepted image from an
+accepted immutable publication. A successful push alone never authorizes rollout.
 
 The Hardcover rreading-glasses factory provenance identifies revision
 `97dd4a676d435abc400fac93f303a725cde6b0d9`, unavailable from public upstream

@@ -88,6 +88,36 @@ class ArtifactGateTest(unittest.TestCase):
         self.assertFalse((self.directory / "application.elf").exists())
 
 
+class RuntimeIdentityTest(unittest.TestCase):
+    def fixture(self):
+        return {"Id": "local-descriptor-id", "Architecture": "amd64", "Os": "linux",
+                "Created": "2026-11-16T00:00:00Z",
+                "RootFS": {"Type": "layers", "Layers": ["sha256:" + "a" * 64]},
+                "Config": {"Entrypoint": ["/application"], "User": "1000",
+                           "Env": ["FIXTURE=original"], "Healthcheck": {"Test": ["CMD", "health"]}}}
+
+    def test_accepts_identical_runtime_with_a_different_local_descriptor_id(self):
+        accepted = self.fixture()
+        pulled = {**accepted, "Id": "platform-manifest-or-config-id", "RepoTags": []}
+        self.assertEqual(module.runtime_identity(accepted), module.runtime_identity(pulled))
+
+    def test_rejects_changed_filesystem_or_any_execution_configuration(self):
+        accepted = self.fixture()
+        for field in ("RootFS", "Config"):
+            pulled = json.loads(json.dumps(accepted))
+            if field == "RootFS":
+                pulled[field]["Layers"] = ["sha256:" + "b" * 64]
+            else:
+                pulled[field]["User"] = "0"
+            with self.subTest(field=field):
+                self.assertNotEqual(module.runtime_identity(accepted), module.runtime_identity(pulled))
+
+    def test_rejects_missing_or_wrong_platform_identity(self):
+        for change in ({"Architecture": "arm64"}, {"Config": None}, {"RootFS": {"Type": "layers", "Layers": []}}):
+            with self.subTest(change=change), self.assertRaises(AssertionError):
+                module.runtime_identity({**self.fixture(), **change})
+
+
 class SecurityOverlayTest(unittest.TestCase):
     def fixture(self):
         patch = b"synthetic module patch"
