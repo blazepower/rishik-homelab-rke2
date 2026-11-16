@@ -187,9 +187,63 @@ class MaintenanceTests(unittest.TestCase):
         pod["spec"]["nodeSelector"] = {"kubernetes.io/hostname": "old"}
         self.assertTrue(m.scheduling_blockers("old", target, [pod]))
 
+    def socket_fixture(self):
+        pod = {"metadata": {"namespace": "storage", "name": "csi-attacher-pod", "uid": "pod",
+                           "labels": {"app": "csi-attacher"}, "ownerReferences": [
+                               {"kind": "ReplicaSet", "name": "csi-attacher-rs", "uid": "rs", "controller": True}]},
+               "status": {"phase": "Running"}, "spec": {
+                   "nodeName": "old", "containers": [{
+                       "name": "csi-attacher", "image": "reviewed-image",
+                       "volumeMounts": [{"name": "socket-dir", "mountPath": "/csi/"}]}],
+                   "volumes": [{"name": "socket-dir", "hostPath": {
+                       "path": "/var/lib/kubelet/plugins/driver.longhorn.io", "type": "DirectoryOrCreate"}}]}}
+        replica = {"metadata": {"namespace": "storage", "name": "csi-attacher-rs", "uid": "rs",
+                               "ownerReferences": [{"kind": "Deployment", "name": "csi-attacher",
+                                                    "uid": "deployment", "controller": True}]}}
+        deployment = {"metadata": {"namespace": "storage", "name": "csi-attacher", "uid": "deployment"},
+                      "spec": {"selector": {"matchLabels": {"app": "csi-attacher"}},
+                               "template": {"spec": {"containers": [{
+                                   "name": "csi-attacher", "image": "reviewed-image"}]}}}}
+        return pod, replica, deployment
+
+    def test_exact_csi_socket_review_preserves_other_drain_checks(self):
+        pod, replica, deployment = self.socket_fixture()
+        reviews = m.reviewed_csi_sockets([pod], [replica], [deployment], "storage")
+        self.assertEqual(len(reviews), 1)
+        self.assertEqual(reviews[0]["deployment_uid"], "deployment")
+        node = {"metadata": {"name": "new", "labels": {}}, "spec": {},
+                "status": {"allocatable": {"cpu": "6", "memory": "16Gi", "pods": "250"}}}
+        self.assertTrue(m.scheduling_blockers("old", node, [pod]))
+        self.assertFalse(m.scheduling_blockers("old", node, [pod], reviews))
+        pod["spec"]["nodeSelector"] = {"kubernetes.io/hostname": "old"}
+        self.assertTrue(m.scheduling_blockers("old", node, [pod], reviews))
+
+    def test_csi_review_never_becomes_a_generic_hostpath_or_identity_exception(self):
+        cases = {
+            "stale-owner": lambda p, r, d: p["metadata"]["ownerReferences"][0].update(uid="missing"),
+            "replaced-deployment": lambda p, r, d: d["metadata"].update(uid="replacement"),
+            "other-controller": lambda p, r, d: d["metadata"].update(name="csi-nfs-controller"),
+            "nfs-host-data": lambda p, r, d: p["spec"]["volumes"][0]["hostPath"].update(path="/var/lib/kubelet/pods"),
+            "longhorn-data": lambda p, r, d: p["spec"]["volumes"][0]["hostPath"].update(path="/var/lib/longhorn"),
+            "extra-hostpath": lambda p, r, d: p["spec"]["volumes"].append(
+                {"name": "other", "hostPath": {"path": "/data", "type": "Directory"}}),
+            "data-claim": lambda p, r, d: p["spec"]["volumes"].append(
+                {"name": "data", "persistentVolumeClaim": {"claimName": "user-data"}}),
+            "bidirectional": lambda p, r, d: p["spec"]["containers"][0]["volumeMounts"][0].update(
+                mountPropagation="Bidirectional"),
+            "subpath": lambda p, r, d: p["spec"]["containers"][0]["volumeMounts"][0].update(subPath="other"),
+            "unreviewed-image": lambda p, r, d: p["spec"]["containers"][0].update(image="different"),
+        }
+        for label, change in cases.items():
+            with self.subTest(case=label):
+                pod, replica, deployment = self.socket_fixture()
+                change(pod, replica, deployment)
+                self.assertEqual(m.reviewed_csi_sockets([pod], [replica], [deployment], "storage"), [])
+
     def test_failure_retains_lock_and_never_maintains_second_node(self):
         policy = json.loads(m.POLICY.read_text())
-        plan = {"action": "os", "release": None, "quarantine": {}, "kubectl": {}, "nodes": policy["nodes"], "bindings": {
+        plan = {"action": "os", "release": None, "quarantine": {}, "kubectl": {}, "reviewed_csi_sockets": [],
+                "nodes": policy["nodes"], "bindings": {
             node["name"]: {"boot_id": "boot", "source_version": "v1.35.10+rke2r1",
                            "pending_packages": []} for node in policy["nodes"]}}
         fresh = {**plan, "blockers": []}
@@ -218,7 +272,8 @@ class MaintenanceTests(unittest.TestCase):
 
     def test_missing_recovery_protection_stops_before_lock_or_cordon(self):
         policy = json.loads(m.POLICY.read_text())
-        plan = {"action": "os", "release": None, "bindings": {}, "nodes": [], "quarantine": {}, "kubectl": {}}
+        plan = {"action": "os", "release": None, "bindings": {}, "nodes": [], "quarantine": {},
+                "kubectl": {}, "reviewed_csi_sockets": []}
         with patch.object(m, "check_plan"), patch.object(m, "get", return_value={"metadata": {"uid": "cluster"}}), \
                 patch.object(m, "audit_nodes", return_value={}), \
                 patch.object(m, "build_plan", return_value={**plan, "blockers": []}), \
@@ -229,13 +284,14 @@ class MaintenanceTests(unittest.TestCase):
             finally:
                 kube.assert_not_called()
 
-    def test_client_drift_or_unsupported_client_stops_before_lock_and_host_operations(self):
+    def test_client_or_socket_drift_stops_before_lock_and_host_operations(self):
         policy = json.loads(m.POLICY.read_text())
         plan = {"action": "rke2", "release": policy["rke2_releases"]["1.36"], "bindings": {},
-                "nodes": [], "quarantine": {},
+                "nodes": [], "quarantine": {}, "reviewed_csi_sockets": [],
                 "kubectl": {"client": "v1.35.10", "server": "v1.35.10+rke2r1"}}
         for drift in ({"blockers": ["kubectl outside supported skew"]},
-                      {"kubectl": {"client": "v1.36.6", "server": "v1.35.10+rke2r1"}}):
+                      {"kubectl": {"client": "v1.36.6", "server": "v1.35.10+rke2r1"}},
+                      {"reviewed_csi_sockets": [{"pod_uid": "replacement"}]}):
             with self.subTest(drift=drift), patch.object(m, "check_plan"), \
                     patch.object(m, "get", return_value={"metadata": {"uid": "cluster"}}), \
                     patch.object(m, "audit_nodes", return_value={}), \
@@ -357,7 +413,8 @@ class MaintenanceTests(unittest.TestCase):
     def test_successful_os_run_is_serial_and_keeps_controller_cordoned(self):
         policy = json.loads(m.POLICY.read_text())
         order = [policy["nodes"][1], policy["nodes"][2], policy["nodes"][0]]
-        plan = {"action": "os", "release": None, "quarantine": {}, "kubectl": {}, "nodes": order, "bindings": {
+        plan = {"action": "os", "release": None, "quarantine": {}, "kubectl": {}, "reviewed_csi_sockets": [],
+                "nodes": order, "bindings": {
             n["name"]: {"boot_id": "old", "source_version": "v1.35.10+rke2r1", "pending_packages": []} for n in order}}
         states = {n["name"]: {"boot_id": "old", "pending_packages": []} for n in order}
         lock, calls, privileged_steps = {}, [], []
