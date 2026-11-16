@@ -62,8 +62,9 @@ def binary_proof(image, name, lock, scratch):
                    f"type=bind,src={directory},dst=/proof,readonly", lock["builder"])
         info = docker(*command, "go", "version", "-m", "/proof/application").stdout
         validate_buildinfo(info, lock)
-        symbols = docker(*command, "go", "tool", "nm", "/proof/application").stdout
-        assert re.search(r"\bT main\.main$", symbols, re.MULTILINE), "Actual ELF symbols missing"
+        symbols = docker(*command, "readelf", "--symbols", "--wide", "/proof/application").stdout
+        assert re.search(r"\bFUNC\s+GLOBAL\s+DEFAULT\s+\d+\s+main\.main$", symbols, re.MULTILINE), (
+            "Actual ELF main function symbol missing")
         scans = {}
         for label, mode in (("all-source", "source"), (name + "-binary", "binary")):
             path = directory / (label + ".jsonl")
