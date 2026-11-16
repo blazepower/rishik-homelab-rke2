@@ -96,6 +96,17 @@ Resolve every blocker before approval. In particular:
 - Single-replica zero-disruption PDBs must be redesigned with real maintenance
   capacity or explicitly reviewed application availability changes, not
   bypassed with `--disable-eviction` or force deletion.
+  The held source proposal changes only 14 reviewed singleton budgets to
+  `maxUnavailable: 1`: cert-manager's three components, four Flux controllers,
+  sealed-secrets, Traefik, the MetalLB controller, Prometheus, Alertmanager,
+  Grafana and Loki. Their existing `minAvailable: 50%` rounds up to one and
+  permits no healthy singleton eviction. This proposal explicitly allows a
+  singleton to be fully unavailable under normal voluntary eviction; it is a
+  persistent availability-policy change, **not** a maintenance-window lock.
+  Selectors and all Longhorn/CSI/Kyverno, DaemonSet and unmatched legacy budgets
+  remain unchanged. No replica count, eviction privilege or drain bypass is
+  added. Keep this proposal unmerged until the complete maintenance profile
+  is reviewed; it does not solve capacity, quiescence, locality or recovery.
 - A hostname-pinned application such as Plex cannot simply migrate during
   its host's drain. GPU/data-locality and acceptable application downtime
   require a separate placement/maintenance design.
@@ -113,6 +124,15 @@ Resolve every blocker before approval. In particular:
   their capacity, scheduling or PDB checks. NFS controller
   `/var/lib/kubelet/pods` bidirectional mounts, Longhorn instance-manager data
   paths, Plex devices and all other hostPath uses still require explicit review.
+- Longhorn instance-manager budgets are a separate native drain lifecycle.
+  The [pinned 1.12.1 controller](https://github.com/longhorn/longhorn-manager/blob/8320238242e8c804325d9588ec1db10feb9f36b8/controller/instance_manager_controller.go#L1303-L1394)
+  creates `minAvailable: 1` before cordon and decides whether to remove it
+  after cordon. Its removal checks include no local engines/frontends and a
+  healthy replica protected by another schedulable node's PDB under the
+  retained `block-if-contains-last-replica` policy. Do not lower/delete these
+  budgets, invent missing owner references, or treat a matching name/label
+  as permission to ignore them. The runner has no reviewed deferred-PDB or
+  stateful-quiescence path yet; these remain real maintenance blockers.
 - All active pods, native HTTPS/VPN probes, both Longhorn managers, and every
   active Longhorn volume must pass. Attached volumes need two running RW worker
   copies; detached volumes need two clean stopped worker copies. The two

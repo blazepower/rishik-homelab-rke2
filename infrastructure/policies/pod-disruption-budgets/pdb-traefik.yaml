@@ -4,7 +4,7 @@ metadata:
   name: traefik-pdb
   namespace: kube-system
 spec:
-  minAvailable: 50%
+  maxUnavailable: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: traefik
