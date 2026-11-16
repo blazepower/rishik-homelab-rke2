@@ -33,6 +33,10 @@ spec:
     trivy:
       # Use standalone mode (no external Trivy server)
       mode: Standalone
+      image:
+        registry: mirror.gcr.io
+        repository: aquasec/trivy
+        tag: "0.76.2@sha256:6fa071ef8daa2e58b90cbf1710bedca91adbb3bf98693533226f442035b836a6"
 
       # Severity threshold for reporting
       severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
@@ -53,6 +57,16 @@ spec:
     trivyOperator:
       scanJobNodeSelector:
         kubernetes.io/hostname: rishik-worker2
+      # Parallel image scanners share the DB, but must not share a BoltDB writer.
+      scanJobCustomVolumes:
+        - name: scan-cache-config
+          configMap:
+            name: trivy-scan-cache
+      scanJobCustomVolumesMount:
+        - name: scan-cache-config
+          mountPath: /trivy.yaml
+          subPath: trivy.yaml
+          readOnly: true
 
     # Operator resources
     operator:
