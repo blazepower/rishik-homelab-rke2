@@ -12,7 +12,28 @@
       "vendor_binary_sha256": "c5930e42a32c689469016009f2651e1807865a9bba926974cb40119f7b397bd3",
       "license": "MIT",
       "created": "2026-07-30T14:53:40.495Z",
-      "commit_label": "3d1e20c"
+      "commit_label": "3d1e20c",
+      "security": {
+        "patch": {
+          "file": "gluetun-security.patch",
+          "sha256": "53bf806c4272829b48727880b99e2751a9c8b430db4d8b512326008cd27f2185",
+          "module_sha256": {
+            "go.mod": "944f0e06724506d6acaf39d4e42487cba27c0a709c7a000aab09b7ca26862013",
+            "go.sum": "c2657f5f4effd6789758b5ee46b3eee6b9a7a146029fbfa300af20e85c91b1c2"
+          }
+        },
+        "modules": {
+          "github.com/cloudflare/circl": "v1.6.5",
+          "github.com/klauspost/compress": "v1.20.4",
+          "golang.org/x/crypto": "v0.59.0",
+          "golang.org/x/net": "v0.62.0",
+          "golang.org/x/text": "v0.44.0"
+        },
+        "runtime_packages": {
+          "pcre2": "10.46-r1"
+        },
+        "govulncheck": "v1.9.0"
+      }
     },
     "stash": {
       "repository": "https://github.com/stashapp/stash.git",

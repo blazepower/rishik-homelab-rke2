@@ -11,6 +11,15 @@ from unittest.mock import patch
 spec = importlib.util.spec_from_file_location("maintained", Path(__file__).with_name("verify-maintained-go.py"))
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
+build_spec = importlib.util.spec_from_file_location("maintained_build", module.BUILD / "build.py")
+build = importlib.util.module_from_spec(build_spec)
+build_spec.loader.exec_module(build)
+
+
+def scanner_config(mode):
+    return {"scanner_name": "govulncheck", "scanner_version": "v1.9.0",
+            "db": "https://vuln.go.dev", "db_last_modified": "2026-11-11T02:51:11Z",
+            "scan_mode": mode, "scan_level": "symbol"}
 
 
 class PlatformDigestTest(unittest.TestCase):
@@ -77,6 +86,65 @@ class ArtifactGateTest(unittest.TestCase):
     def test_accepts_actual_patched_binary_bound_to_source_evidence(self):
         self.assertIn("go1.27.4", self.execute()["actual_elf_buildinfo"])
         self.assertFalse((self.directory / "application.elf").exists())
+
+
+class SecurityOverlayTest(unittest.TestCase):
+    def fixture(self):
+        patch = b"synthetic module patch"
+        security = {"patch": {"sha256": hashlib.sha256(patch).hexdigest(),
+                              "module_sha256": {"go.mod": "mod-hash", "go.sum": "sum-hash"}},
+                    "modules": {"golang.org/x/net": "v0.62.0"}, "govulncheck": "v1.9.0"}
+        app = {"security": security}
+        source = {"security": json.loads(json.dumps(security)),
+                  "module_sha256": security["patch"]["module_sha256"],
+                  "binary_sha256": "actual-elf", "advisory_binary_sha256": "actual-elf",
+                  "advisory_scans": {mode: {"config": scanner_config(mode),
+                                          "symbol_or_package_wide_findings": 0}
+                                     for mode in ("source", "binary")}}
+        info = "\tdep\tgolang.org/x/net\tv0.62.0\th1:fixture\n"
+        return app, source, info, patch
+
+    def test_requires_actual_elf_dependencies_not_only_claimed_source(self):
+        app, source, info, patch = self.fixture()
+        module.validate_security_proof(app, source, info, patch)
+        with self.assertRaises(AssertionError):
+            module.validate_security_proof(app, source, info.replace("v0.62.0", "v0.47.0"), patch)
+
+    def test_rejects_changed_patch_and_different_scanned_binary(self):
+        app, source, info, patch = self.fixture()
+        with self.assertRaises(AssertionError):
+            module.validate_security_proof(app, source, info, patch + b"changed")
+        source["advisory_binary_sha256"] = "different-elf"
+        with self.assertRaises(AssertionError):
+            module.validate_security_proof(app, source, info, patch)
+
+    def test_rejects_retained_advisory_matches(self):
+        app, source, info, patch = self.fixture()
+        source["advisory_scans"]["source"]["symbol_or_package_wide_findings"] = 1
+        with self.assertRaises(AssertionError):
+            module.validate_security_proof(app, source, info, patch)
+
+
+class AdvisoryProtocolTest(unittest.TestCase):
+    def test_retains_module_only_findings_without_claiming_universal_clearance(self):
+        text = json.dumps({"config": scanner_config("binary")}) + "\n" + json.dumps(
+            {"finding": {"osv": "GO-fixture", "trace": [{"module": "module-only"}]}})
+        result = build.advisory_summary(text, "binary", "v1.9.0")
+        self.assertEqual(result["module_advisory_ids"], ["GO-fixture"])
+
+    def test_rejects_symbol_or_wildcard_in_success_shaped_json(self):
+        for function in ("NewDict", "example/package/*"):
+            text = json.dumps({"config": scanner_config("binary")}) + json.dumps(
+                {"finding": {"osv": "GO-fixture", "trace": [{"function": function}]}})
+            with self.subTest(function=function), self.assertRaises(AssertionError):
+                build.advisory_summary(text, "binary", "v1.9.0")
+
+    def test_rejects_missing_or_weakened_scanner_configuration(self):
+        with self.assertRaises(ValueError):
+            build.advisory_summary("", "binary", "v1.9.0")
+        config = {**scanner_config("binary"), "scan_level": "module"}
+        with self.assertRaises(AssertionError):
+            build.advisory_summary(json.dumps({"config": config}), "binary", "v1.9.0")
 
 
 if __name__ == "__main__":
