@@ -236,6 +236,11 @@ def main():
             run("git", "init", "--quiet", str(scratch / "upstream"))
             run("git", "-C", str(scratch / "upstream"), "remote", "add", "origin", app["repository"])
             run("git", "-C", str(scratch / "upstream"), "fetch", "--quiet", "--depth=1", "origin", app["revision"])
+            run("git", "-C", str(scratch / "upstream"), "fetch", "--quiet", "--depth=1", "origin",
+                "refs/tags/" + app["version"] + ":refs/tags/" + app["version"])
+            assert run("git", "-C", str(scratch / "upstream"), "rev-parse",
+                       "refs/tags/" + app["version"] + "^{commit}").stdout.strip() == app["revision"], \
+                "Official release tag differs from the locked source"
         else:
             run("git", "clone", "--quiet", "--no-checkout", app["repository"], str(scratch / "upstream"))
         run("git", "-C", str(scratch / "upstream"), "checkout", "--quiet", app["revision"])

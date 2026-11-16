@@ -19,6 +19,10 @@ Go 1.27.4 and a dependency-only `go.mod`/`go.sum` patch, without changing the
 two application recipes. This client minor can span API servers 1.35 through
 1.37 under Kubernetes' one-minor kubectl skew policy; it is not a server upgrade.
 The shallow exact-revision fetch avoids downloading Kubernetes' full history.
+The official release tag is fetched separately and must resolve to that exact
+revision; the actual ELF must record `v1.36.6+dirty` as its main module version.
+Missing shallow-clone release metadata must not turn old, fixed version ranges
+into apparent current findings.
 `GOWORK=off` and readonly module mode are required: the monorepo's original
 workspace/vendor graph must not silently override the reviewed patch.
 
@@ -33,6 +37,18 @@ the latter concerns network-policy removal during namespace termination.
 Neither record supplies affected functions/packages. Compiler changes to a CLI
 do not remediate those cluster behaviors. Any change to the exact reviewed
 module-only advisory sets stops acceptance.
+
+**Blocked, not accepted:** the first Linux build failed the actual-binary
+advisory gate. Independent unstripped reproduction also expands the two
+whole-monorepo records above to `cmd/kubectl.main`. The earlier stripped
+cross-compile's module-only result was not proof of complete symbol analysis.
+The exact patched Linux import closure has 907 packages and its only
+`k8s.io/kubernetes` package is `cmd/kubectl`, but that assessment does not waive
+the binary gate. No symbol stripping, renamed module, alternate database,
+`main` exception or claim of zero binary findings is permitted to make this
+recipe pass. Release metadata correction is not remediation of these records.
+Native behavior, licensing, publication and deployment remain unaccepted until
+the remaining gate is resolved.
 
 Unlike the large `alpine/k8s` reference image, the owned runtime uses the pinned
 official Alpine 3.24.4 amd64 base and adds only kubectl and its source/licenses.

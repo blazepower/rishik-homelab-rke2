@@ -90,6 +90,10 @@ def main():
     settings["module_sha256"] = module_hashes
     settings["binary_sha256"] = hashlib.sha256(Path("/build/application").read_bytes()).hexdigest()
     settings["buildinfo"] = run("go", "version", "-m", "/build/application")
+    if settings["app"] == "kubectl":
+        expected_module = ["mod", "k8s.io/kubernetes", settings["version"] + "+dirty"]
+        assert any(line.split() == expected_module for line in settings["buildinfo"].splitlines()), \
+            ("Actual CLI module release metadata differs", settings["buildinfo"])
     if security:
         test_packages = (["k8s.io/kubectl/pkg/cmd/" + name for name in ("get", "exec", "rollout", "version")]
                          if settings["app"] == "kubectl" else ["./..."])

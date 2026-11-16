@@ -175,11 +175,22 @@ class AdvisoryProtocolTest(unittest.TestCase):
         self.assertEqual(result["module_advisory_ids"], ["GO-fixture"])
 
     def test_rejects_symbol_or_wildcard_in_success_shaped_json(self):
-        for function in ("NewDict", "example/package/*"):
+        for function in ("NewDict", "example/package/*", "main"):
             text = json.dumps({"config": scanner_config("binary")}) + json.dumps(
                 {"finding": {"osv": "GO-fixture", "trace": [{"function": function}]}})
             with self.subTest(function=function), self.assertRaises(AssertionError):
                 build.advisory_summary(text, "binary", "v1.9.0")
+
+    def test_reviewed_module_id_does_not_exempt_a_main_function_finding(self):
+        config = json.dumps({"config": scanner_config("binary")})
+        trace = {"module": "k8s.io/kubernetes", "version": "v1.36.6+dirty",
+                 "package": "k8s.io/kubernetes/cmd/kubectl", "function": "main"}
+        for advisory in ("GO-2025-3521", "GO-2025-3547"):
+            with self.subTest(advisory=advisory), self.assertRaises(AssertionError):
+                build.advisory_summary(
+                    config + json.dumps({"finding": {"osv": advisory, "trace": [trace]}}),
+                    "binary", "v1.9.0",
+                )
 
     def test_rejects_missing_or_weakened_scanner_configuration(self):
         with self.assertRaises(ValueError):
