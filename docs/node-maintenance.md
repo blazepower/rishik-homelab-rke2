@@ -79,12 +79,20 @@ Get-Content "$env:TEMP\homelab-os-plan.json"
 
 `plan` is read-only and prints the plan's SHA256, blast radius and blockers.
 It binds approval to the cluster UID, code/policy bytes, boot IDs, source
-versions and simulated package candidates. Plans expire after four hours.
+versions, actual kubectl/API versions and simulated package candidates. Plans expire after four hours.
 Store plans outside Git; they contain technical metadata, not records,
 credentials or raw workload logs.
 
 Resolve every blocker before approval. In particular:
 
+- The workstation's `kubectl` must be within one minor of both the current API
+  and the proposed API after an RKE2 upgrade. The plan reads actual client/server
+  versions and rechecks them before acquiring the lock. A compatible client
+  change requires a fresh plan too. The observed Windows client `v1.34.2`
+  can inspect the existing 1.35 API but cannot perform the 1.36 upgrade; a 1.36
+  client covers the planned 1.35 -> 1.36 -> 1.37 API sequence. Blindly installing
+  the newest client is not safe either if it is too far ahead of the current
+  API. See the [official version-skew policy](https://kubernetes.io/releases/version-skew-policy/#kubectl).
 - Single-replica zero-disruption PDBs must be redesigned with real maintenance
   capacity or explicitly reviewed application availability changes, not
   bypassed with `--disable-eviction` or force deletion.
