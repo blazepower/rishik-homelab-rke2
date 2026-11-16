@@ -4,7 +4,7 @@ metadata:
   name: cert-manager-pdb
   namespace: cert-manager
 spec:
-  minAvailable: 50%
+  maxUnavailable: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: cert-manager
@@ -15,7 +15,7 @@ metadata:
   name: cert-manager-webhook-pdb
   namespace: cert-manager
 spec:
-  minAvailable: 50%
+  maxUnavailable: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: webhook
@@ -26,7 +26,7 @@ metadata:
   name: cert-manager-cainjector-pdb
   namespace: cert-manager
 spec:
-  minAvailable: 50%
+  maxUnavailable: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: cainjector

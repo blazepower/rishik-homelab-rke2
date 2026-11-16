@@ -4,7 +4,7 @@ metadata:
   name: source-controller-pdb
   namespace: flux-system
 spec:
-  minAvailable: 50%
+  maxUnavailable: 1
   selector:
     matchLabels:
       app: source-controller
@@ -15,7 +15,7 @@ metadata:
   name: kustomize-controller-pdb
   namespace: flux-system
 spec:
-  minAvailable: 50%
+  maxUnavailable: 1
   selector:
     matchLabels:
       app: kustomize-controller
@@ -26,7 +26,7 @@ metadata:
   name: helm-controller-pdb
   namespace: flux-system
 spec:
-  minAvailable: 50%
+  maxUnavailable: 1
   selector:
     matchLabels:
       app: helm-controller
@@ -37,7 +37,7 @@ metadata:
   name: notification-controller-pdb
   namespace: flux-system
 spec:
-  minAvailable: 50%
+  maxUnavailable: 1
   selector:
     matchLabels:
       app: notification-controller

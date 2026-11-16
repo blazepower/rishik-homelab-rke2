@@ -4,7 +4,7 @@ metadata:
   name: metallb-controller-pdb
   namespace: metallb-system
 spec:
-  minAvailable: 50%
+  maxUnavailable: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: metallb
