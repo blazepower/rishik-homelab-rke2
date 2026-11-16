@@ -103,6 +103,16 @@ Resolve every blocker before approval. In particular:
   extended resources and pod slots on the other worker. Affinity/topology,
   hostPath and PV locality constraints block rather than being guessed safe.
   It does not claim to emulate the Kubernetes scheduler.
+- The four reviewed Longhorn CSI sidecar Deployments (`csi-attacher`,
+  `csi-provisioner`, `csi-resizer`, `csi-snapshotter`) use only the driver's
+  local UNIX socket, not application data. This exact
+  `/var/lib/kubelet/plugins/driver.longhorn.io` mount is reviewed separately:
+  the plan binds each Pod through its actual ReplicaSet/Deployment UIDs and
+  desired-template hash, exact volume type/mount, and current image. These
+  bindings are checked again before lock acquisition. This does not bypass
+  their capacity, scheduling or PDB checks. NFS controller
+  `/var/lib/kubelet/pods` bidirectional mounts, Longhorn instance-manager data
+  paths, Plex devices and all other hostPath uses still require explicit review.
 - All active pods, native HTTPS/VPN probes, both Longhorn managers, and every
   active Longhorn volume must pass. Attached volumes need two running RW worker
   copies; detached volumes need two clean stopped worker copies. The two

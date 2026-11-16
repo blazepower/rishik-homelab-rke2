@@ -205,8 +205,57 @@ def requests(pod):
     return resources
 
 
-def scheduling_blockers(node, target, pods):
+def reviewed_csi_sockets(pods, replicasets, deployments, namespace):
+    names = {"csi-attacher", "csi-provisioner", "csi-resizer", "csi-snapshotter"}
+    roots = {d["metadata"]["uid"]: d for d in deployments
+             if d["metadata"]["namespace"] == namespace and d["metadata"]["name"] in names}
+    sets = {r["metadata"]["uid"]: r for r in replicasets if r["metadata"]["namespace"] == namespace}
+    reviews = []
+    for pod in pods:
+        meta, spec = pod["metadata"], pod["spec"]
+        if meta["namespace"] != namespace or not evictable(pod):
+            continue
+        owner = next((o for o in meta.get("ownerReferences", [])
+                      if o.get("controller") and o["kind"] == "ReplicaSet"), None)
+        replica = sets.get(owner["uid"]) if owner else None
+        if replica is None or owner["name"] != replica["metadata"]["name"]:
+            continue
+        parent = next((o for o in replica["metadata"].get("ownerReferences", [])
+                       if o.get("controller") and o["kind"] == "Deployment"), None)
+        deployment = roots.get(parent["uid"]) if parent else None
+        if deployment is None or parent["name"] != deployment["metadata"]["name"]:
+            continue
+        if not matches(deployment["spec"]["selector"], meta.get("labels", {})):
+            continue
+        paths = [v for v in spec.get("volumes", []) if "hostPath" in v]
+        expected = {"name": "socket-dir", "hostPath": {
+            "path": "/var/lib/kubelet/plugins/driver.longhorn.io", "type": "DirectoryOrCreate"}}
+        if paths != [expected] or any(v.get("persistentVolumeClaim") for v in spec.get("volumes", [])):
+            continue
+        containers = spec.get("containers", [])
+        desired = deployment["spec"]["template"]["spec"].get("containers", [])
+        if len(containers) != 1 or len(desired) != 1 or spec.get("initContainers"):
+            continue
+        container = containers[0]
+        if (container["name"] != deployment["metadata"]["name"]
+                or container["image"] != desired[0]["image"]
+                or any(spec.get(key) for key in ("hostNetwork", "hostPID", "hostIPC"))):
+            continue
+        mounts = [m for m in container.get("volumeMounts", []) if m["name"] == "socket-dir"]
+        if mounts != [{"name": "socket-dir", "mountPath": "/csi/"}]:
+            continue
+        reviews.append({
+            "namespace": namespace, "pod": meta["name"], "pod_uid": meta["uid"],
+            "replicaset_uid": replica["metadata"]["uid"], "deployment": deployment["metadata"]["name"],
+            "deployment_uid": deployment["metadata"]["uid"],
+            "template_sha256": sha(canonical(deployment["spec"]["template"])), "hostpath": expected,
+        })
+    return sorted(reviews, key=lambda r: (r["namespace"], r["pod"]))
+
+
+def scheduling_blockers(node, target, pods, socket_reviews=()):
     blockers = []
+    reviewed = {r["pod_uid"] for r in socket_reviews}
     labels = target["metadata"].get("labels", {})
     incoming = [p for p in pods if p["spec"].get("nodeName") == node and evictable(p)]
     remaining = [p for p in pods if p["spec"].get("nodeName") == target["metadata"]["name"]
@@ -230,7 +279,8 @@ def scheduling_blockers(node, target, pods):
                 for kind in ("nodeAffinity", "podAffinity", "podAntiAffinity"))
                 or any(c["whenUnsatisfiable"] == "DoNotSchedule" for c in spec.get("topologySpreadConstraints", []))):
             blockers.append(identity + ": affinity/topology constraints require explicit maintenance design")
-        if any(v.get("hostPath") for v in spec.get("volumes", [])):
+        if (any(v.get("hostPath") for v in spec.get("volumes", []))
+                and pod["metadata"].get("uid") not in reviewed):
             blockers.append(identity + ": hostPath requires explicit data-locality review")
         for taint in target["spec"].get("taints", []):
             if taint["effect"] not in ("NoSchedule", "NoExecute"):
@@ -377,6 +427,7 @@ def build_plan(policy, action, minor, inventory):
     pvcs = {(p["metadata"]["namespace"], p["metadata"]["name"]): p["spec"].get("volumeName")
             for p in items("persistentvolumeclaims")}
     pvs = {p["metadata"]["name"]: p for p in items("persistentvolumes")}
+    sockets = reviewed_csi_sockets(pods, items("replicasets"), items("deployments"), policy["storage_namespace"])
     node_map = {n["metadata"]["name"]: n for n in nodes}
     blockers = []
     protected = {}
@@ -421,7 +472,7 @@ def build_plan(policy, action, minor, inventory):
         worker = next((n for n in nodes if n["metadata"]["name"] != name
                        and n["metadata"]["name"] in {p["name"] for p in policy["nodes"] if p["role"] == "agent"}), None)
         require(worker is not None, "No spare worker exists")
-        blockers.extend(scheduling_blockers(name, worker, pods))
+        blockers.extend(scheduling_blockers(name, worker, pods, sockets))
         for pod in [p for p in pods if p["spec"].get("nodeName") == name and evictable(p)]:
             for volume in pod["spec"].get("volumes", []):
                 claim = volume.get("persistentVolumeClaim", {}).get("claimName")
@@ -445,6 +496,7 @@ def build_plan(policy, action, minor, inventory):
         "host_sha256": sha(HOST.read_bytes()), "action": action, "release": release,
         "outage_budget": {"maximum_seconds": MAX_OUTAGE_SECONDS, "recovery_reserve_seconds": RECOVERY_RESERVE_SECONDS},
         "nodes": order, "bindings": bindings, "kubectl": client, "quarantine": protected, "blockers": sorted(set(blockers)),
+        "reviewed_csi_sockets": sockets,
         "impact": "Serial drains delete reviewed emptyDir data. OS: host reboot and disable desktop, printing, "
                   "Bluetooth, mDNS advertisement and modem services; preserve networking/storage/GPU drivers. "
                   "RKE2: service restarts. Controller step interrupts the sole API/etcd server. "
@@ -557,7 +609,7 @@ def apply(plan, approval, policy, recovery_directory, token_confirmed, compatibi
                        ".".join(str(x) for x in version(plan["release"]["version"])[:2]) if plan["release"] else None,
                        inventory)
     require(not fresh["blockers"] and all(fresh[key] == plan[key]
-            for key in ("bindings", "nodes", "release", "quarantine", "kubectl")),
+            for key in ("bindings", "nodes", "release", "quarantine", "kubectl", "reviewed_csi_sockets")),
             "Cluster/host/package/client state changed or blockers appeared; generate a new plan")
     server = next(n for n in policy["nodes"] if n["role"] == "server")
     protection = remote(server, {"operation": "recovery-audit", "recovery_directory": recovery_directory})
