@@ -378,6 +378,13 @@ network-path response probes and unchanged storage gates remain required.
 Registry ELF/image binding is not a direct running PID1 hash or renewed
 real-cache/forensic clearance.
 
+The refresh's [PR456](https://github.com/blazepower/rishik-homelab-rke2/pull/456)
+activation passed four native root/public-book response samples, the selected
+immutable image binding, unchanged app command/security and exact read-only
+CA projection. The original PostgreSQL deployment/Pod, image, claim, mounts
+and restart status remained unchanged. Three original full-fleet storage
+samples passed; the scoped PID1/real-cache limits above still apply.
+
 ## cert-manager
 
 [cert-manager](https://cert-manager.io/) is deployed to automate TLS certificate management for services exposed via Ingress.

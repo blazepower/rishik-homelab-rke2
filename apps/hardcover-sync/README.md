@@ -44,7 +44,7 @@ candidate is not a production promotion; do not pin its digest as a shortcut.
 Preserve those production manifests in the registry while deployments or
 rollback revisions reference them.
 
-Hardcover uses Go 1.27.3 and requires Debian Bookworm
+Hardcover uses Go 1.27.4 and requires Debian Bookworm
 `ca-certificates` at least `20250419~deb12u2` and replace the distroless
 filesystem's entire certificate and hashed-trust directories, not just its
 bundle. Cooklang and Cook Desktop have been retired, including their build
@@ -53,6 +53,19 @@ workflows. Shared recipes and the archived desktop configuration PVC are retaine
 References: [Debian DSA-6572](https://www.debian.org/security/2026/dsa-6572),
 [Ubuntu incident guidance](https://ubuntu.com/blog/emudhra-ca-compromise-fixes-available),
 and [Mozilla's affected-key evidence](https://bugzilla.mozilla.org/attachment.cgi?id=9664786).
+
+The selected linux/amd64 runtime is
+`sha256:830c81881ccba7611746bd5bf0437c9b2bd62744a10a7017c5a11ffc3d39e250`
+from accepted-master [publication 43813455796](https://github.com/blazepower/rishik-homelab-rke2/actions/runs/43813455796).
+Its independently pulled Go 1.27.4 ELF SHA-256 is
+`a81e9bba3495b501222f8958955a8a1b5b905ecbf5d434bde030054224a0480e`.
+The original idle SQLite PVC has a fresh completed retained backup with
+independently refreshed remote metadata; the temporary read-only attachment
+was removed and the volume returned to its original detached state.
+The image-only pin preserves the schedule, credentials, data claim, security,
+concurrency policy and deadline. Acceptance of the next normal scheduled run
+is separate from native build proof or the desired CronJob image; do not
+trigger a real production sync solely to claim rollout acceptance.
 
 ## Architecture
 
