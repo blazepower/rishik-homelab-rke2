@@ -14,9 +14,25 @@ This document describes the Kyverno policy engine deployment and the cluster pol
 
 Kyverno is deployed via Flux HelmRelease in the `kyverno` namespace:
 
-- **Version**: 1.16.0
+- **Version**: tracked in `infrastructure/policies/kyverno-install/helmrelease-kyverno.yaml`
 - **Namespace**: `kyverno`
 - **Components**: Admission Controller, Background Controller, Cleanup Controller, Reports Controller
+
+### Upgrade acceptance
+
+The native image-policy test reads the exact desired chart's metadata from the
+official Kyverno Helm repository and requires its `appVersion` to match the
+actual hash-verified test CLI. An upgrade must not pass policy tests on the
+previous engine; update the CLI pin and checksum together with the reviewed
+chart change.
+
+Chart 3.10.0 deploys Kyverno 1.20.0.
+[Kyverno's migration guide](https://kyverno.io/docs/guides/migration-to-cel/)
+states that 1.20 removes legacy `ClusterPolicy`, `Policy`, `CleanupPolicy` and
+legacy policy-exception support. Migrate and test the existing validation,
+mutation, generation and exception resources before that upgrade, preserving
+the four enforced controls. Deprecated policy resources or stale reports are
+not proof that the new engine still enforces them.
 
 ## Resource Configuration
 
@@ -31,7 +47,12 @@ All Kyverno components have explicit resource requests and limits:
 
 ## Cluster Policies
 
-All policies are deployed in **Audit** mode for safe initial rollout. Change to `Enforce` mode after verifying policies work as expected.
+Validation policies are staged individually. `block-risky-capabilities`,
+`disallow-host-namespaces`, `enforce-namespace-labels` and `restrict-host-ports`
+are already **Enforce**. Remaining validation policies stay **Audit** until
+current workload violations, required exceptions and recovery behavior are
+reviewed. Mutation rules do not become preventative validation controls by
+changing this setting.
 
 ### 1. Require Resources and Limits
 
@@ -89,8 +110,15 @@ Enforces image hygiene by:
 - Blocking images tagged `:latest`
 - Blocking images without explicit tags
 - Requiring images from trusted registries: `docker.io`, `ghcr.io`, `quay.io`, `gcr.io`, `registry.k8s.io`, `mcr.microsoft.com`, `lscr.io`
+- Allowing only `aquasec/trivy` and `aquasec/trivy-operator` on `mirror.gcr.io`,
+  used by the installed scanner; other mirror repositories remain untrusted.
 
 Docker Hub library images (e.g., `nginx:1.21`) are allowed.
+
+The native policy tests cover normal/init/ephemeral containers, generated
+controller rules, digest pins and mirror lookalikes. The privilege-escalation
+rule separately tests explicit `false`, `true`, missing fields and missing
+security contexts: its default applies only to null, never to explicit `false`.
 
 ### 7. Require Image Signatures
 

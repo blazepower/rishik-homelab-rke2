@@ -98,14 +98,14 @@ TLS, search/plugins, other custom contexts, VPN or production authentication are
 cleared. Localhost authentication bypass exists only in the unpublished,
 loopback-bound, network-disabled disposable profile; no real config is used.
 
-The retired Kindle Sender has a pinned Go 1.27.3 rebuild and non-publishing
+The retired Kindle Sender has a pinned Go 1.27.4 rebuild and non-publishing
 Linux acceptance workflow. Native tests use the exact eight public SPKIs and
 require certificate-policy rejection, not an arbitrary handshake failure.
 The maintained static-CGO/SQLite image must pass before publication and a
 separately reviewed immutable release pin if reactivation is ever authorized.
 The active kustomization retains only the historical data PVC; this preparation
 does not restore the sender runtime, publish its image or reactivate it.
-The isolated acceptance passed again at `93c0ffa` in
+The historical Go 1.27.3 acceptance passed again at `93c0ffa` in
 [run 40951095407](https://github.com/blazepower/rishik-homelab-rke2/actions/runs/40951095407),
 with the same accepted binary and public bundle hashes as `7ee1cf9`.
 Explicit custom TLS contexts and other compiled Go gaps remain outside
@@ -230,6 +230,13 @@ without rewriting the historical factory audit. Preserve all read-only public
 CA guards and require serial live VPN/application, backup and storage acceptance.
 The actual compiler and bounded native proofs are distinct from universal
 custom/intermediate TLS or forensic certification.
+
+The maintained Gluetun/Stash and owned rreading recipes now require Go 1.27.4,
+including the actual runtime ELF acceptance gates. Stash's separate gqlgen
+compatibility generator uses digest-pinned Go 1.26.11; it does not compile the
+shipped application. These recipe changes do not replace the production image
+digests recorded below: publication and serial activation retain their native,
+backup, public-store and storage gates.
 
 The derivatives were deployed serially in
 [PR419](https://github.com/blazepower/rishik-homelab-rke2/pull/419) and
