@@ -243,11 +243,25 @@ The Gluetun refresh selects linux/amd64 manifest
 from [publication 43814769131](https://github.com/blazepower/rishik-homelab-rke2/actions/runs/43814769131).
 Its independently pulled Go 1.27.4 ELF is
 `771616685d8a969f6222d39b405f3f2b06f0516af4c3c4a7e969319de53fc97b`.
-The per-image publication in `maintained-go-runtime.json` binds each serial
-refresh; the top-level publication retains the initial campaign reference.
+The per-image publications in `maintained-go-runtime.json` bind each serial
+refresh independently.
 Application version/source, vendor layers and public-store guards are unchanged.
 Native live VPN/forwarding and full storage acceptance remain separate from
 this registry/build proof.
+
+Gluetun's [PR454](https://github.com/blazepower/rishik-homelab-rke2/pull/454)
+activation passed actual running PID1/file hash, read-only public-store,
+VPN/tunnel, synchronized qBittorrent port and external TCP openness checks.
+Four native samples and three unchanged full-fleet storage samples passed;
+the original claims and other container images were preserved.
+
+The corresponding Stash Go 1.27.4 refresh selects
+`sha256:92ebe49da42cb090fb2bc18ba7aff2b91128d0688458848cbf07001535cb685a`,
+with actual ELF SHA-256
+`49d6fb5dc19f5d601c5259e029007048e2cb2124b859f2b7a6b2cda993b4cc92`
+from the same accepted publication. Exact v0.31.1 source, assets and SQLite
+behavior remain unchanged; serial backup, native live UI and storage checks
+remain required independently of the publication proof.
 
 The derivatives were deployed serially in
 [PR419](https://github.com/blazepower/rishik-homelab-rke2/pull/419) and
