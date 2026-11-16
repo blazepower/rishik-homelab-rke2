@@ -154,6 +154,18 @@ class SecurityOverlayTest(unittest.TestCase):
         with self.assertRaises(AssertionError):
             module.validate_security_proof(app, source, info, patch)
 
+    def test_requires_exact_reviewed_module_only_findings_when_declared(self):
+        app, source, info, patch = self.fixture()
+        reviewed = {"source": [], "binary": ["GO-reviewed"]}
+        app["security"]["reviewed_module_advisory_ids"] = reviewed
+        source["security"] = json.loads(json.dumps(app["security"]))
+        for mode, ids in reviewed.items():
+            source["advisory_scans"][mode]["module_advisory_ids"] = list(ids)
+        module.validate_security_proof(app, source, info, patch)
+        source["advisory_scans"]["binary"]["module_advisory_ids"].append("GO-unreviewed")
+        with self.assertRaises(AssertionError):
+            module.validate_security_proof(app, source, info, patch)
+
 
 class AdvisoryProtocolTest(unittest.TestCase):
     def test_retains_module_only_findings_without_claiming_universal_clearance(self):

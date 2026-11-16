@@ -2,6 +2,7 @@
 import argparse
 import gzip
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -93,6 +94,9 @@ def validate_security_proof(app, source, info, patch):
         assert scan["config"]["db"] == "https://vuln.go.dev" and scan["config"]["db_last_modified"]
         assert scan["config"]["scan_mode"] == mode and scan["config"]["scan_level"] == "symbol"
         assert scan["symbol_or_package_wide_findings"] == 0
+        if "reviewed_module_advisory_ids" in security:
+            assert scan["module_advisory_ids"] == security["reviewed_module_advisory_ids"][mode], \
+                (mode, "Unreviewed module-only advisory change")
 
 
 def proof_binary(image, app, scratch, builder):
@@ -210,10 +214,10 @@ def native_stash(image, app, expected_version, scratch, baseline=False):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--app", required=True, choices=["gluetun", "stash"])
+    parser.add_argument("--app", required=True, choices=["gluetun", "stash", "kubectl"])
     parser.add_argument("--publish", action="store_true")
     args = parser.parse_args()
-    lock = json.loads((BUILD / "sources.json").read_text())
+    lock = json.loads((BUILD / ("kubectl.json" if args.app == "kubectl" else "sources.json")).read_text())
     app = lock["applications"][args.app]
     scratch = ROOT / ".maintained-go" / args.app
     scratch.mkdir(parents=True, exist_ok=False)
@@ -228,7 +232,12 @@ def main():
     try:
         docker("pull", app["vendor"])
         original = json.loads(docker("image", "inspect", app["vendor"]).stdout)[0]
-        run("git", "clone", "--quiet", "--no-checkout", app["repository"], str(scratch / "upstream"))
+        if args.app == "kubectl":
+            run("git", "init", "--quiet", str(scratch / "upstream"))
+            run("git", "-C", str(scratch / "upstream"), "remote", "add", "origin", app["repository"])
+            run("git", "-C", str(scratch / "upstream"), "fetch", "--quiet", "--depth=1", "origin", app["revision"])
+        else:
+            run("git", "clone", "--quiet", "--no-checkout", app["repository"], str(scratch / "upstream"))
         run("git", "-C", str(scratch / "upstream"), "checkout", "--quiet", app["revision"])
         settings = {**app, "app": args.app, "builder": lock["builder"], "generator": lock["generator"]}
         expected_version = None
@@ -264,7 +273,8 @@ def main():
                "--build-arg", "BUILDER=" + lock["builder"], "--build-arg", "VENDOR=" + app["vendor"],
                "--build-arg", "GENERATOR=" + lock["generator"],
                "--build-arg", "RUNTIME_PACKAGES=" + " ".join(name + "=" + version for name, version in packages.items()),
-               "--build-arg", "BINARY=" + app["binary"], "-f", str(BUILD / "Dockerfile"),
+               "--build-arg", "BINARY=" + app["binary"],
+               "-f", str(BUILD / ("Dockerfile.kubectl" if args.app == "kubectl" else "Dockerfile")),
                "-t", tag, str(scratch))
         actual = json.loads(docker("image", "inspect", tag).stdout)[0]
         for key in ("Entrypoint", "Cmd", "User", "WorkingDir", "Env", "ExposedPorts", "Healthcheck"):
@@ -291,11 +301,17 @@ def main():
             report["native"] = native_stash(tag, app, expected_version, scratch)
             for key in ("version", "ui_sha256", "locked_ui_assets", "ffmpeg"):
                 assert report["native"][key] == report["vendor_native"][key], key
-        else:
+        elif args.app == "gluetun":
             report["vendor_native"] = native_gluetun(app["vendor"], app)
             report["native"] = native_gluetun(tag, app)
             for key in ("native_startup_exit", "healthcheck_exit"):
                 assert report["native"][key] == report["vendor_native"][key], key
+        else:
+            spec = importlib.util.spec_from_file_location("kubectl_native", ROOT / ".github" / "scripts" / "verify-maintained-kubectl-native.py")
+            native = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(native)
+            report["vendor_native"] = native.verify(app["reference"], app, scratch, reference=True)
+            report["native"] = native.verify(tag, app, scratch)
         if args.publish:
             report["publication_stage"] = "native_accepted_push_pending"
             result = docker("push", tag).stdout
