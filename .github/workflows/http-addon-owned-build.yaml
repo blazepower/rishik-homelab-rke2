@@ -1,0 +1,62 @@
+name: Owned HTTP add-on security runtime
+
+on:
+  pull_request:
+    paths:
+      - 'apps/_shared/http-addon-owned/**'
+      - 'apps/_shared/maintained-go/build.py'
+      - '.github/scripts/verify-http-addon-owned.py'
+      - '.github/scripts/test-http-addon-owned.py'
+      - '.github/scripts/verify-maintained-go.py'
+      - '.github/workflows/http-addon-owned-build.yaml'
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish only after all three actual images pass native autoscaling
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    name: HTTP add-on three-image native acceptance
+    runs-on: ubuntu-26.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Test fail-closed artifact and filesystem gates
+        run: |
+          python3 -B .github/scripts/test-maintained-go.py
+          python3 -B .github/scripts/test-http-addon-owned.py
+      - name: Authenticate approved master publication only
+        if: github.event_name == 'workflow_dispatch' && inputs.publish
+        env:
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          test "$GITHUB_REF" = refs/heads/master
+          printf '%s' "$REGISTRY_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+      - name: Build all programs and verify legacy and direct cold-start scaling
+        env:
+          PUBLISH: ${{ github.event_name == 'workflow_dispatch' && inputs.publish }}
+        run: |
+          args=()
+          if [ "$PUBLISH" = true ]; then args+=(--publish); fi
+          python3 -B .github/scripts/verify-http-addon-owned.py "${args[@]}"
+      - name: Preserve success or partial failure evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: http-addon-owned-evidence
+          path: http-addon-owned-evidence.json
+          if-no-files-found: error
+      - name: Remove ephemeral registry authentication
+        if: always() && github.event_name == 'workflow_dispatch' && inputs.publish
+        run: docker logout ghcr.io
