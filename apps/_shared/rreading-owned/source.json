@@ -12,7 +12,7 @@
     "golang.org/x/crypto": "v0.58.1-0.20261009181718-2f1f834330b2",
     "golang.org/x/text": "v0.43.0"
   },
-  "compiler": "go1.27.3",
+  "compiler": "go1.27.4",
   "license": "GPL-3.0",
   "runtime": "docker.io/blampe/rreading-glasses:hardcover@sha256:3f017a51d9007b715303a20f481c822e4df66485fc9e5f57f6fdf1de840dc02f",
   "binary": "/main",
