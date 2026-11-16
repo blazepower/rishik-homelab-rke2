@@ -24,7 +24,7 @@ jobs:
       contents: read
       packages: write
     env:
-      GOTOOLCHAIN: go1.27.3
+      GOTOOLCHAIN: go1.27.4
       GOMAXPROCS: "2"
       HARDCOVER_API_KEY: ""
       GR_HOST: ""
@@ -62,7 +62,7 @@ jobs:
           test "$(git -C source rev-parse HEAD^)" = 524c9139707faa3e774b30a13bab688710b02ff2
           test "$(git -C source rev-parse HEAD^^)" = ceb4d580f01a920e474ae14d5085ff6809771d22
           test -z "$(git -C source status --porcelain)"
-          test "$(go version | awk '{print $3}')" = go1.27.3
+          test "$(go version | awk '{print $3}')" = go1.27.4
           mkdir -p "$RUNNER_TEMP/rreading-image"
           cd source
           CGO_ENABLED=0 go build -mod=readonly -p 2 -trimpath -ldflags="-w -s" \

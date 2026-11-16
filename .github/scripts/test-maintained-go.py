@@ -21,7 +21,7 @@ class ArtifactGateTest(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.directory)
 
-    def execute(self, compiler="go1.27.3", claimed_hash=None):
+    def execute(self, compiler="go1.27.4", claimed_hash=None):
         binary = b"synthetic ELF fixture"
         source = {"revision": "fixture-revision", "app": "gluetun",
                   "binary_sha256": claimed_hash or hashlib.sha256(binary).hexdigest()}
@@ -41,15 +41,16 @@ class ArtifactGateTest(unittest.TestCase):
                                        self.directory, "fixture-builder")
 
     def test_rejects_old_actual_application_compiler(self):
-        with self.assertRaises(AssertionError):
-            self.execute(compiler="go1.25.11")
+        for compiler in ("go1.25.11", "go1.27.3"):
+            with self.subTest(compiler=compiler), self.assertRaises(AssertionError):
+                self.execute(compiler=compiler)
 
     def test_rejects_source_evidence_not_bound_to_actual_binary(self):
         with self.assertRaises(AssertionError):
             self.execute(claimed_hash="0" * 64)
 
     def test_accepts_actual_patched_binary_bound_to_source_evidence(self):
-        self.assertIn("go1.27.3", self.execute()["actual_elf_buildinfo"])
+        self.assertIn("go1.27.4", self.execute()["actual_elf_buildinfo"])
         self.assertFalse((self.directory / "application.elf").exists())
 
 

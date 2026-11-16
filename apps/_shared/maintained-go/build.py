@@ -12,7 +12,7 @@ def run(*args, **kwargs):
 
 
 settings = json.loads(Path("/build/settings.json").read_text())
-assert run("go", "version").split()[2] == "go1.27.3"
+assert run("go", "version").split()[2] == "go1.27.4"
 assert run("git", "rev-parse", "HEAD") == settings["revision"]
 module_hashes = {p: hashlib.sha256(Path(p).read_bytes()).hexdigest() for p in ("go.mod", "go.sum")}
 if settings["app"] == "gluetun":

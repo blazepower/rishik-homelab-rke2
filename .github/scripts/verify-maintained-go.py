@@ -60,7 +60,7 @@ def proof_binary(image, app, scratch, builder):
             f"type=bind,src={scratch},dst=/proof,readonly", builder,
             "go", "version", "-m", "/proof/application.elf",
         ).stdout
-        assert re.search(r"application\.elf: go1\.27\.3\b", info), info
+        assert re.search(r"application\.elf: go1\.27\.4\b", info), info
         source = json.loads((scratch / "source.json").read_text())
         assert source["revision"] == app["revision"]
         assert source["binary_sha256"] == hashlib.sha256((scratch / "application.elf").read_bytes()).hexdigest()
