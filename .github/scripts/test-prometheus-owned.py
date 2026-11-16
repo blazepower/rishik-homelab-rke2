@@ -1,7 +1,9 @@
 """Focused failures for the new dependency/filesystem/archive acceptance gates."""
 import copy
+import hashlib
 import importlib.util
 import io
+import json
 from pathlib import Path
 import tarfile
 import tempfile
@@ -11,6 +13,51 @@ spec = importlib.util.spec_from_file_location(
     "prometheus_owned", Path(__file__).with_name("verify-prometheus-owned.py"))
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
+
+
+class ImageIdentity(unittest.TestCase):
+    def setUp(self):
+        self.config = {"os": "linux", "architecture": "amd64",
+                       "rootfs": {"type": "layers", "diff_ids": ["sha256:layer"]},
+                       "config": {"User": "65532", "Labels": {"io.prometheus.image.variant": "distroless"}}}
+        self.raw = json.dumps(self.config).encode()
+        self.digest = "sha256:" + hashlib.sha256(self.raw).hexdigest()
+        self.lock = {"vendor": "example.org/prometheus@sha256:manifest", "vendor_config": self.digest}
+        self.inspected = {"Id": self.digest, "RepoDigests": [self.lock["vendor"]],
+                          "RootFS": {"Layers": self.config["rootfs"]["diff_ids"]},
+                          "Config": self.config["config"]}
+
+    def archive(self, root, raw=None):
+        path = root / "image.tar"
+        manifest = json.dumps([{"Config": "config.json", "Layers": ["layer.tar"]}]).encode()
+        with tarfile.open(path, "w") as archive:
+            for name, content in (("manifest.json", manifest), ("config.json", self.raw if raw is None else raw)):
+                entry = tarfile.TarInfo(name)
+                entry.size = len(content)
+                archive.addfile(entry, io.BytesIO(content))
+        return path
+
+    def test_config_and_manifest_engine_ids_bind_to_same_exact_saved_config(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            archive = self.archive(Path(temporary))
+            for identity in (self.digest, "sha256:manifest"):
+                with self.subTest(identity=identity):
+                    actual = module.verify_vendor_image({**self.inspected, "Id": identity}, self.lock, archive)
+                    self.assertEqual(actual["saved_config_digest"], self.digest)
+
+    def test_wrong_config_bytes_fail_even_with_expected_engine_id(self):
+        with tempfile.TemporaryDirectory() as temporary, self.assertRaises(AssertionError):
+            module.verify_vendor_image(
+                self.inspected, self.lock, self.archive(Path(temporary), self.raw + b"\n"))
+
+    def test_unbound_id_repository_rootfs_or_execution_config_fails(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            archive = self.archive(Path(temporary))
+            for fields in ({"Id": "sha256:unrelated"}, {"RepoDigests": ["example.org/other@sha256:manifest"]},
+                           {"RootFS": {"Layers": ["sha256:other-layer"]}},
+                           {"Config": {**self.config["config"], "User": "0"}}):
+                with self.subTest(fields=fields), self.assertRaises(AssertionError):
+                    module.verify_vendor_image({**self.inspected, **fields}, self.lock, archive)
 
 
 class Dependencies(unittest.TestCase):

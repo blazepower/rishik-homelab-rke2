@@ -19,6 +19,11 @@ The final stage inherits the exact vendor filesystem and execution identity,
 including its non-root user, entrypoint, working directory and CA stores.
 Only the two executables and licensed provenance may differ. The official
 compressed UI assets are embedded using the pinned upstream compression script.
+The vendor's literal configured user is `65532`; its group resolution remains
+in the unchanged vendor filesystem. Bind the pulled image's repository digest,
+saved raw OCI config digest, execution config and rootfs together; Docker engine
+image IDs may identify either the config or manifest. Retain the candidate's
+actual archive config digest separately for scanner identity checks.
 Native acceptance uses disposable, network-isolated hosted CI, synthetic metrics
 and data only: TLS positive/negative cases, real UI/API/config reloads, and a
 vendor -> candidate -> vendor TSDB/WAL write/read/reopen sequence. These are

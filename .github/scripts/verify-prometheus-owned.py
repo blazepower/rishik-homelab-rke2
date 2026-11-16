@@ -27,6 +27,40 @@ docker, run = shared.docker, shared.run
 DERIVATIVE = "Same-version Prometheus with Go 1.27.4 and locked module updates; not an official Prometheus image"
 
 
+def saved_config(archive):
+    with tarfile.open(archive, "r:") as source:
+        members = source.getmembers()
+        names = {member.name: member for member in members}
+        assert len(names) == len(members), "Duplicate image archive members"
+        manifest_member = names["manifest.json"]
+        assert manifest_member.isfile() and manifest_member.size <= 1024 * 1024
+        manifest = json.load(source.extractfile(manifest_member))
+        assert len(manifest) == 1, "Expected exactly one saved image"
+        config_member = names[manifest[0]["Config"]]
+        assert config_member.isfile() and config_member.size <= 1024 * 1024
+        raw = source.extractfile(config_member).read()
+        config = json.loads(raw)
+        assert config["os"] == "linux" and config["architecture"] == "amd64"
+        assert config["rootfs"]["type"] == "layers"
+        assert len(manifest[0]["Layers"]) == len(config["rootfs"]["diff_ids"])
+        return "sha256:" + hashlib.sha256(raw).hexdigest(), config
+
+
+def verify_vendor_image(inspected, lock, archive):
+    digest, config = saved_config(archive)
+    assert digest == lock["vendor_config"], "Saved vendor OCI config differs from locked config"
+    assert lock["vendor"] in inspected["RepoDigests"], "Pulled repository digest differs"
+    assert inspected["Id"] in (digest, lock["vendor"].split("@")[1]), "Unbound engine image ID"
+    assert inspected["RootFS"]["Layers"] == config["rootfs"]["diff_ids"], "Pulled rootfs differs"
+    for field, value in config["config"].items():
+        assert inspected["Config"].get(field) == value, (field, "Pulled OCI execution config differs")
+    assert inspected["Config"]["User"] == "65532"
+    assert inspected["Config"]["Labels"]["io.prometheus.image.variant"] == "distroless"
+    return {"engine_image_id": inspected["Id"], "saved_config_digest": digest,
+            "repository_digest": lock["vendor"], "rootfs_diff_ids": config["rootfs"]["diff_ids"],
+            "inherited_user": inspected["Config"]["User"], "platform": "linux/amd64"}
+
+
 def modules(info):
     result = {}
     for line in info.splitlines():
@@ -241,9 +275,13 @@ def main():
                      "-f", str(BUILD / "Dockerfile")]
         docker("pull", lock["vendor"])
         original = json.loads(docker("image", "inspect", lock["vendor"]).stdout)[0]
-        assert original["Id"] == lock["vendor_config"]
-        assert original["Config"]["User"] == "65532:65532"
-        assert original["Config"]["Labels"]["io.prometheus.image.variant"] == "distroless"
+        report["vendor_engine_identity"] = {
+            "Id": original["Id"], "RepoDigests": original["RepoDigests"],
+            "RootFS": original["RootFS"], "User": original["Config"]["User"]}
+        vendor_archive = scratch / "vendor-image.tar"
+        docker("save", "--output", str(vendor_archive), lock["vendor"])
+        report["verified_vendor_image"] = verify_vendor_image(original, lock, vendor_archive)
+        vendor_archive.unlink()
         docker("build", *arguments, "-t", tag, str(scratch))
         docker("build", *arguments, "--target=build", "-t", sdk, str(scratch))
         tests = docker("run", "--rm", "--network=none", "--cap-drop=ALL",
@@ -280,6 +318,11 @@ def main():
         docker("save", "--output", str(output), tag)
         with output.open("rb") as stream:
             report["actual_image_archive_sha256"] = hashlib.file_digest(stream, "sha256").hexdigest()
+        digest, config = saved_config(output)
+        assert config["rootfs"]["diff_ids"] == actual["RootFS"]["Layers"], "Saved candidate rootfs differs"
+        for field, value in config["config"].items():
+            assert actual["Config"].get(field) == value, (field, "Saved candidate execution config differs")
+        report["actual_image_archive_config_digest"] = digest
         report["state"] = "native_accepted_candidate_only"
         report["limitations"] = (
             "No publication or activation. Exact accepted public image archive retained for canonical "
