@@ -68,6 +68,24 @@ def select_amd64_digest(manifest, published_digest):
     return candidates[0]
 
 
+def validate_security_proof(app, source, info, patch):
+    security = app["security"]
+    assert source["security"] == security, "Undeclared security overlay"
+    assert hashlib.sha256(patch).hexdigest() == security["patch"]["sha256"]
+    assert source["module_sha256"] == security["patch"]["module_sha256"]
+    assert source["advisory_binary_sha256"] == source["binary_sha256"]
+    for name, version in security["modules"].items():
+        assert re.search(r"^\s+dep\s+" + re.escape(name) + r"\s+" + re.escape(version) + r"(?:\s|$)",
+                         info, re.MULTILINE), (name, "Actual ELF dependency differs")
+    for mode in ("source", "binary"):
+        scan = source["advisory_scans"][mode]
+        assert scan["config"]["scanner_version"] == security["govulncheck"]
+        assert scan["config"]["scanner_name"] == "govulncheck"
+        assert scan["config"]["db"] == "https://vuln.go.dev" and scan["config"]["db_last_modified"]
+        assert scan["config"]["scan_mode"] == mode and scan["config"]["scan_level"] == "symbol"
+        assert scan["symbol_or_package_wide_findings"] == 0
+
+
 def proof_binary(image, app, scratch, builder):
     container = docker("create", image).stdout.strip()
     try:
@@ -87,10 +105,30 @@ def proof_binary(image, app, scratch, builder):
             assert "vcs.revision=" + app["revision"] in info
             assert "-buildmode=pie" in info
             assert "-tags=sqlite_stat4,sqlite_math_functions,sqlite_omit_load_extension,osusergo,netgo" in info
+        if app.get("security"):
+            docker("cp", container + ":/usr/share/maintained-go/security.patch", str(scratch / "security-proof.patch"))
+            validate_security_proof(app, source, info, (scratch / "security-proof.patch").read_bytes())
         return {"sha256": source["binary_sha256"], "actual_elf_buildinfo": info, "source": source}
     finally:
         docker("rm", container)
         (scratch / "application.elf").unlink(missing_ok=True)
+
+
+def apk_inventory(image, scratch, name):
+    container = docker("create", image).stdout.strip()
+    path = scratch / (name + "-installed.apkdb")
+    try:
+        docker("cp", container + ":/lib/apk/db/installed", str(path))
+        packages = {}
+        for block in path.read_text().split("\n\n"):
+            fields = dict(line.split(":", 1) for line in block.splitlines() if ":" in line)
+            if "P" in fields:
+                assert fields["P"] not in packages, "Duplicate installed APK"
+                packages[fields["P"]] = {"version": fields["V"], "architecture": fields["A"]}
+        assert packages, "Installed APK inventory missing"
+        return packages
+    finally:
+        docker("rm", container)
 
 
 def native_gluetun(image, app):
@@ -200,9 +238,21 @@ def main():
         (scratch / "settings.json").write_text(json.dumps(settings))
         shutil.copyfile(BUILD / "build.py", scratch / "build.py")
         shutil.copyfile(BUILD / "generate.py", scratch / "generate.py")
+        security = app.get("security")
+        packages = security["runtime_packages"] if security else {}
+        if security:
+            filename = security["patch"]["file"]
+            assert Path(filename).name == filename
+            shutil.copyfile(BUILD / filename, scratch / "security.patch")
+        else:
+            (scratch / "security.patch").write_bytes(b"")
+        for name, version in packages.items():
+            assert re.fullmatch(r"[a-z0-9][a-z0-9+_.-]*", name)
+            assert re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9+_.~:-]*", version)
         docker("build", "--platform", "linux/amd64", "--progress", "plain",
                "--build-arg", "BUILDER=" + lock["builder"], "--build-arg", "VENDOR=" + app["vendor"],
                "--build-arg", "GENERATOR=" + lock["generator"],
+               "--build-arg", "RUNTIME_PACKAGES=" + " ".join(name + "=" + version for name, version in packages.items()),
                "--build-arg", "BINARY=" + app["binary"], "-f", str(BUILD / "Dockerfile"),
                "-t", tag, str(scratch))
         actual = json.loads(docker("image", "inspect", tag).stdout)[0]
@@ -213,6 +263,17 @@ def main():
         report["image_id"] = actual["Id"]
         report["vendor_layers_preserved"] = len(inherited)
         report["binary"] = proof_binary(tag, app, scratch, lock["builder"])
+        if packages:
+            before = apk_inventory(app["vendor"], scratch, "vendor")
+            after = apk_inventory(tag, scratch, "actual")
+            assert before.keys() == after.keys(), "Undeclared runtime package addition/removal"
+            for name in before:
+                expected = {**before[name], "version": packages[name]} if name in packages else before[name]
+                assert after[name] == expected, (name, "Undeclared runtime package change")
+            assert set(packages) <= after.keys(), "Declared runtime package absent"
+            report["runtime_package_overlay"] = {
+                name: {"before": before[name], "after": after[name]} for name in packages
+            }
         if args.app == "stash":
             report["vendor_native"] = native_stash(app["vendor"], app, expected_version, scratch, baseline=True)
             report["native"] = native_stash(tag, app, expected_version, scratch)
@@ -236,7 +297,7 @@ def main():
             registry_proof = proof_binary(immutable, app, scratch, lock["builder"])
             assert registry_proof["sha256"] == report["binary"]["sha256"]
             report.update(published=True, image=immutable, published_image=published, amd64_digest=amd64)
-        report["limitations"] = "Compiler/public source and bounded native behavior only; not universal custom/intermediate TLS or forensic clearance. Existing GitOps CA guards remain required."
+        report["limitations"] = "Compiler/public source, declared security overlays where present, and bounded native behavior only; advisory DB timestamp and remaining module-only matches are retained. Not universal TLS, runtime exploitability, whole-rootfs or forensic clearance. Existing GitOps CA guards remain required."
         output = ROOT / ("maintained-go-" + args.app + "-evidence.json")
         output.write_text(json.dumps(report, indent=2))
         print(json.dumps(report, indent=2))

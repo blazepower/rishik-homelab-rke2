@@ -1,15 +1,47 @@
 # Maintained same-version Go derivatives
 
-These are user-owned compiler rebuilds, not official vendor releases. No
+These are user-owned rebuilds, not official vendor releases. No
 HelmRelease is changed here. Deployment remains a separate serial operation
 behind fresh storage/backup gates; retain all existing read-only CA guards.
 
 `sources.json` locks public source, original amd64 runtime, app version and the
 Go 1.27.4 musl builder. The runtime inherits every vendor layer, configuration,
-entrypoint, user and healthcheck. Only the application binary is replaced;
+entrypoint, user and healthcheck. Stash replaces only the application binary.
+Gluetun additionally has the explicit security overlay described below;
 license and corresponding-source/build evidence are added under
 `/usr/share/maintained-go`. Original upstream repositories and exact revisions
 provide corresponding source, with the compiler recipe maintained here.
+
+## Declared Gluetun security overlay
+
+The Go compiler update alone did not patch older separately linked modules or
+Alpine packages. Gluetun now applies the SHA-256-locked `gluetun-security.patch`
+to **only** `go.mod` and `go.sum` at the original source revision. It updates
+circl, compress, x/crypto, x/net and x/text plus their required module graph.
+Exact post-patch module-file hashes reject drift; application source, version,
+VPN settings and original linker values remain unchanged. The manifest declares
+these changes separately: this Gluetun build is no longer compiler-only.
+
+The inherited Alpine 3.22 runtime also upgrades **only** `pcre2=10.46-r1`.
+Native acceptance compares the actual before/after APK inventories and rejects
+any undeclared package, version or architecture change. Inherited vendor layers
+remain intact, but this explicitly permitted package overlay means whole-rootfs
+identity is not claimed. PCRE2's Alpine backport addresses CVE-2026-89157 and
+CVE-2026-89161; the former's 32-bit applicability must not be generalized to
+the other advisory.
+
+The actual patched source passes upstream short tests and govulncheck v1.9.0
+source **and actual built-binary** scans. JSON mode can return exit zero with
+findings, so acceptance parses every finding and rejects function or
+package-wide matches, including wildcard function entries. Module-only matches
+and the real advisory DB timestamp remain in provenance rather than being
+silently treated as clearance. The image retains the exact patch, updated
+module licenses and corresponding-source/build evidence. An independent
+runtime-ELF check verifies the declared dependency versions and scan/hash binding,
+including after immutable publication. This does not prove hostile-input runtime
+reachability, full-image vulnerability coverage or a working production VPN.
+
+## Compiler and native acceptance
 
 Gluetun uses its original no-CGO, trimpath and version/date/commit linker
 flags. Stash uses the upstream static-PIE release make targets and SQLite,
@@ -19,8 +51,9 @@ backend/login assets, and original version linker values. Stash's historical
 derivative is **not** an official Stash distribution.
 
 The locked gqlgen version cannot load Go 1.27 export data. Its generated
-source is prepared separately with pinned Go 1.26.11; both stages reject
-changes to go.mod/go.sum. The shipped application is compiled with Go 1.27.4,
+source is prepared separately with pinned Go 1.26.11. Its module files stay
+unchanged in both stages; Gluetun permits only the hash-locked patch above.
+The shipped application is compiled with Go 1.27.4,
 and acceptance checks that actual runtime ELF, not the generator toolchain.
 
 Hosted Linux CI copies the actual rebuilt ELF out of the runtime image,
