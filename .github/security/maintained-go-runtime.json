@@ -3,14 +3,14 @@
   "publication": "https://github.com/blazepower/rishik-homelab-rke2/actions/runs/43814769131",
   "images": {
     "gluetun": {
-      "declared_imageID": "ghcr.io/blazepower/maintained-gluetun@sha256:eecee96bbad403ce78ae426f8aeee37a99ec2244eda5c8fb23ad1e2ce3b19f63",
+      "declared_imageID": "ghcr.io/blazepower/maintained-gluetun@sha256:81602fa4786d59a0608ae8c7434f2cd8b3ff6962c939b168c7c41b8838fa2942",
       "factory_amd64": "docker.io/qmcgaw/gluetun@sha256:1baa76576dea1dfbafbd62bb635daf40fd87171f63273c2fdfe630418783011e",
       "application_version": "v3.41.3",
       "source_revision": "3d1e20c5551e9cae1f9d938dc7b7214a6987f27e",
       "source_repository": "https://github.com/passteque/gluetun",
       "compiler": "go1.27.4",
-      "publication": "https://github.com/blazepower/rishik-homelab-rke2/actions/runs/43849975870",
-      "recipe_revision": "90986639986252279d1849d5a2f2cc17b455a691",
+      "publication": "https://github.com/blazepower/rishik-homelab-rke2/actions/runs/43856362906",
+      "recipe_revision": "9b51b84307c4ab3611b8c65ec1d5dcf87db713d3",
       "binary_sha256": "2898e01ca3e4f897fd9886a7ba59eb383143e75cf3d3e7de27ff93afcba459ea",
       "security_overlay": {
         "patch_sha256": "53bf806c4272829b48727880b99e2751a9c8b430db4d8b512326008cd27f2185",
@@ -26,7 +26,12 @@
           "golang.org/x/text": "v0.44.0"
         },
         "runtime_packages": {
-          "pcre2": "10.46-r1"
+          "pcre2": "10.46-r1",
+          "libcrypto3": "3.5.9-r0",
+          "libssl3": "3.5.9-r0",
+          "musl": "1.2.5-r13",
+          "musl-utils": "1.2.5-r13",
+          "zlib": "1.4-r0"
         },
         "advisory_assessment": {
           "scanner": "govulncheck v1.9.0",
