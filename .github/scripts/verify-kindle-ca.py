@@ -39,8 +39,8 @@ def command(*args: str, capture: bool = False) -> str:
 
 def native_build_info(binary: Path) -> str:
     text = command("go", "version", "-m", str(binary), capture=True)
-    if not text.splitlines()[0].endswith(": go1.27.3"):
-        raise ValueError("Application binary was not compiled with pinned Go 1.27.3")
+    if not text.splitlines()[0].endswith(": go1.27.4"):
+        raise ValueError("Application binary was not compiled with pinned Go 1.27.4")
     for setting in ("CGO_ENABLED=1", "GOOS=linux", "GOARCH=amd64"):
         if setting not in text:
             raise ValueError(f"Native application build-info missing {setting}")

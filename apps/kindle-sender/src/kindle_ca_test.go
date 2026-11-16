@@ -140,8 +140,8 @@ func kindleCertificate(t *testing.T, pub crypto.PublicKey) (*x509.Certificate, *
 }
 
 func TestKindleCAToolchain(t *testing.T) {
-	if runtime.Version() != "go1.27.3" {
-		t.Fatalf("expected pinned native Go 1.27.3; got %s", runtime.Version())
+	if runtime.Version() != "go1.27.4" {
+		t.Fatalf("expected pinned native Go 1.27.4; got %s", runtime.Version())
 	}
 	t.Log("native toolchain:", runtime.Version())
 }

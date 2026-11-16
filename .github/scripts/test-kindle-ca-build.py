@@ -73,16 +73,17 @@ class KindleBuildTests(unittest.TestCase):
     def build_info(self):
         dependencies = re.findall(r"^\s*([a-zA-Z0-9._/-]+)\s+(v[^\s]+)", (SOURCE / "go.mod").read_text(), re.MULTILINE)
         return (
-            "binary: go1.27.3\n\tpath\tgithub.com/blazepower/kindle-sender\n"
+            "binary: go1.27.4\n\tpath\tgithub.com/blazepower/kindle-sender\n"
             + "".join(f"\tdep\t{name}\t{version}\th1:public-checksum\n" for name, version in dependencies)
             + "\tbuild\tCGO_ENABLED=1\n\tbuild\tGOOS=linux\n\tbuild\tGOARCH=amd64\n"
         )
 
     def test_native_info_requires_actual_toolchain_and_exact_dependencies(self):
         with patch.object(VERIFY, "command", return_value=self.build_info()):
-            self.assertIn("go1.27.3", VERIFY.native_build_info(Path("binary")))
+            self.assertIn("go1.27.4", VERIFY.native_build_info(Path("binary")))
         for bad in (
-            self.build_info().replace("go1.27.3", "go1.21.13"),
+            self.build_info().replace("go1.27.4", "go1.27.3"),
+            self.build_info().replace("go1.27.4", "go1.21.13"),
             self.build_info().replace("CGO_ENABLED=1", "CGO_ENABLED=0"),
             self.build_info().replace("v1.18.0", "v1.19.0"),
         ):
