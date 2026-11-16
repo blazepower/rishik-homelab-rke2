@@ -1,0 +1,32 @@
+{
+  "repository": "https://github.com/prometheus/prometheus.git",
+  "version": "v3.16.0",
+  "revision": "e2e28adeee2c5883d000fc82aca6008cfbf7e96d",
+  "vendor": "quay.io/prometheus/prometheus@sha256:9764044e09eb2c9e1abdb12d0f0188d4efb7384b0262d3c080f0fc59045c89ba",
+  "vendor_config": "sha256:7b9479a19f4f1d9bec0259b0ad3db3b1b9eee21b1c03dee867f2a7cc75323be6",
+  "builder": "docker.io/golang:1.27.4-alpine@sha256:0a5f7fe796599ff487605987432e7619ae45beeb2fba4c2ce0b907879932aebf",
+  "compiler": "go1.27.4",
+  "govulncheck": "v1.9.0",
+  "build_date": "20261105-160652",
+  "ui": {
+    "url": "https://github.com/prometheus/prometheus/releases/download/v3.16.0/prometheus-web-ui-3.16.0.tar.gz",
+    "sha256": "000a45231f6dd22a5703218aad3ee11da125c8a44d1824a27670416c07531001"
+  },
+  "original_module_sha256": {
+    "go.mod": "a80cd539556a0a0e1d6367b81f08bc557258e8dc8696b172ab1293949116b636",
+    "go.sum": "9358958d9eca852b4f54ba208ffee16e4d3c440093aecc8067667b6abdc02630"
+  },
+  "module_sha256": {
+    "go.mod": "07a5060a17d0b9f9ea1f13520b99cbf8b98533505afb63bbec233418060a7b46",
+    "go.sum": "419aa75fcd7e78fff404d7056d235a9e3defdfa041407087c71d4376abf60ded"
+  },
+  "patch_sha256": "41a3a02778a1783a4dc35ed147c6d7696c193e74f795aa63beb18f145b204a7a",
+  "modules": {
+    "golang.org/x/crypto": {"from": "v0.58.0", "to": "v0.59.0"},
+    "golang.org/x/net": {"from": "v0.61.0", "to": "v0.62.0"},
+    "golang.org/x/sync": {"from": "v0.24.0", "to": "v0.25.0"},
+    "golang.org/x/sys": {"from": "v0.49.0", "to": "v0.50.0"},
+    "golang.org/x/term": {"from": "v0.47.0", "to": "v0.48.0"},
+    "golang.org/x/text": {"from": "v0.43.0", "to": "v0.44.0"}
+  }
+}

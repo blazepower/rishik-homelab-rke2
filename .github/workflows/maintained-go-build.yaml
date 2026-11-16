@@ -6,11 +6,19 @@ on:
       - 'apps/_shared/maintained-go/**'
       - '.github/scripts/verify-maintained-go.py'
       - '.github/scripts/test-maintained-go.py'
+      - 'apps/_shared/prometheus-owned/**'
+      - '.github/scripts/verify-prometheus-owned.py'
+      - '.github/scripts/test-prometheus-owned.py'
+      - '.github/scripts/test-storage-health-alerts.py'
       - '.github/workflows/maintained-go-build.yaml'
   workflow_dispatch:
     inputs:
       publish:
         description: Publish approved same-version derivatives after native acceptance
+        type: boolean
+        default: false
+      prometheus_candidate:
+        description: Build only the held Prometheus candidate; never publish
         type: boolean
         default: false
 
@@ -19,6 +27,7 @@ permissions:
 
 jobs:
   native:
+    if: ${{ github.event_name != 'workflow_dispatch' || !inputs.prometheus_candidate }}
     name: Maintained Go native (${{ matrix.app }})
     runs-on: ubuntu-26.04
     timeout-minutes: 40
@@ -69,3 +78,37 @@ jobs:
       - name: Remove ephemeral registry authentication
         if: always() && github.event_name == 'workflow_dispatch' && inputs.publish
         run: docker logout ghcr.io
+
+  prometheus-candidate:
+    if: ${{ github.event_name == 'pull_request' || inputs.prometheus_candidate }}
+    name: Held Prometheus native candidate (no publication)
+    runs-on: ubuntu-26.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout exact candidate head without persisted credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Reject publication in candidate mode
+        env:
+          REQUEST_PUBLISH: ${{ inputs.publish }}
+        run: test "$REQUEST_PUBLISH" != true
+      - name: Test held candidate acceptance gates
+        run: python3 -B .github/scripts/test-prometheus-owned.py
+      - name: Restore existing rule fixture dependency only when missing
+        run: python3 -c 'import yaml' || python3 -m pip install PyYAML
+      - name: Build and verify actual public-source artifacts and synthetic recovery
+        run: python3 -B .github/scripts/verify-prometheus-owned.py
+      - name: Retain actual image archive and native evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: held-prometheus-candidate
+          path: |
+            prometheus-owned-evidence.json
+            prometheus-owned-image.tar
+          if-no-files-found: error
+          retention-days: 7

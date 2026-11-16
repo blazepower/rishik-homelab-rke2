@@ -55,7 +55,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--docker", action="store_true", required=True)
     parser.add_argument("--evidence", type=Path)
+    parser.add_argument("--local-image", help="Already-built candidate to evaluate instead of pulling the vendor")
     args = parser.parse_args()
+    image = args.local_image or IMAGE
     rules = yaml.safe_load(
         (ROOT / "infrastructure" / "monitoring" / "prometheusrules-storage-health-alerts.yaml").read_text(
             encoding="utf-8"))["spec"]
@@ -89,7 +91,10 @@ def main():
                     queue="0 900 0 15 30 45 60 75 90 105 120"),
              [("1m30s", []), ("3m", [])]),
     ]
-    subprocess.run(["docker", "pull", IMAGE], check=True)
+    if args.local_image:
+        subprocess.run(["docker", "image", "inspect", image], check=True, stdout=subprocess.DEVNULL)
+    else:
+        subprocess.run(["docker", "pull", image], check=True)
     with tempfile.TemporaryDirectory() as temporary:
         directory = Path(temporary)
         directory.chmod(0o755)
@@ -106,14 +111,14 @@ def main():
             "--memory=256m", "--user=65534:65534",
             "--tmpfs", "/tmp:rw,noexec,nosuid,size=32m,mode=1777",
             "--mount", f"type=bind,source={directory},target=/rules,readonly",
-            "--workdir", "/rules", "--entrypoint", "/bin/promtool", IMAGE,
+            "--workdir", "/rules", "--entrypoint", "/bin/promtool", image,
         ]
         version = subprocess.run([*command, "--version"], check=True, capture_output=True, text=True)
         native_version = re.search(r"\bversion (\d+\.\d+\.\d+)\b", version.stdout + version.stderr)
         assert native_version and native_version.group(1) == "3.16.0", "Unexpected native promtool version"
         subprocess.run([*command, "check", "rules", "/rules/rules.yaml"], check=True)
         subprocess.run([*command, "test", "rules", "/rules/tests.yaml"], check=True)
-    evidence = {"image": IMAGE, "native_promtool_version": native_version.group(1), "test_cases": len(tests),
+    evidence = {"image": image, "native_promtool_version": native_version.group(1), "test_cases": len(tests),
                 "alert_evaluations": sum(len(test["alert_rule_test"]) for test in tests),
                 "skips": 0, "source": "Actual PrometheusRule spec; no copied expression",
                 "production_changes": "Alert evaluation only; no automated remediation"}
