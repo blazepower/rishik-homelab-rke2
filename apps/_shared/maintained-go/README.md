@@ -43,7 +43,10 @@ PCRE2's backport addresses CVE-2026-89157 and CVE-2026-89161; the former's
 The actual patched source passes upstream short tests and govulncheck v1.9.0
 source **and actual built-binary** scans. JSON mode can return exit zero with
 findings, so acceptance parses every finding and rejects function or
-package-wide matches, including wildcard function entries. Module-only matches
+package-wide matches, including wildcard function entries and package-only
+traces with no function field. A package-only result can reflect conservative
+analysis rather than a proven reachable function; it still blocks acceptance.
+Module-only matches
 and the real advisory DB timestamp remain in provenance rather than being
 silently treated as clearance. The image retains the exact patch, updated
 module licenses and corresponding-source/build evidence. An independent

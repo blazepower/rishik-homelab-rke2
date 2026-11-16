@@ -169,6 +169,16 @@ class AdvisoryProtocolTest(unittest.TestCase):
             with self.subTest(function=function), self.assertRaises(AssertionError):
                 build.advisory_summary(text, "binary", "v1.9.0")
 
+    def test_rejects_package_only_matches_without_function_fields(self):
+        for mode in ("source", "binary"):
+            text = json.dumps({"config": scanner_config(mode)}) + json.dumps(
+                {"finding": {"osv": "GO-fixture", "trace": [{
+                    "module": "knative.dev/pkg", "version": "v0.0.0-fixture",
+                    "package": "knative.dev/pkg/webhook",
+                }]}})
+            with self.subTest(mode=mode), self.assertRaisesRegex(AssertionError, "GO-fixture"):
+                build.advisory_summary(text, mode, "v1.9.0")
+
     def test_rejects_missing_or_weakened_scanner_configuration(self):
         with self.assertRaises(ValueError):
             build.advisory_summary("", "binary", "v1.9.0")

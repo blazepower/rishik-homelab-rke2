@@ -27,8 +27,9 @@ def advisory_summary(text, mode, version):
     assert config["scan_mode"] == mode and config["scan_level"] == "symbol"
     assert config["db"] == "https://vuln.go.dev" and config["db_last_modified"]
     findings = [m["finding"] for m in messages if "finding" in m]
-    symbols = [f for f in findings if any(t.get("function") for t in f.get("trace", []))]
-    assert not symbols, (mode, "Advisory matches remain", sorted({f["osv"] for f in symbols}))
+    scoped = [f for f in findings
+              if any(t.get("function") or t.get("package") for t in f.get("trace", []))]
+    assert not scoped, (mode, "Advisory matches remain", sorted({f["osv"] for f in scoped}))
     return {"config": config, "module_advisory_ids": sorted({f["osv"] for f in findings}),
             "symbol_or_package_wide_findings": 0}
 
