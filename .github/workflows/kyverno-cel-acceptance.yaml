@@ -50,7 +50,7 @@ jobs:
 
       - name: Install declared synthetic-fixture and legacy-engine dependencies
         run: |
-          pip install PyYAML
+          pip install PyYAML jsonschema
           mkdir legacy-cli
           curl --fail --location --retry 3 --max-time 180 --output legacy-cli.tar.gz \
             https://github.com/kyverno/kyverno/releases/download/v1.19.2/kyverno-cli_v1.19.2_linux_x86_64.tar.gz

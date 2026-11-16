@@ -366,6 +366,135 @@ def command(args, cwd, evidence, log, env=None):
     return completed.stdout
 
 
+def mutation_fixtures(policies):
+    sources = candidate.reviewed_sources(candidate.REVIEWED_MUTATIONS)
+    cases = []
+
+    def add(policy, label, obj, patched):
+        for operation in ("CREATE", "UPDATE"):
+            original, expected = deepcopy(obj), deepcopy(patched)
+            name = "mutation-" + str(len(cases))
+            original["metadata"]["name"] = expected["metadata"]["name"] = name
+            cases.append({
+                "id": f"mutation-{len(cases):04d}:{label}-{operation}",
+                "policy": policy, "object": original, "expectedPatched": expected,
+                "oldObject": deepcopy(original) if operation == "UPDATE" else None,
+                "operation": operation, "subresource": "", "username": USER,
+            })
+
+    for policy in policies:
+        labels = policy["metadata"]["labels"]
+        source_name, rule_name = labels["homelab.rishik.dev/legacy-policy"], labels["homelab.rishik.dev/legacy-rule"]
+        rule = next(rule for rule in sources[source_name]["spec"]["rules"] if rule["name"] == rule_name)
+        name = policy["metadata"]["name"]
+        if source_name == "add-security-defaults":
+            field = "initContainers" if rule_name.endswith("init-containers") else "containers"
+            for kind in KINDS:
+                for label, contexts in (
+                    ("missing", [None]), ("empty", [{}]),
+                    ("explicit-true", [{"allowPrivilegeEscalation": True, "capabilities": {"drop": ["NET_RAW"]}}]),
+                    ("explicit-false", [{"allowPrivilegeEscalation": False, "runAsUser": 1234,
+                                         "capabilities": {"drop": ["NET_RAW"], "add": ["NET_BIND_SERVICE"]}}]),
+                    ("already-defaulted", [{"allowPrivilegeEscalation": False, "capabilities": {"drop": ["ALL"]}}]),
+                    ("mixed", [None, {"allowPrivilegeEscalation": True}, {"allowPrivilegeEscalation": False}]),
+                ):
+                    spec = {"containers": [{"name": "untouched", "image": "busybox:1.37.0",
+                                            "securityContext": {"allowPrivilegeEscalation": True}}],
+                            "ephemeralContainers": [{"name": "debug", "image": "busybox:1.37.0",
+                                                     "securityContext": {"allowPrivilegeEscalation": False}}]}
+                    spec[field] = [{"name": f"tested-{index}", "image": "busybox:1.37.0",
+                                    **({"securityContext": deepcopy(context)} if context is not None else {})}
+                                   for index, context in enumerate(contexts)]
+                    obj = resource(kind, spec)
+                    patched = deepcopy(obj)
+                    for container in pod_spec(patched)[field]:
+                        context = container.setdefault("securityContext", {})
+                        if context.get("allowPrivilegeEscalation") is not True:
+                            context["allowPrivilegeEscalation"] = False
+                            context.setdefault("capabilities", {})["drop"] = ["ALL"]
+                    add(name, kind + "-" + label, obj, patched)
+                    add(name, kind + "-" + label + "-idempotent", patched, patched)
+                if field == "initContainers":
+                    obj = resource(kind, {"containers": [{"name": "main", "image": "busybox:1.37.0"}]})
+                    add(name, kind + "-absent-init", obj, obj)
+        elif source_name == "mutate-topology-spread":
+            for label, existing in (("missing", None), ("empty", []), ("existing", [{
+                "maxSkew": 2, "topologyKey": "topology.kubernetes.io/zone",
+                "whenUnsatisfiable": "ScheduleAnyway", "labelSelector": {"matchLabels": {"app": "fixture"}},
+            }])):
+                obj = resource("Deployment", {"containers": [{"name": "main", "image": "busybox:1.37.0"}]})
+                if existing is not None:
+                    pod_spec(obj)["topologySpreadConstraints"] = existing
+                patched = deepcopy(obj)
+                if not existing:
+                    pod_spec(patched)["topologySpreadConstraints"] = [{
+                        "maxSkew": 1, "topologyKey": "kubernetes.io/hostname",
+                        "whenUnsatisfiable": "ScheduleAnyway",
+                        "labelSelector": {"matchLabels": deepcopy(obj["spec"]["selector"]["matchLabels"])},
+                    }]
+                add(name, label, obj, patched)
+                add(name, label + "-idempotent", patched, patched)
+        else:
+            defaults = {key[2:-1]: value for key, value in
+                        rule["mutate"]["patchStrategicMerge"]["metadata"]["annotations"].items()}
+            for label, annotations in (("missing", None), ("empty", {}), ("partial", {
+                "traefik.ingress.kubernetes.io/router.tls": "false", "unrelated.example/key": "preserved",
+            }), ("existing", {key: "" for key in defaults})):
+                obj = {"apiVersion": "networking.k8s.io/v1", "kind": "Ingress",
+                       "metadata": {"name": "fixture", "namespace": "policy-test"},
+                       "spec": {"ingressClassName": "traefik", "defaultBackend": {
+                           "service": {"name": "fixture", "port": {"number": 80}}}}}
+                if annotations is not None:
+                    obj["metadata"]["annotations"] = annotations
+                patched = deepcopy(obj)
+                for key, value in defaults.items():
+                    patched["metadata"].setdefault("annotations", {}).setdefault(key, value)
+                add(name, label, obj, patched)
+                add(name, label + "-idempotent", patched, patched)
+        probe = next(case for case in cases if case["policy"] == name)
+        exclusions = rule["exclude"]["any"][0]["resources"]["namespaces"]
+        for excluded in exclusions:
+            obj = deepcopy(probe["object"])
+            obj["metadata"]["namespace"] = excluded
+            add(name, "excluded-" + excluded, obj, obj)
+        obj, patched = deepcopy(probe["object"]), deepcopy(probe["expectedPatched"])
+        obj["metadata"]["namespace"] = patched["metadata"]["namespace"] = exclusions[0] + "-untrusted"
+        add(name, "exclusion-lookalike", obj, patched)
+    return cases
+
+
+def mutation_baseline(suite, cli, evidence, directory):
+    sources = candidate.reviewed_sources(candidate.REVIEWED_MUTATIONS)
+    count = 0
+    for policy in suite["mutationPolicies"]:
+        labels = policy["metadata"]["labels"]
+        source = deepcopy(sources[labels["homelab.rishik.dev/legacy-policy"]])
+        source["spec"]["rules"] = [rule for rule in source["spec"]["rules"]
+                                  if rule["name"] == labels["homelab.rishik.dev/legacy-rule"]]
+        for operation in ("CREATE", "UPDATE"):
+            cases = [case for case in suite["mutationCases"]
+                     if case["policy"] == policy["metadata"]["name"] and case["operation"] == operation]
+            folder = directory / (policy["metadata"]["name"] + "-" + operation.lower())
+            folder.mkdir()
+            (folder / "policy.yaml").write_text(yaml.safe_dump(source), encoding="utf-8")
+            (folder / "resources.yaml").write_text(yaml.safe_dump_all(
+                [case["object"] for case in cases]), encoding="utf-8")
+            output = folder / "patched.yaml"
+            command([str(cli), "apply", str(folder / "policy.yaml"), "--resource",
+                     str(folder / "resources.yaml"), "--set", "request.operation=" + operation,
+                     "--output", str(output)], ROOT, evidence, folder.name + ".log")
+            documents = list(yaml.safe_load_all(output.read_text(encoding="utf-8")))
+            actual = {doc["metadata"]["name"]: doc for doc in documents if doc is not None}
+            expected = {case["object"]["metadata"]["name"]: case["expectedPatched"] for case in cases}
+            if actual != expected:
+                details = {"actual": actual, "expected": expected}
+                (evidence / (folder.name + "-mismatch.json")).write_text(
+                    json.dumps(details, indent=2) + "\n", encoding="utf-8")
+                raise RuntimeError(f"Exact original-engine patched objects differ: {folder.name}")
+            count += len(cases)
+    return count
+
+
 def baseline(suite, cli, evidence, directory):
     sources = candidate.reviewed_sources()
     count = 0
@@ -417,16 +546,59 @@ def baseline(suite, cli, evidence, directory):
     return count
 
 
+def structural_schemas(suite, sdk, evidence):
+    from jsonschema import Draft7Validator
+
+    checks = []
+    for kind, plural, documents in (
+        ("ValidatingPolicy", "validatingpolicies", suite["policies"]),
+        ("PolicyException", "policyexceptions", suite["exceptions"]),
+        ("MutatingPolicy", "mutatingpolicies", suite["mutationPolicies"]),
+    ):
+        path = sdk / "config/crds/policies.kyverno.io" / f"policies.kyverno.io_{plural}.yaml"
+        data = path.read_bytes()
+        crd = yaml.safe_load(data)
+        if crd["spec"]["group"] != "policies.kyverno.io" or crd["spec"]["names"]["kind"] != kind:
+            raise RuntimeError(f"Wrong actual SDK CRD: {path.name}")
+        version = next(item for item in crd["spec"]["versions"] if item["name"] == "v1")
+        if not version["served"]:
+            raise RuntimeError(f"Actual SDK CRD does not serve v1: {kind}")
+        validator = Draft7Validator(version["schema"]["openAPIV3Schema"])
+        for document in documents:
+            if document["apiVersion"] != candidate.API or document["kind"] != kind:
+                raise RuntimeError(f"Wrong candidate API identity: {document['metadata']['name']}")
+            errors = sorted(validator.iter_errors(document), key=lambda error: str(error.path))
+            if errors:
+                raise RuntimeError(f"{document['metadata']['name']}: structural CRD errors: "
+                                   + "; ".join(error.message for error in errors))
+        checks.append({
+            "kind": kind, "version": version["name"], "documents": len(documents),
+            "sdk_crd_sha256": hashlib.sha256(data).hexdigest(),
+        })
+    result = {
+        "checks": checks,
+        "scope": "exact SDK v1 CRD structural shape; native policy expressions checked separately",
+        "crd_admission_cel": "not executed offline; server dry-run still required before activation",
+    }
+    (evidence / "structural-schemas.json").write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+    return result
+
+
 def run(args):
     evidence = args.evidence.resolve()
     evidence.mkdir(parents=True, exist_ok=True)
     policies, exceptions = candidate.build()
     suite = fixtures(policies, exceptions)
+    suite["mutationPolicies"] = candidate.build_mutations()
+    suite["mutationCases"] = mutation_fixtures(suite["mutationPolicies"])
     (evidence / "suite.json").write_text(json.dumps(suite, indent=2) + "\n", encoding="utf-8")
     receipt = {"outcome": "incomplete", "scope": "held-validation-controls-only",
                "sdk_version": args.sdk_version, "requests_expected": len(suite["cases"]),
                "policies": len(policies), "exceptions": len(exceptions),
                "production_activation": False}
+    receipt["mutation_requests_expected"] = len(suite["mutationCases"])
+    receipt["mutation_policies"] = len(suite["mutationPolicies"])
+    receipt["scope"] = "held-validation-and-mutation-controls"
     receipt["intentional_audit_repair"] = {
         "policy": AUDIT_REPAIR,
         "original": "unquoted false identifier makes the Boolean false/missing Audit cases pass",
@@ -435,7 +607,8 @@ def run(args):
     }
     (evidence / "evidence.json").write_text(json.dumps(receipt, indent=2), encoding="utf-8")
     if args.fixtures_only:
-        print(f"Generated {len(suite['cases'])} synthetic requests; no native acceptance claimed")
+        print(f"Generated {len(suite['cases'])} validation and {len(suite['mutationCases'])} "
+              "mutation requests; no native acceptance claimed")
         return
     if not args.legacy_cli:
         raise RuntimeError("--legacy-cli is required for actual native acceptance")
@@ -448,6 +621,7 @@ def run(args):
         baseline_dir = temporary / "legacy"
         baseline_dir.mkdir()
         receipt["legacy_expectations_passed"] = baseline(suite, cli, evidence, baseline_dir)
+        receipt["legacy_exact_mutations_passed"] = mutation_baseline(suite, cli, evidence, baseline_dir)
         env = os.environ.copy()
         env.update({"GOTOOLCHAIN": "local", "GOSUMDB": "sum.golang.org", "CGO_ENABLED": "0"})
         go_version = command(["go", "version"], ROOT, evidence, "go-version.txt", env)
@@ -461,6 +635,7 @@ def run(args):
             raise RuntimeError("Cannot bind the downloaded actual upstream source module")
         sdk = temporary / "sdk"
         shutil.copytree(module["Dir"], sdk)
+        receipt["structural_schemas"] = structural_schemas(suite, sdk, evidence)
         (sdk / "cmd").chmod(0o755)
         target = sdk / "cmd/homelab-cel-native"
         target.mkdir()
@@ -474,8 +649,12 @@ def run(args):
     results = json.loads((evidence / "native-results.json").read_text(encoding="utf-8"))
     if len(results) != len(suite["cases"]):
         raise RuntimeError("The actual engine did not execute every synthetic admission request")
+    mutation_results = json.loads((evidence / "native-mutation-results.json").read_text(encoding="utf-8"))
+    if len(mutation_results) != len(suite["mutationCases"]):
+        raise RuntimeError("The actual mutation engine did not execute every request")
     receipt.update({
         "outcome": "passed", "requests_passed": len(results), "upstream_module_sum": module["Sum"],
+        "mutation_requests_passed": len(mutation_results),
         "engine_sha256": hashlib.sha256(binary.read_bytes()).hexdigest(),
         "suite_sha256": hashlib.sha256((evidence / "suite.json").read_bytes()).hexdigest(),
         "source_sha": os.environ.get("GITHUB_SHA", subprocess.check_output(

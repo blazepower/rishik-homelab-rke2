@@ -28,6 +28,11 @@ REVIEWED = {
     "homelab-ingress-tailscale-privilege": "013363047b5616376d01627930272a0ed5ce32c2195ce16838be690898c38fe3",
     "metallb-speaker-host-network": "1b67fd5b10a64a8b678b11eb0357e0f568c698829b9ebf6b9036a12cc2e4b045",
 }
+REVIEWED_MUTATIONS = {
+    "add-security-defaults": "c9b3e20d846aa7d23e3ce78927f7391699b9fd45952bf4aca62f67f295b96068",
+    "mutate-topology-spread": "4a3949ab9c0876d67e35cad9ba75e4cf7c0ede01e4f1f5f9075b8c01acbb4c0b",
+    "mutate-ingress-annotations": "3a6b7d523e5ab2746aa69ebb4414947e3d287993a85a7f8880ea8fdd82abb0c2",
+}
 POD_SPEC = (
     "(object.kind == 'Pod' ? object.spec : object.kind == 'CronJob' ? "
     "object.spec.jobTemplate.spec.template.spec : object.spec.template.spec)"
@@ -101,19 +106,19 @@ def spec_hash(spec):
     ).hexdigest()
 
 
-def reviewed_sources():
+def reviewed_sources(reviewed=REVIEWED):
     found = {}
     for folder in ("kyverno-policies", "kyverno-install"):
         for path in sorted((POLICIES / folder).rglob("*.yaml")):
             doc = yaml.safe_load(path.read_text(encoding="utf-8"))
             name = doc.get("metadata", {}).get("name")
-            if name not in REVIEWED:
+            if name not in reviewed:
                 continue
-            if name in found or spec_hash(doc["spec"]) != REVIEWED[name]:
+            if name in found or spec_hash(doc["spec"]) != reviewed[name]:
                 raise RuntimeError(f"Unreviewed or duplicate source specification: {name}")
             found[name] = doc
-    if found.keys() != REVIEWED.keys():
-        raise RuntimeError(f"Missing reviewed sources: {sorted(REVIEWED.keys() - found.keys())}")
+    if found.keys() != reviewed.keys():
+        raise RuntimeError(f"Missing reviewed sources: {sorted(reviewed.keys() - found.keys())}")
     return found
 
 
@@ -267,12 +272,100 @@ def build():
     return candidates, compatibility
 
 
+def build_mutations():
+    candidates = []
+    for source in reviewed_sources(REVIEWED_MUTATIONS).values():
+        source_name = source["metadata"]["name"]
+        for rule in source["spec"]["rules"]:
+            kinds = rule["match"]["any"][0]["resources"]["kinds"]
+            excluded = rule["exclude"]["any"][0]["resources"]["namespaces"]
+            conditions = [{
+                "name": "same-legacy-exclusions",
+                "expression": "!(request.namespace in " + json.dumps(excluded) + ")",
+            }]
+            variables = []
+            if source_name == "add-security-defaults":
+                field = "initContainers" if rule["name"].endswith("init-containers") else "containers"
+                variables = [
+                    {"name": "items", "expression": POD_SPEC + ".?" + field + ".orValue([])"},
+                    {"name": "specPath", "expression":
+                     "object.kind == 'Pod' ? '/spec' : object.kind == 'CronJob' ? "
+                     "'/spec/jobTemplate/spec/template/spec' : '/spec/template/spec'"},
+                ]
+                expression = (
+                    "variables.items.filter(c, !c.?securityContext.?allowPrivilegeEscalation.orValue(false))"
+                    ".map(c, cel.bind(p, variables.specPath + '/" + field
+                    + "/' + string(variables.items.indexOf(c)) + '/securityContext', "
+                    "(!has(c.securityContext) ? [JSONPatch{op:'add', path:p, value:Object{}}] : [])"
+                    " + [JSONPatch{op:'add', path:p + '/allowPrivilegeEscalation', value:false}]"
+                    " + (!has(c.securityContext) || !has(c.securityContext.capabilities)"
+                    " ? [JSONPatch{op:'add', path:p + '/capabilities', value:Object{}}] : [])"
+                    " + [JSONPatch{op:'add', path:p + '/capabilities/drop', value:['ALL']}]))"
+                    ".flatten()"
+                )
+                rules = resource_rules(True, ["CREATE", "UPDATE"])
+            elif source_name == "mutate-topology-spread":
+                conditions.append({
+                    "name": "same-empty-constraints-precondition",
+                    "expression": "size(object.spec.template.spec.?topologySpreadConstraints.orValue([])) == 0",
+                })
+                expression = (
+                    "[JSONPatch{op:'add', path:'/spec/template/spec/topologySpreadConstraints',"
+                    " value:[Object{maxSkew:1, topologyKey:'kubernetes.io/hostname',"
+                    " whenUnsatisfiable:'ScheduleAnyway', labelSelector:"
+                    " {'matchLabels': object.spec.selector.matchLabels}}]}]"
+                )
+                rules = [{"apiGroups": ["apps"], "apiVersions": ["v1"],
+                          "operations": ["CREATE", "UPDATE"], "resources": ["deployments"]}]
+            elif source_name == "mutate-ingress-annotations":
+                defaults = {
+                    key[2:-1]: value
+                    for key, value in rule["mutate"]["patchStrategicMerge"]["metadata"]["annotations"].items()
+                }
+                variables = [{"name": "defaults", "expression": json.dumps(defaults)}]
+                expression = (
+                    "(!has(object.metadata.annotations)"
+                    " ? [JSONPatch{op:'add', path:'/metadata/annotations', value:Object{}}] : [])"
+                    " + " + json.dumps(list(defaults))
+                    + ".filter(k, !has(object.metadata.annotations) || !(k in object.metadata.annotations))"
+                    ".map(k, JSONPatch{op:'add', path:'/metadata/annotations/' + jsonpatch.escapeKey(k),"
+                    " value:variables.defaults[k]})"
+                )
+                rules = [{"apiGroups": ["networking.k8s.io"], "apiVersions": ["v1"],
+                          "operations": ["CREATE", "UPDATE"], "resources": ["ingresses"]}]
+            else:
+                raise RuntimeError(f"Unreviewed mutation policy: {source_name}")
+            spec = {
+                "failurePolicy": "Fail", "reinvocationPolicy": "IfNeeded",
+                "evaluation": {"admission": {"enabled": True}, "background": {"enabled": False},
+                               "mutateExisting": {"enabled": False}},
+                "matchConstraints": {"resourceRules": rules},
+                "matchConditions": conditions,
+                "mutations": [{"patchType": "JSONPatch", "jsonPatch": {"expression": expression}}],
+            }
+            if variables:
+                spec["variables"] = variables
+            candidates.append({
+                "apiVersion": API, "kind": "MutatingPolicy",
+                "metadata": {
+                    "name": candidate_name(source_name, rule["name"]),
+                    "labels": {"homelab.rishik.dev/legacy-policy": source_name,
+                               "homelab.rishik.dev/legacy-rule": rule["name"]},
+                },
+                "spec": spec,
+            })
+    return candidates
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--render", type=Path, required=True, help="Local output directory, never a cluster")
     args = parser.parse_args()
     policies, exceptions = build()
     args.render.mkdir(parents=True, exist_ok=True)
-    for name, documents in (("policies.yaml", policies), ("exceptions.yaml", exceptions)):
+    mutations = build_mutations()
+    for name, documents in (("policies.yaml", policies), ("exceptions.yaml", exceptions),
+                            ("mutations.yaml", mutations)):
         (args.render / name).write_text(yaml.safe_dump_all(documents, sort_keys=False), encoding="utf-8")
-    print(f"Rendered HELD validations: {len(policies)} policies and {len(exceptions)} exceptions")
+    print(f"Rendered HELD: {len(policies)} validations, {len(exceptions)} exceptions, "
+          f"{len(mutations)} unaccepted mutation candidates")

@@ -41,9 +41,10 @@ chart pin, production policy, or production exception is changed. Its renderer
 is `.github/scripts/kyverno-cel-candidate.py`. Rendered files are **not approved
 for application**. The validation stage covers all eleven existing validation
 policies: eight Enforce rules and ten Audit rules. Audit actions are checked
-against the reviewed original specifications, never promoted to Deny. The
-three mutation policies and a protected live admission/recovery rehearsal
-remain prerequisites to chart 3.10.
+against the reviewed original specifications, never promoted to Deny. Four
+unaccepted JSONPatch mutation candidates cover the three original mutation
+policies. Their native acceptance and a protected live admission/recovery
+rehearsal remain prerequisites to chart 3.10.
 
 The candidate binds the reviewed source specifications and both existing
 Tailscale/MetalLB exceptions to canonical hashes. It explicitly covers Pods,
@@ -76,8 +77,22 @@ The scalar pod-seccomp deny rule audits the deleted old object; the reviewed
 pattern and foreach rules skip it. The candidate retains that distinction,
 including valid and excluded DELETE cases, rather than broadly ignoring deletes.
 
+The offline harness checks the generated v1 structural shapes against CRDs
+from each checksum-verified SDK module. This is not server admission or CRD
+cross-field CEL acceptance; actual server dry-runs remain a pre-activation gate.
+
+The mutation stage requires exact complete patched-object comparisons with the
+original 1.19.2 CLI before either candidate engine runs, including CREATE/UPDATE,
+idempotence, nontrivial namespace exclusions, and preserved existing annotations.
+It retains the original false-value security-default behavior: explicit
+`allowPrivilegeEscalation: false` also replaces `capabilities.drop` with `ALL`,
+while explicit true is preserved and ephemeral containers are not defaulted.
+`IfNeeded` matches the inspected live resource webhook. Only JSONPatch is tested:
+the offline bridge rejects ApplyConfiguration rather than approximating its
+schema-dependent structural merge with a deduced converter.
+
 The isolated acceptance workflow uses the actual 1.19.2 release CLI for legacy
-CREATE baselines, then builds the shared engine from checksum-verified upstream
+CREATE/DELETE validation and exact mutation baselines, then builds the shared engines from checksum-verified upstream
 Go modules for **both 1.19.2 and 1.20.0**. The synthetic wire-request harness
 supplies distinct old/new objects and actual subresource fields; CLI fixture
 updates alone cannot prove these transitions. No kubeconfig, cluster client,
