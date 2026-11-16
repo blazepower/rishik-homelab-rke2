@@ -172,7 +172,8 @@ def native(image, scratch, suffix):
         assert log.returncode == 0, log.stdout
         invalid = docker("run", "--rm", *restrictions, "--entrypoint", "/home/kubernetes/bin/log-counter",
                          image, *log_args, "--lookback=invalid", check=False)
-        assert invalid.returncode == 2 and "invalid duration" in invalid.stdout, (invalid.returncode, invalid.stdout)
+        assert invalid.returncode == 255 and "failed to parse lookback duration" in invalid.stdout, \
+            (invalid.returncode, invalid.stdout)
         health_args = ["--component=cri", "--enable-repair=false", "--crictl-path=/fixture/crictl",
                        "--cri-socket-path=unix:///fixture/synthetic.sock", "--health-check-timeout=2s"]
         health = docker("run", "--rm", *restrictions, "--entrypoint", "/home/kubernetes/bin/health-checker",

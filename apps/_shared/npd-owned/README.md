@@ -32,7 +32,9 @@ custom-plugin healthy/failure/recovery metrics, deliberately empty journal
 library operation and invalid-lookback failure, plus synthetic CRI success/failure.
 Upstream only evaluates regexes while processing records; an empty journal
 cannot establish malformed-regex rejection. The negative fixture instead uses
-an eagerly validated duration and requires the actual parse error/Unknown exit.
+an eagerly validated duration and requires its actual fatal parse error/255 exit,
+as observed in the unchanged vendor binary rather than assuming a generic
+plugin Unknown exit.
 Everything runs network-none, read-only and capability-free with repair disabled;
 the actual current 100m CPU/128Mi memory limits are exercised without raising
 production resources, and the detector must remain running without OOM.
