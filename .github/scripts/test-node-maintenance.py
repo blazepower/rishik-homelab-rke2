@@ -6,8 +6,10 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
+import stat
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -28,6 +30,43 @@ h = load("maintenance_host", "node-maintenance-host.py")
 
 
 class MaintenanceTests(unittest.TestCase):
+    def test_outage_budget_reserves_recovery_and_does_not_reset_with_clock_changes(self):
+        with patch.object(m.time, "time", return_value=100), patch.object(m.time, "monotonic", return_value=200):
+            budget = m.OutageBudget()
+        with patch.object(m.time, "time", return_value=101), patch.object(m.time, "monotonic", return_value=201):
+            budget.before_disruption()
+        with patch.object(m.time, "time", return_value=101), \
+                patch.object(m.time, "monotonic", return_value=200 + 10 * 3600), self.assertRaises(RuntimeError):
+            budget.before_disruption()
+        with patch.object(m.time, "time", return_value=100 + 12 * 3600), \
+                patch.object(m.time, "monotonic", return_value=201), self.assertRaises(RuntimeError):
+            budget.remaining()
+        with patch.object(m.time, "time", return_value=99), self.assertRaises(RuntimeError):
+            budget.remaining()
+
+    def test_recovery_wait_cannot_report_success_after_outage_deadline(self):
+        budget = m.OutageBudget()
+        with patch.object(budget, "remaining", side_effect=[1, RuntimeError("deadline")]), \
+                self.assertRaisesRegex(RuntimeError, "deadline"):
+            m.wait_for(lambda: "recovered too late", budget=budget)
+
+    def test_recovery_directory_requires_off_node_private_root_owned_mount(self):
+        for mount, uid, mode, accepted in [
+            ({"target": "/recovery", "fstype": "nfs4"}, 0, 0o700, True),
+            ({"target": "/", "fstype": "ext4"}, 0, 0o700, False),
+            ({"target": "/recovery", "fstype": "nfs4"}, 1000, 0o700, False),
+            ({"target": "/recovery", "fstype": "nfs4"}, 0, 0o755, False),
+        ]:
+            with self.subTest(mount=mount, uid=uid, mode=mode), \
+                    patch.object(h.Path, "is_dir", return_value=True), \
+                    patch.object(h.Path, "stat", return_value=SimpleNamespace(st_uid=uid, st_mode=stat.S_IFDIR | mode)), \
+                    patch.object(h, "command", return_value=json.dumps({"filesystems": [mount]})):
+                if accepted:
+                    h.recovery_directory("/recovery/private")
+                else:
+                    with self.assertRaises(RuntimeError):
+                        h.recovery_directory("/recovery/private")
+
     def test_minor_order_and_downgrades(self):
         m.check_transition("v1.35.10+rke2r1", "v1.36.6+rke2r1")
         for current, target in [
@@ -150,13 +189,27 @@ class MaintenanceTests(unittest.TestCase):
                 patch.object(m, "health"), patch.object(m, "stable_health"), patch.object(m.time, "sleep"), \
                 patch.object(m, "etcd_tool", return_value={}), \
                 patch.object(m, "capture_evidence", return_value={}), \
-                patch.object(m, "remote", return_value={"boot_id": "boot", "pending_packages": []}) as remote, \
+                patch.object(m, "remote", return_value={"boot_id": "boot", "pending_packages": [],
+                                                       "off_node_directory_verified": True}) as remote, \
                 patch.object(m, "kube", side_effect=fake_kube), \
                 patch.object(m, "run", side_effect=RuntimeError("PDB prevents drain")):
             with self.assertRaises(RuntimeError):
                 m.apply(plan, "approval", policy, "/protected/recovery", True, False)
             self.assertFalse(any("delete" in call or "uncordon" in call for call in calls))
-            self.assertEqual(remote.call_count, 1)
+            self.assertEqual(remote.call_count, 2)
+
+    def test_missing_recovery_protection_stops_before_lock_or_cordon(self):
+        policy = json.loads(m.POLICY.read_text())
+        plan = {"action": "os", "release": None, "bindings": {}, "nodes": [], "quarantine": {}}
+        with patch.object(m, "check_plan"), patch.object(m, "get", return_value={"metadata": {"uid": "cluster"}}), \
+                patch.object(m, "audit_nodes", return_value={}), \
+                patch.object(m, "build_plan", return_value={**plan, "blockers": []}), \
+                patch.object(m, "remote", return_value={"off_node_directory_verified": False}), \
+                patch.object(m, "kube") as kube, self.assertRaises(RuntimeError):
+            try:
+                m.apply(plan, "approval", policy, "/private/recovery", True, False)
+            finally:
+                kube.assert_not_called()
 
     def test_headless_upgrade_never_removes_packages_or_stops_server_dependencies(self):
         state = {"boot_id": "boot", "pending_packages": ["Inst synthetic (1.0)"],
@@ -279,6 +332,8 @@ class MaintenanceTests(unittest.TestCase):
             return {"metadata": {"uid": "cluster"}, "status": {"conditions": [{"type": "Ready", "status": "True"}]}}
 
         def fake_remote(node, payload, privileged=False):
+            if payload["operation"] == "recovery-audit":
+                return {"off_node_directory_verified": True}
             if privileged:
                 privileged_steps.append(node["name"])
                 states[node["name"]] = {"boot_id": "new", "kernel": policy["kernel"],
@@ -305,6 +360,9 @@ class MaintenanceTests(unittest.TestCase):
         self.assertEqual([c for c in calls if c[0] == "uncordon"],
                          [("uncordon", "rishik-worker2"), ("uncordon", "rishik-worker1")])
         self.assertIn(("-n", "kube-system", "delete", "configmap", m.LOCK), calls)
+        acquired = next(c for c in calls if "create" in c and "configmap" in c)
+        self.assertTrue(any(c.startswith("--from-literal=started_epoch=") for c in acquired))
+        self.assertTrue(any(c.startswith("--from-literal=deadline_epoch=") for c in acquired))
 
     def test_manager_restart_invalidates_stability_window(self):
         samples = [{"managers": {"worker": {"uid": "first", "restarts": 0}}},

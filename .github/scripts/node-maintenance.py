@@ -22,6 +22,8 @@ HOST = Path(__file__).with_name("node-maintenance-host.py")
 HOST_BYTES = HOST.read_bytes()
 HOST_SOURCE = HOST_BYTES.decode("utf-8").replace("\r\n", "\n")
 LOCK = "operator-node-maintenance"
+MAX_OUTAGE_SECONDS = 12 * 3600
+RECOVERY_RESERVE_SECONDS = 2 * 3600
 
 
 def require(condition, message):
@@ -35,6 +37,25 @@ def sha(value):
 
 def canonical(value):
     return json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+
+
+class OutageBudget:
+    def __init__(self):
+        self.started_epoch = time.time()
+        self.started_monotonic = time.monotonic()
+        self.deadline_epoch = self.started_epoch + MAX_OUTAGE_SECONDS
+
+    def remaining(self):
+        wall_elapsed = time.time() - self.started_epoch
+        require(wall_elapsed >= 0, "Workstation clock moved backwards; stop new work and inspect recovery")
+        elapsed = max(wall_elapsed, time.monotonic() - self.started_monotonic)
+        remaining = MAX_OUTAGE_SECONDS - elapsed
+        require(remaining > 0, "12-hour outage budget exhausted; restore services, do not continue upgrades")
+        return remaining
+
+    def before_disruption(self):
+        require(self.remaining() > RECOVERY_RESERVE_SECONDS,
+                "Recovery reserve reached; restore services instead of starting another disruptive step")
 
 
 def run(args, timeout=120):
@@ -318,15 +339,19 @@ def health(policy, pods=None):
     return counts
 
 
-def stable_health(policy):
+def stable_health(policy, budget=None):
     previous = None
     for index in range(3):
+        if budget:
+            budget.remaining()
         state = health(policy)
         if previous is not None:
             require(state["managers"] == previous, "Longhorn manager identity/restarts changed during stability window")
         previous = state["managers"]
         if index < 2:
-            time.sleep(30)
+            time.sleep(min(30, budget.remaining()) if budget else 30)
+    if budget:
+        budget.remaining()
 
 
 def audit_nodes(policy):
@@ -394,6 +419,7 @@ def build_plan(policy, action, minor, inventory):
         "created_epoch": int(time.time()), "cluster_uid": get("namespace", name="kube-system")["metadata"]["uid"],
         "policy_sha256": sha(POLICY.read_bytes()), "runner_sha256": sha(Path(__file__).read_bytes()),
         "host_sha256": sha(HOST.read_bytes()), "action": action, "release": release,
+        "outage_budget": {"maximum_seconds": MAX_OUTAGE_SECONDS, "recovery_reserve_seconds": RECOVERY_RESERVE_SECONDS},
         "nodes": order, "bindings": bindings, "quarantine": protected, "blockers": sorted(set(blockers)),
         "impact": "Serial drains delete reviewed emptyDir data. OS: host reboot and disable desktop, printing, "
                   "Bluetooth, mDNS advertisement and modem services; preserve networking/storage/GPU drivers. "
@@ -415,14 +441,20 @@ def check_plan(plan, approval, cluster_uid, now=None):
     require(not plan["blockers"], "Plan has unresolved blockers")
 
 
-def wait_for(check, seconds=900):
+def wait_for(check, seconds=900, budget=None):
     deadline, error = time.monotonic() + seconds, None
     while time.monotonic() < deadline:
+        if budget:
+            budget.remaining()
         try:
-            return check()
+            result = check()
         except Exception as current:
             error = current
-            time.sleep(10)
+            time.sleep(min(10, budget.remaining()) if budget else 10)
+        else:
+            if budget:
+                budget.remaining()
+            return result
     raise RuntimeError(f"Recovery timed out; stop and inspect: {error}")
 
 
@@ -503,17 +535,30 @@ def apply(plan, approval, policy, recovery_directory, token_confirmed, compatibi
     require(not fresh["blockers"] and all(fresh[key] == plan[key]
             for key in ("bindings", "nodes", "release", "quarantine")),
             "Cluster/host/package state changed; generate a new plan")
+    server = next(n for n in policy["nodes"] if n["role"] == "server")
+    protection = remote(server, {"operation": "recovery-audit", "recovery_directory": recovery_directory})
+    require(protection.get("off_node_directory_verified") is True, "Controller recovery directory was not verified")
     run_id = uuid.uuid4().hex
     evidence_directory = Path(tempfile.mkdtemp(prefix="homelab-maintenance-"))
+    budget = OutageBudget()
     # An unexpired lease could be stolen while a sole server is offline. This lock
     # deliberately never expires; an interrupted run needs human investigation.
     kube("-n", "kube-system", "create", "configmap", LOCK, "--from-literal=run_id=" + run_id,
-         "--from-literal=plan_sha256=" + approval)
+         "--from-literal=plan_sha256=" + approval,
+         "--from-literal=started_epoch=" + str(budget.started_epoch),
+         "--from-literal=deadline_epoch=" + str(budget.deadline_epoch))
+    (evidence_directory / "maintenance.json").write_text(json.dumps({
+        "run_id": run_id, "plan_sha256": approval, "started_epoch": budget.started_epoch,
+        "deadline_epoch": budget.deadline_epoch, "recovery_reserve_seconds": RECOVERY_RESERVE_SECONDS,
+    }, indent=2), encoding="utf-8")
     print("Maintenance lock acquired. Failure retains lock and the current node cordon.", flush=True)
+    print(f"Restoration deadline (Unix UTC): {budget.deadline_epoch}; stop new disruption within the recovery reserve.",
+          flush=True)
     for node in plan["nodes"]:
         check_plan(plan, approval, get("namespace", name="kube-system")["metadata"]["uid"])
         name, binding = node["name"], plan["bindings"][node["name"]]
-        stable_health(policy)
+        budget.before_disruption()
+        stable_health(policy, budget=budget)
         current = remote(node, {"operation": "audit"})
         require(current["boot_id"] == binding["boot_id"], "Unexpected reboot since approval")
         if plan["action"] == "os":
@@ -526,13 +571,16 @@ def apply(plan, approval, policy, recovery_directory, token_confirmed, compatibi
             "kernel_package": policy["kernel_package"], "release": plan["release"],
             "source_version": binding["source_version"], "etcdutl": etcd_tool(policy),
             "recovery_directory": recovery_directory,
+            "deadline_epoch": budget.deadline_epoch, "recovery_reserve_seconds": RECOVERY_RESERVE_SECONDS,
         }
         evidence = capture_evidence(name)
         (evidence_directory / (name + "-before.json")).write_text(json.dumps(evidence, indent=2), encoding="utf-8")
         print(f"Technical-only pre-disruption evidence: {evidence_directory}", flush=True)
+        budget.before_disruption()
         kube("cordon", name)
         run(["kubectl", "--request-timeout=30s", "drain", name, "--ignore-daemonsets",
              "--delete-emptydir-data", "--timeout=10m"], timeout=660)
+        budget.before_disruption()
         remote(node, payload, privileged=True)
         result = receipt(node, step_id)
         (evidence_directory / (name + "-receipt.json")).write_text(json.dumps(result, indent=2), encoding="utf-8")
@@ -541,18 +589,19 @@ def apply(plan, approval, policy, recovery_directory, token_confirmed, compatibi
                 "Invalid/stale host receipt")
         if node["role"] == "server":
             require(result["recovery"]["off_node_verified"], "Controller recovery copy not verified")
-        state = wait_for(lambda: node_recovered(node, binding, plan, policy))
+        state = wait_for(lambda: node_recovered(node, binding, plan, policy), budget=budget)
         if node["role"] == "agent":
             kube("uncordon", name)
         try:
-            wait_for(lambda: health(policy), seconds=1200)
-            stable_health(policy)
+            wait_for(lambda: health(policy), seconds=1200, budget=budget)
+            stable_health(policy, budget=budget)
         except Exception:
             kube("cordon", name)
             raise
         if plan["action"] == "rke2":
             remote(node, {**payload, "operation": "accept", "boot_id": state["boot_id"]}, privileged=True)
         print(f"ACCEPTED {name}: {plan['action']}", flush=True)
+    budget.remaining()
     require(get("configmap", "kube-system", LOCK)["data"]["run_id"] == run_id, "Maintenance lock ownership changed")
     kube("-n", "kube-system", "delete", "configmap", LOCK)
     print("Fleet maintenance accepted. Controller remains cordoned; Kured remains suspended.")
