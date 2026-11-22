@@ -30,6 +30,150 @@ h = load("maintenance_host", "node-maintenance-host.py")
 
 
 class MaintenanceTests(unittest.TestCase):
+    def plex_fixture(self):
+        policy = json.loads(m.POLICY.read_text())
+        labels = {"app": "plex", "controller-revision-hash": "plex-revision"}
+        pod = {"kind": "Pod", "metadata": {
+            "name": "plex-plex-media-server-0", "namespace": "media", "uid": "old-pod",
+            "labels": labels, "ownerReferences": [{"controller": True, "kind": "StatefulSet",
+                                                 "name": "plex-plex-media-server", "uid": "plex-controller"}]},
+            "spec": {"nodeName": "rishik-worker1", "nodeSelector": {"kubernetes.io/hostname": "rishik-worker1"},
+                     "containers": [{"name": "plex", "image": "public-synthetic:1", "resources": {
+                         "requests": {"cpu": "500m", "memory": "1Gi", "gpu.intel.com/i915": "1"}},
+                         "volumeMounts": [{"name": "kube-api-access-abc12", "mountPath": "/account",
+                                           "readOnly": True}]}],
+                     "volumes": [{"name": "dri", "hostPath": {"path": "/dev/dri", "type": "Directory"}},
+                                 {"name": "config", "persistentVolumeClaim": {"claimName": "plex-config"}},
+                                 {"name": "kube-api-access-abc12", "projected": {
+                                     "sources": [{"serviceAccountToken": {"path": "token", "expirationSeconds": 3607}}]}}]},
+            "status": {"phase": "Running", "conditions": [{"type": "Ready", "status": "True"}]}}
+        template = {"metadata": {"labels": {"app": "plex"}}, "spec": copy.deepcopy(pod["spec"])}
+        template["spec"].pop("nodeName")
+        controller = {"kind": "StatefulSet", "metadata": {
+            "name": "plex-plex-media-server", "namespace": "media", "uid": "plex-controller", "generation": 3},
+            "spec": {"replicas": 1, "selector": {"matchLabels": {"app": "plex"}}, "template": template},
+            "status": {"observedGeneration": 3, "currentRevision": "plex-revision",
+                       "updateRevision": "plex-revision", "readyReplicas": 1}}
+        policy["plex_downtime"] = {"template_sha256": m.sha(m.canonical(template)),
+                                    "pod_spec_sha256": m.pending_spec_hash(pod)}
+        with patch.object(m, "get", return_value=controller):
+            review = m.reviewed_plex_downtime(policy, [pod])
+        replacement = copy.deepcopy(pod)
+        replacement["metadata"]["uid"] = "replacement-pod"
+        replacement["spec"].pop("nodeName")
+        replacement["spec"]["volumes"][-1]["name"] = "kube-api-access-def34"
+        replacement["spec"]["containers"][0]["volumeMounts"][0]["name"] = "kube-api-access-def34"
+        replacement["status"] = {"phase": "Pending", "conditions": [
+            {"type": "PodScheduled", "status": "False", "reason": "Unschedulable"}]}
+        return policy, controller, pod, replacement, review
+
+    def test_plex_downtime_is_exact_and_not_peer_migration_capacity(self):
+        policy, controller, pod, replacement, review = self.plex_fixture()
+        peer = {"metadata": {"name": "rishik-worker2", "labels": {}},
+                "spec": {}, "status": {"allocatable": {"cpu": "4", "memory": "4Gi", "pods": "100"}}}
+        self.assertTrue(m.scheduling_blockers("rishik-worker1", peer, [pod]))
+        self.assertFalse(m.scheduling_blockers("rishik-worker1", peer, [pod], pending_reviews=review))
+        unrelated = copy.deepcopy(pod)
+        unrelated["metadata"].update(name="another-app", uid="unrelated-pod")
+        self.assertTrue(m.scheduling_blockers("rishik-worker1", peer, [pod, unrelated], pending_reviews=review))
+        with patch.object(m, "get", return_value=controller):
+            self.assertEqual(m.expected_pending_pods(policy, [replacement], review, "rishik-worker1"),
+                             ({"replacement-pod"}, {"https://plex.homelab/identity"}))
+            for node in ("rishik-worker2", "rishik-controller", None):
+                with self.subTest(node=node), self.assertRaises(RuntimeError):
+                    m.expected_pending_pods(policy, [replacement], review, node)
+
+    def test_plex_pending_never_hides_crashes_missing_or_drifted_workloads(self):
+        policy, controller, pod, replacement, review = self.plex_fixture()
+        for case in ("missing", "terminating", "old-uid", "scheduled", "crash", "not-unschedulable",
+                     "owner", "revision", "image", "init", "volume", "projection", "ephemeral"):
+            changed = copy.deepcopy(replacement)
+            if case == "terminating":
+                changed["metadata"]["deletionTimestamp"] = "2026-11-22T00:00:00Z"
+            elif case == "old-uid":
+                changed["metadata"]["uid"] = pod["metadata"]["uid"]
+            elif case == "scheduled":
+                changed["spec"]["nodeName"] = "rishik-worker1"
+            elif case == "crash":
+                changed["status"]["phase"] = "Running"
+            elif case == "not-unschedulable":
+                changed["status"]["conditions"] = []
+            elif case == "owner":
+                changed["metadata"]["ownerReferences"][0]["uid"] = "lookalike-controller"
+            elif case == "revision":
+                changed["metadata"]["labels"]["controller-revision-hash"] = "new-revision"
+            elif case == "image":
+                changed["spec"]["containers"][0]["image"] = "different-image"
+            elif case == "init":
+                changed["spec"]["initContainers"] = [{"name": "added", "image": "another-image"}]
+            elif case == "volume":
+                changed["spec"]["volumes"][0]["hostPath"]["path"] = "/etc"
+            elif case == "projection":
+                changed["spec"]["volumes"][-1]["projected"]["sources"] = []
+            elif case == "ephemeral":
+                changed["spec"]["ephemeralContainers"] = [{"name": "debug", "image": "debug-image"}]
+            with self.subTest(case=case), patch.object(m, "get", return_value=controller), \
+                    self.assertRaises(RuntimeError):
+                m.expected_pending_pods(policy, [] if case == "missing" else [changed], review, "rishik-worker1")
+        for case in ("recreated", "rollout", "replicas", "template"):
+            changed = copy.deepcopy(controller)
+            if case == "recreated":
+                changed["metadata"]["uid"] = "recreated-controller"
+            elif case == "rollout":
+                changed["status"]["updateRevision"] = "new-revision"
+            elif case == "replicas":
+                changed["spec"]["replicas"] = 2
+            else:
+                changed["spec"]["template"]["spec"]["containers"][0]["image"] = "new-image"
+            with self.subTest(case=case), patch.object(m, "get", return_value=changed), \
+                    self.assertRaises(RuntimeError):
+                m.expected_pending_pods(policy, [replacement], review, "rishik-worker1")
+        unhealthy = copy.deepcopy(pod)
+        unhealthy["status"]["conditions"] = []
+        with patch.object(m, "get", return_value=controller), self.assertRaises(RuntimeError):
+            m.reviewed_plex_downtime(policy, [unhealthy])
+
+    def test_plex_pending_health_preserves_storage_other_pods_and_all_recovery_probes(self):
+        policy, controller, pod, replacement, review = self.plex_fixture()
+        managers = [{"metadata": {"name": n, "uid": n, "labels": {"app": "longhorn-manager"}}, "spec": {"nodeName": n},
+                     "status": {"conditions": [{"type": "Ready", "status": "True"}]}}
+                    for n in ("rishik-worker1", "rishik-worker2")]
+        expected = {n["name"]: n for n in policy["nodes"]}
+        resources = {("nodes", None): [], ("pods", policy["storage_namespace"]): managers}
+
+        def get(resource, namespace=None, name=None):
+            if resource == "statefulset":
+                return controller
+            if resource == "helmrelease":
+                return {"spec": {"suspend": True}}
+            return {"value": "block-if-contains-last-replica"}
+
+        with patch.object(m, "get", side_effect=get), patch.object(m, "kube") as kube, \
+                patch.object(m, "items", side_effect=lambda r, ns=None: resources.get((r, ns), [])), \
+                patch.object(m, "check_nodes", return_value=expected), \
+                patch.object(m, "quarantine_state", return_value={}), \
+                patch.object(m, "storage_check", return_value={}) as storage, \
+                patch.object(m.urllib.request, "urlopen") as probe:
+            probe.return_value.__enter__.return_value.status = 200
+            result = m.health(policy, [replacement], draining_node="rishik-worker1", pending_reviews=review)
+            self.assertEqual(result["expected_pending"], ["replacement-pod"])
+            self.assertEqual([c.args[0] for c in probe.call_args_list], ["https://vault.homelab/"])
+            storage.assert_called_once()
+            self.assertTrue(any("healthcheck" in c.args for c in kube.call_args_list))
+            unrelated = copy.deepcopy(replacement)
+            unrelated["metadata"].update(name="unrelated", uid="unrelated")
+            with self.assertRaisesRegex(RuntimeError, "Active pods not Ready"):
+                m.health(policy, [replacement, unrelated], draining_node="rishik-worker1", pending_reviews=review)
+            storage.side_effect = RuntimeError("storage drift")
+            with self.assertRaisesRegex(RuntimeError, "storage drift"):
+                m.health(policy, [replacement], draining_node="rishik-worker1", pending_reviews=review)
+            storage.side_effect = None
+            with self.assertRaisesRegex(RuntimeError, "Active pods not Ready"):
+                m.health(policy, [replacement])
+            probe.reset_mock()
+            m.health(policy, [pod])
+            self.assertEqual([c.args[0] for c in probe.call_args_list], policy["probe_urls"])
+
     def test_outage_budget_reserves_recovery_and_does_not_reset_with_clock_changes(self):
         with patch.object(m.time, "time", return_value=100), patch.object(m.time, "monotonic", return_value=200):
             budget = m.OutageBudget()
@@ -368,7 +512,8 @@ class MaintenanceTests(unittest.TestCase):
                 "kubectl": {"client": "v1.35.10", "server": "v1.35.10+rke2r1"}}
         for drift in ({"blockers": ["kubectl outside supported skew"]},
                       {"kubectl": {"client": "v1.36.6", "server": "v1.35.10+rke2r1"}},
-                      {"reviewed_csi_sockets": [{"pod_uid": "replacement"}]}):
+                      {"reviewed_csi_sockets": [{"pod_uid": "replacement"}]},
+                      {"reviewed_plex_downtime": [{"pod_uid": "replacement"}]}):
             with self.subTest(drift=drift), patch.object(m, "check_plan"), \
                     patch.object(m, "get", return_value={"metadata": {"uid": "cluster"}}), \
                     patch.object(m, "audit_nodes", return_value={}), \
@@ -454,7 +599,7 @@ class MaintenanceTests(unittest.TestCase):
             m.quarantine_state(policy, [volume], [engine], [replica])
 
     def test_plan_orders_and_pdb_blockers(self):
-        policy = json.loads(m.POLICY.read_text())
+        policy, plex_controller, plex_pod, _, plex_review = self.plex_fixture()
         nodes = [{"metadata": {"name": n["name"], "labels": {}}, "spec": {},
                   "status": {"nodeInfo": {"kubeletVersion": "v1.35.10+rke2r1"},
                              "allocatable": {"cpu": "6", "memory": "16Gi", "pods": "250"}}}
@@ -471,10 +616,14 @@ class MaintenanceTests(unittest.TestCase):
                      "boot_free_bytes": 4 * 1024**3, "kernel_metapackage_installed": True,
                      "apt_metadata_epoch": m.time.time(), "boot_id": "boot",
                      "kernel": "test", "pending_packages": []} for n in policy["nodes"]}
-        resources = {"pods": [pod], "nodes": nodes, "poddisruptionbudgets": [pdb]}
+        plex_pdb = copy.deepcopy(pdb)
+        plex_pdb["metadata"]["name"] = "plex-pdb"
+        plex_pdb["spec"]["selector"] = {"matchLabels": {"app": "plex"}}
+        resources = {"pods": [pod, plex_pod], "nodes": nodes, "poddisruptionbudgets": [pdb, plex_pdb]}
         versions = {"clientVersion": {"gitVersion": "v1.35.10"}, "serverVersion": {"gitVersion": "v1.35.10+rke2r1"}}
         with patch.object(m, "items", side_effect=lambda r: resources.get(r, [])), \
-                patch.object(m, "get", return_value={"metadata": {"uid": "cluster"}}), patch.object(m, "health"), \
+                patch.object(m, "get", side_effect=lambda r, *args, **kwargs: plex_controller if r == "statefulset"
+                             else {"metadata": {"uid": "cluster"}}), patch.object(m, "health"), \
                 patch.object(m, "kube", side_effect=lambda *args: json.dumps(versions)):
             os_plan = m.build_plan(policy, "os", None, inventory)
             rke_plan = m.build_plan(policy, "rke2", "1.36", inventory)
@@ -484,13 +633,18 @@ class MaintenanceTests(unittest.TestCase):
                          ["rishik-worker2", "rishik-worker1", "rishik-controller"])
         self.assertEqual(rke_plan["nodes"][0]["role"], "server")
         self.assertTrue(any("app-pdb" in b for b in os_plan["blockers"]))
+        self.assertTrue(any("plex-pdb" in b for b in os_plan["blockers"]))
+        self.assertEqual(os_plan["reviewed_plex_downtime"], plex_review)
+        self.assertFalse(any("plex-plex-media-server-0: hostPath" in b
+                             or "plex-plex-media-server-0: nodeSelector" in b for b in os_plan["blockers"]))
         self.assertEqual(os_plan["kubectl"]["client"], "v1.35.10")
         self.assertTrue(any("one-minor skew" in b for b in unsupported["blockers"]))
 
     def test_successful_os_run_is_serial_and_keeps_controller_cordoned(self):
-        policy = json.loads(m.POLICY.read_text())
+        policy, _, _, _, plex_review = self.plex_fixture()
         order = [policy["nodes"][1], policy["nodes"][2], policy["nodes"][0]]
         plan = {"action": "os", "release": None, "quarantine": {}, "kubectl": {}, "reviewed_csi_sockets": [],
+                "reviewed_plex_downtime": plex_review,
                 "nodes": order, "bindings": {
             n["name"]: {"boot_id": "old", "source_version": "v1.35.10+rke2r1", "pending_packages": []} for n in order}}
         states = {n["name"]: {"boot_id": "old", "pending_packages": []} for n in order}
@@ -527,6 +681,7 @@ class MaintenanceTests(unittest.TestCase):
                 patch.object(m, "audit_nodes", return_value={}), \
                 patch.object(m, "build_plan", return_value={**plan, "blockers": []}), \
                 patch.object(m, "health"), patch.object(m, "stable_health"), \
+                patch.object(m, "items", return_value=[]), patch.object(m, "reviewed_plex_downtime", return_value=plex_review), \
                 patch.object(m, "drained_health", return_value={}) as drained, patch.object(m.time, "sleep"), \
                 patch.object(m, "etcd_tool", return_value={}), patch.object(m, "capture_evidence", return_value={}), \
                 patch.object(m, "remote", side_effect=fake_remote), patch.object(m, "receipt", side_effect=fake_receipt), \
@@ -536,6 +691,8 @@ class MaintenanceTests(unittest.TestCase):
         self.assertEqual(privileged_steps, ["rishik-worker2", "rishik-worker1", "rishik-controller"])
         self.assertEqual([call.args[1]["name"] for call in drained.call_args_list],
                          ["rishik-worker2", "rishik-worker1", "rishik-controller"])
+        self.assertEqual([call.kwargs for call in drained.call_args_list],
+                         [{}, {"pending_reviews": plex_review}, {}])
         self.assertNotIn(("uncordon", "rishik-controller"), calls)
         self.assertEqual([c for c in calls if c[0] == "uncordon"],
                          [("uncordon", "rishik-worker2"), ("uncordon", "rishik-worker1")])

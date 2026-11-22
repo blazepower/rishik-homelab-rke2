@@ -253,11 +253,100 @@ def reviewed_csi_sockets(pods, replicasets, deployments, namespace):
     return sorted(reviews, key=lambda r: (r["namespace"], r["pod"]))
 
 
-def scheduling_blockers(node, target, pods, socket_reviews=()):
+def pending_spec_hash(pod):
+    # Only the scheduled node and API-generated projection suffix change on replacement.
+    spec = json.loads(canonical(pod["spec"]))
+    spec.pop("nodeName", None)
+    generated = [v["name"] for v in spec.get("volumes", [])
+                 if re.fullmatch(r"kube-api-access-[a-z0-9]{5}", v["name"])]
+    require(len(generated) <= 1, "Unexpected service-account projection layout")
+    for volume in spec.get("volumes", []):
+        if volume["name"] in generated:
+            require("projected" in volume, "Service-account projection is not a projected volume")
+            volume["name"] = "kube-api-access-generated"
+    for container in spec.get("containers", []) + spec.get("initContainers", []):
+        for mount in container.get("volumeMounts", []):
+            if mount["name"] in generated:
+                mount["name"] = "kube-api-access-generated"
+    return sha(canonical(spec))
+
+
+def plex_identity(policy, controller, pod):
+    rule = policy["plex_downtime"]
+    meta, spec, status = controller["metadata"], controller["spec"], controller.get("status", {})
+    require(controller["kind"] == "StatefulSet" and meta["namespace"] == "media"
+            and meta["name"] == "plex-plex-media-server" and not meta.get("deletionTimestamp"),
+            "Reviewed Plex StatefulSet identity changed")
+    require(spec.get("replicas", 1) == 1
+            and status.get("observedGeneration", 0) >= meta["generation"]
+            and status.get("currentRevision") and status["currentRevision"] == status.get("updateRevision"),
+            "Plex replicas/controller revision are not stable")
+    require(sha(canonical(spec["template"])) == rule["template_sha256"],
+            "Plex template changed; review its downtime contract again")
+    owners = [o for o in pod["metadata"].get("ownerReferences", []) if o.get("controller")]
+    require(pod["kind"] == "Pod" and pod["metadata"]["namespace"] == "media"
+            and pod["metadata"]["name"] == "plex-plex-media-server-0"
+            and len(owners) == 1 and owners[0]["kind"] == "StatefulSet"
+            and owners[0]["name"] == meta["name"] and owners[0]["uid"] == meta["uid"]
+            and not pod["metadata"].get("deletionTimestamp"),
+            "Plex Pod/controller ownership changed")
+    require(matches(spec["selector"], pod["metadata"].get("labels", {}))
+            and pod["metadata"].get("labels", {}).get("controller-revision-hash") == status["currentRevision"]
+            and pod["spec"].get("nodeSelector") == {"kubernetes.io/hostname": "rishik-worker1"}
+            and not pod["spec"].get("ephemeralContainers")
+            and pending_spec_hash(pod) == rule["pod_spec_sha256"],
+            "Plex admitted Pod specification changed; no downtime exception")
+    return {"namespace": "media", "pod": pod["metadata"]["name"], "pod_uid": pod["metadata"]["uid"],
+            "controller": meta["name"], "controller_uid": meta["uid"],
+            "controller_generation": meta["generation"], "revision": status["currentRevision"],
+            "template_sha256": rule["template_sha256"], "pod_spec_sha256": rule["pod_spec_sha256"],
+            "node": "rishik-worker1", "probe_url": "https://plex.homelab/identity"}
+
+
+def reviewed_plex_downtime(policy, pods):
+    if not policy.get("plex_downtime"):
+        return []
+    candidates = [p for p in pods if p["metadata"]["namespace"] == "media"
+                  and p["metadata"]["name"] == "plex-plex-media-server-0"]
+    require(len(candidates) == 1, "Expected the reviewed single Plex Pod")
+    pod = candidates[0]
+    controller = get("statefulset", "media", "plex-plex-media-server")
+    review = plex_identity(policy, controller, pod)
+    require(pod["spec"].get("nodeName") == review["node"] and pod_ready(pod)
+            and controller["status"].get("readyReplicas") == 1,
+            "Plex must be healthy on worker1 before approving downtime")
+    return [review]
+
+
+def expected_pending_pods(policy, pods, reviews, draining_node):
+    if not reviews:
+        return set(), set()
+    require(draining_node == "rishik-worker1" and len(reviews) == 1
+            and reviews[0]["node"] == draining_node and policy.get("plex_downtime"),
+            "Plex downtime review cannot apply to another maintenance step")
+    review = reviews[0]
+    candidates = [p for p in pods if p["metadata"]["namespace"] == review["namespace"]
+                  and p["metadata"]["name"] == review["pod"]]
+    require(len(candidates) == 1, "Expected the reviewed replacement Plex Pod, not a missing workload")
+    pod = candidates[0]
+    current = plex_identity(policy, get("statefulset", "media", review["controller"]), pod)
+    require(all(current[key] == review[key] for key in current if key != "pod_uid"),
+            "Plex controller/specification drifted during maintenance")
+    require(pod["status"].get("phase") == "Pending" and not pod["spec"].get("nodeName")
+            and not pod_ready(pod) and pod["metadata"]["uid"] != review["pod_uid"]
+            and any(c["type"] == "PodScheduled" and c["status"] == "False"
+                    and c.get("reason") == "Unschedulable" for c in pod["status"].get("conditions", [])),
+            "Only the unscheduled replacement Plex Pod may be expected Pending")
+    return {pod["metadata"]["uid"]}, {review["probe_url"]}
+
+
+def scheduling_blockers(node, target, pods, socket_reviews=(), pending_reviews=()):
     blockers = []
     reviewed = {r["pod_uid"] for r in socket_reviews}
     labels = target["metadata"].get("labels", {})
-    incoming = [p for p in pods if p["spec"].get("nodeName") == node and evictable(p)]
+    pending = {r["pod_uid"] for r in pending_reviews if r["node"] == node}
+    incoming = [p for p in pods if p["spec"].get("nodeName") == node and evictable(p)
+                and p["metadata"].get("uid") not in pending]
     remaining = [p for p in pods if p["spec"].get("nodeName") == target["metadata"]["name"]
                  and p["status"].get("phase") not in ("Succeeded", "Failed")]
     free = {key: quantity(value) for key, value in target["status"]["allocatable"].items()}
@@ -376,7 +465,7 @@ def check_nodes(policy, nodes, draining_node=None):
     return expected
 
 
-def health(policy, pods=None, draining_node=None):
+def health(policy, pods=None, draining_node=None, pending_reviews=()):
     kube("get", "--raw=/readyz")
     expected = check_nodes(policy, items("nodes"), draining_node)
     require(get("helmrelease", "monitoring", "kured")["spec"].get("suspend") is True,
@@ -398,10 +487,15 @@ def health(policy, pods=None, draining_node=None):
         for p in managers
     }
     active = pods if pods is not None else items("pods")
+    pending, skipped_probes = expected_pending_pods(policy, active, pending_reviews, draining_node)
+    counts["expected_pending"] = sorted(pending)
     bad = [p["metadata"]["namespace"] + "/" + p["metadata"]["name"] for p in active
-           if p["status"].get("phase") not in ("Succeeded", "Failed") and not pod_ready(p)]
+           if p["status"].get("phase") not in ("Succeeded", "Failed") and not pod_ready(p)
+           and p["metadata"].get("uid") not in pending]
     require(not bad, "Active pods not Ready: " + ", ".join(bad[:12]))
     for url in policy["probe_urls"]:
+        if url in skipped_probes:
+            continue
         with urllib.request.urlopen(url, timeout=15) as response:
             require(response.status == 200, "Native HTTPS probe failed")
     kube("-n", "media", "exec", "deploy/qbittorrent", "-c", "gluetun", "--",
@@ -409,11 +503,13 @@ def health(policy, pods=None, draining_node=None):
     return counts
 
 
-def drained_health(policy, node):
+def drained_health(policy, node, pending_reviews=()):
     pods = items("pods")
     remaining = [p["metadata"]["namespace"] + "/" + p["metadata"]["name"] for p in pods
                  if p["spec"].get("nodeName") == node["name"] and evictable(p)]
     require(not remaining, "Drain left active evictable pods: " + ", ".join(remaining[:12]))
+    if pending_reviews:
+        return health(policy, pods, draining_node=node["name"], pending_reviews=pending_reviews)
     return health(policy, pods, draining_node=node["name"])
 
 
@@ -444,6 +540,11 @@ def build_plan(policy, action, minor, inventory):
     sockets = reviewed_csi_sockets(pods, items("replicasets"), items("deployments"), policy["storage_namespace"])
     node_map = {n["metadata"]["name"]: n for n in nodes}
     blockers = []
+    pending_reviews = []
+    try:
+        pending_reviews = reviewed_plex_downtime(policy, pods)
+    except RuntimeError as error:
+        blockers.append(str(error))
     protected = {}
     try:
         protected = (health(policy, pods) or {}).get("quarantine", {})
@@ -486,7 +587,7 @@ def build_plan(policy, action, minor, inventory):
         worker = next((n for n in nodes if n["metadata"]["name"] != name
                        and n["metadata"]["name"] in {p["name"] for p in policy["nodes"] if p["role"] == "agent"}), None)
         require(worker is not None, "No spare worker exists")
-        blockers.extend(scheduling_blockers(name, worker, pods, sockets))
+        blockers.extend(scheduling_blockers(name, worker, pods, sockets, pending_reviews))
         for pod in [p for p in pods if p["spec"].get("nodeName") == name and evictable(p)]:
             for volume in pod["spec"].get("volumes", []):
                 claim = volume.get("persistentVolumeClaim", {}).get("claimName")
@@ -511,6 +612,7 @@ def build_plan(policy, action, minor, inventory):
         "outage_budget": {"maximum_seconds": MAX_OUTAGE_SECONDS, "recovery_reserve_seconds": RECOVERY_RESERVE_SECONDS},
         "nodes": order, "bindings": bindings, "kubectl": client, "quarantine": protected, "blockers": sorted(set(blockers)),
         "reviewed_csi_sockets": sockets,
+        "reviewed_plex_downtime": pending_reviews,
         "impact": "Serial drains delete reviewed emptyDir data. OS: host reboot and disable desktop, printing, "
                   "Bluetooth, mDNS advertisement and modem services; preserve networking/storage/GPU drivers. "
                   "RKE2: service restarts. Controller step interrupts the sole API/etcd server. "
@@ -625,6 +727,8 @@ def apply(plan, approval, policy, recovery_directory, token_confirmed, compatibi
     require(not fresh["blockers"] and all(fresh[key] == plan[key]
             for key in ("bindings", "nodes", "release", "quarantine", "kubectl", "reviewed_csi_sockets")),
             "Cluster/host/package/client state changed or blockers appeared; generate a new plan")
+    require(fresh.get("reviewed_plex_downtime", []) == plan.get("reviewed_plex_downtime", []),
+            "Plex downtime identity changed after approval")
     server = next(n for n in policy["nodes"] if n["role"] == "server")
     protection = remote(server, {"operation": "recovery-audit", "recovery_directory": recovery_directory})
     require(protection.get("off_node_directory_verified") is True, "Controller recovery directory was not verified")
@@ -653,6 +757,10 @@ def apply(plan, approval, policy, recovery_directory, token_confirmed, compatibi
         require(current["boot_id"] == binding["boot_id"], "Unexpected reboot since approval")
         if plan["action"] == "os":
             require(current["pending_packages"] == binding["pending_packages"], "APT candidates changed since approval")
+        pending_reviews = [r for r in plan.get("reviewed_plex_downtime", []) if r["node"] == name]
+        if pending_reviews:
+            require(reviewed_plex_downtime(policy, items("pods")) == pending_reviews,
+                    "Plex downtime identity changed before drain")
         step_id = uuid.uuid4().hex
         payload = {
             "operation": plan["action"], "run_id": step_id, "name": name, "role": node["role"],
@@ -670,7 +778,8 @@ def apply(plan, approval, policy, recovery_directory, token_confirmed, compatibi
         kube("cordon", name)
         run(["kubectl", "--request-timeout=30s", "drain", name, "--ignore-daemonsets",
              "--delete-emptydir-data", "--timeout=10m"], timeout=660)
-        post_drain = drained_health(policy, node)
+        post_drain = (wait_for(lambda: drained_health(policy, node, pending_reviews=pending_reviews),
+                              seconds=180, budget=budget) if pending_reviews else drained_health(policy, node))
         (evidence_directory / (name + "-after-drain.json")).write_text(json.dumps({
             "node": name, "created_epoch": int(time.time()), "health": post_drain,
         }, indent=2), encoding="utf-8")

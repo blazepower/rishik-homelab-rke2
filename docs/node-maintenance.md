@@ -97,8 +97,8 @@ Resolve every blocker before approval. In particular:
   capacity or explicitly reviewed application availability changes, not
   bypassed with `--disable-eviction` or force deletion.
 - A hostname-pinned application such as Plex cannot simply migrate during
-  its host's drain. GPU/data-locality and acceptable application downtime
-  require a separate placement/maintenance design.
+  its host's drain. The held Plex downtime contract below treats its exact
+  replacement as expected Pending on worker1 instead of claiming GPU migration.
 - The conservative capacity check counts resource requests, init containers,
   extended resources and pod slots on the other worker. Affinity/topology,
   hostPath and PV locality constraints block rather than being guessed safe.
@@ -112,7 +112,8 @@ Resolve every blocker before approval. In particular:
   bindings are checked again before lock acquisition. This does not bypass
   their capacity, scheduling or PDB checks. NFS controller
   `/var/lib/kubelet/pods` bidirectional mounts, Longhorn instance-manager data
-  paths, Plex devices and all other hostPath uses still require explicit review.
+  paths and all other hostPath uses still require explicit review. Plex's
+  exact devices are covered only by its separately hash-bound downtime contract.
 - All active pods, native HTTPS/VPN probes, both Longhorn managers, and every
   active Longhorn volume must pass. Attached volumes need two running RW worker
   copies; detached volumes need two clean stopped worker copies. The two
@@ -123,6 +124,35 @@ Resolve every blocker before approval. In particular:
   salvaged or treated as healthy two-copy volumes.
 - APT metadata must be recent. The host refreshes APT again before upgrading;
   changed package candidates abort, requiring a new reviewed plan.
+
+### Held Plex downtime contract
+
+The `plex_downtime` policy hashes freeze the reviewed single-replica Plex
+StatefulSet template and admitted Pod specification. A plan binds its actual
+controller UID/generation, stable revision and original Pod UID. Only the exact
+`media/plex-plex-media-server-0` workload pinned to worker1 is excluded from
+peer-worker migration capacity/scheduling checks; it is not a generic hostPath,
+GPU, namespace or unhealthy-Pod exemption. PVC locality and PDB checks remain.
+Hashes change on image, init-container, volume, mount, resource, security or
+other specification drift and require a new source review. Only `nodeName` and
+the API-generated service-account projection suffix are normalized.
+
+Before the drain Plex must be Ready and its binding must still match. After a
+normal worker1 eviction, the runner waits within the existing outage budget for
+the exact unscheduled replacement to report Pending/Unschedulable with a new
+Pod UID but unchanged controller/revision/specification. Only then may its
+readiness and `https://plex.homelab/identity` probe be omitted for that worker1
+post-drain check. Missing, terminating, scheduled, Running-but-unhealthy,
+modified or unrelated Pods are not accepted. The other node steps have no
+Plex exception.
+
+All native Longhorn two-copy/quarantine, manager, peer-node, other-workload and
+VPN/probe checks still run before host changes. After worker1 returns and is
+uncordoned, full readiness and the real Plex probe are required again before
+another node or lock release. The review does not scale Plex, change PDBs,
+move its GPU/media/config data, waive storage protection, reset an outage clock
+or authorize a maintenance window. This remains held source pending protected
+live drain/recovery acceptance; it does not solve the other fleet blockers.
 
 ## Controller recovery prerequisite
 
