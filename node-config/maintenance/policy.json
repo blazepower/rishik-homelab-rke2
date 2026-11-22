@@ -2,6 +2,10 @@
   "ubuntu_lts": "26.04",
   "kernel_package": "linux-generic",
   "kernel": "7.0.0-43-generic",
+  "plex_downtime": {
+    "template_sha256": "415d5743e2e5ea1d540c2c90a96c6f8f6a74c95ed4dba9f7424442739b948fc7",
+    "pod_spec_sha256": "fce5fc18174beec4b05c3be300513aae721e2e642ec3cef6af5ff3f8efdb52cf"
+  },
   "rke2_goal_minor": "1.37",
   "rke2_releases": {
     "1.35": {
