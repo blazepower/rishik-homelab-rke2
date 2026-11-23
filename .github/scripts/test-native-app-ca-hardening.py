@@ -38,6 +38,7 @@ POLICY = guard.policy_keys(SHARED / "blocked-spkis.sha256")
 BASELINE = json.loads((ROOT / ".github" / "security" / "fleet-application-ca-report.json").read_text())
 MAINTAINED = json.loads((ROOT / ".github" / "security" / "maintained-go-runtime.json").read_text())
 EVIDENCE = ROOT / ".github" / "security" / "fleet-native-app-ca-report.json"
+SEERR = json.loads(EVIDENCE.read_text())["immutable_images"]["overseerr"]
 
 
 def release(app):
@@ -58,7 +59,11 @@ def image(profile, init=None):
 
 
 def baseline(profile):
-    needle = "seerr-team/seerr" if profile == "overseerr" else "/" + profile + "@"
+    if profile == "overseerr":
+        return {"running_imageID": SEERR["index"], "immutable_amd64": SEERR["amd64"],
+                "public_store_denied_copies": SEERR["public_store_denied_copies"],
+                "native_node_version": SEERR["native_node_version"]}
+    needle = "/" + profile + "@"
     historical = next(row for row in BASELINE["images"] if needle in row["running_imageID"])
     candidate = MAINTAINED["images"].get(profile)
     if candidate:
@@ -356,6 +361,22 @@ class FilterTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             guard.harden(self.root, "overseerr", self.denied)
 
+    def test_seerr_clean_bundle_is_preserved_and_new_denied_keys_fail_closed(self):
+        shutil.rmtree(self.root / "usr")
+        clean = b"".join(self.pem[1:])
+        self.bundle.write_bytes(clean)
+        result = guard.harden(self.root, "overseerr", self.denied)
+        self.assertEqual(result["removed_certificate_copies"], 0)
+        self.assertEqual(result["unaffected_certificates"], 11)
+        self.assertEqual(self.bundle.read_bytes(), clean)
+        guard.harden(self.root, "overseerr", self.denied, verify_only=True)
+        self.bundle.write_bytes(clean + self.pem[0])
+        with self.assertRaises(ValueError):
+            guard.harden(self.root, "overseerr", self.denied, verify_only=True)
+        result = guard.harden(self.root, "overseerr", self.denied)
+        self.assertEqual(result["removed_certificate_copies"], 1)
+        self.assertEqual(self.bundle.read_bytes(), clean)
+
     def test_empty_native_source_store_cannot_silently_pass_with_a_good_bundle(self):
         for path in self.source.iterdir():
             path.unlink()
@@ -524,7 +545,12 @@ class ImmutableImageTests(unittest.TestCase):
                     "-B", "/ca-guard/ca-overlay.py", "--root", "/ca-store", "--app", profile,
                     "--policy", "/ca-guard/blocked-spkis.sha256", text=True,
                 )
-                self.assertGreater(json.loads(filtered.stdout)["removed_certificate_copies"], 0)
+                removed = json.loads(filtered.stdout)["removed_certificate_copies"]
+                expected_denied = baseline(profile).get("public_store_denied_copies")
+                if expected_denied is None:
+                    self.assertGreater(removed, 0)
+                else:
+                    self.assertEqual(removed, expected_denied)
                 overlays = []
                 for tree in guard.NATIVE_TREES[profile]:
                     overlays += ["--mount", f"type=volume,src={volume},dst=/{tree},readonly,volume-subpath={tree}"]
@@ -584,7 +610,8 @@ class ImmutableImageTests(unittest.TestCase):
                             "const spki=crypto.createHash('sha256').update(c.publicKey.export({type:'spki',format:'der'}))"
                             ".digest('hex').toUpperCase();if(denied.has(spki))throw Error('Denied '+kind+' key')}"
                             "return roots.length};"
-                            "if(process.version!=='v22.23.4')throw Error('Unexpected Node version');"
+                            "if(process.version!==" + json.dumps(baseline(profile)["native_node_version"])
+                            + ")throw Error('Unexpected Node version');"
                             "console.log(JSON.stringify({version:process.version,system:scan('system'),"
                             "default:scan('default'),bundled:scan('bundled')}));"
                         )
