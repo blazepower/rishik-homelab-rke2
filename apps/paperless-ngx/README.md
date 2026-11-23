@@ -193,6 +193,13 @@ Update the immutable image in `charts/paperless-ngx/values.yaml`, align
 Flux uses `ChartVersion` reconciliation, so template/default changes also need
 a chart-version increment.
 
+The 3.4.2 to 3.5.1 upgrade uses local chart 1.0.13 and introduces tag-tree,
+workflow-trigger and note-format migrations. Require a current coordinated
+backup, isolated restore and target-version rehearsal for this minor upgrade
+as well. The 3.5.0 allowed-hosts default changed; this chart explicitly sets
+`PAPERLESS_ALLOWED_HOSTS`, so the existing ingress and probe hosts remain
+accepted independently of the upstream default.
+
 For the v3 migration, require the completed v2.20.15 source schema, a coordinated
 native PostgreSQL plus data/media/consume/export backup, an isolated old-version
 restore, and a target-version migration rehearsal. Preserve the existing signing
