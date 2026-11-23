@@ -19,6 +19,13 @@ This repository includes a comprehensive CI/CD pipeline that runs on all pull re
 
 ## Configuration Files
 
+The YAML Lint job also runs application and Flux bootstrap regression tests.
+For a Flux bundle upgrade, update the exact release and controller-version
+expectations in `.github/scripts/test-flux-bootstrap.py` from the upstream
+release together with `gotk-components.yaml`; do not bypass the coordinated
+bundle checks. Flux v2.10.1 uses source/kustomize-controller v1.10.2,
+helm-controller v1.7.2, and notification-controller v1.10.1.
+
 - `.github/workflows/ci.yaml` - GitHub Actions workflow definition
 - `.yamllint.yaml` - YAML linting configuration
 - `.gitleaks.toml` - Secret detection configuration
