@@ -606,7 +606,8 @@ end
 NATIVE_PROBE = r"""
 require "openssl"; require "json"
 require "tmpdir"
-raise "unwritable application temporary directory" unless Dir.tmpdir=="/rails/tmp" && File.writable?(Dir.tmpdir)
+raise "unsafe application temporary directory" unless Dir.tmpdir=="/rails/tmp/runtime" &&
+ File.writable?(Dir.tmpdir) && File.stat(Dir.tmpdir).uid==Process.uid && File.stat(Dir.tmpdir).mode&0777==0700
 load "/ca-test-tools/harden-ca.rb"
 m=JSON.parse(File.read("/ca-test-tools/factory-ca.json"))
 denied=SureTrust.policy(File.read("/ca-test-tools/blocked-spkis.sha256"))
