@@ -251,9 +251,21 @@ root preservation and read-only replacement barriers remain required.
 Run `python -B .github/scripts/test-sure-runtime-ca-hardening.py`. Full original
 Rails/Sidekiq startup and mounted native-store acceptance require the existing
 Linux CI Docker job with disposable loopback-only PostgreSQL/Redis fixtures.
-Private/custom trust contexts are not certified. Passing that job does not
-authorize a production rollout: database/Redis backups, migration compatibility
-and the existing serial storage activation gates still need coordinator review.
+The upgrade case starts the actual immutable 0.7.2-alpha.2 baseline, verifies its
+deployed schema version `20260531153000`, backs up and restores a synthetic
+database, and runs the original 0.7.6 entrypoint against that restored database.
+It also verifies that a synthetic family survives and all migrations complete.
+This is separate from fresh-database CA acceptance.
+
+The actual deployed baseline is 0.7.2-alpha.2, not 0.7.5. The exact source
+comparison contains 112 added and two modified migration files. Existing
+Trade Republic tables are absent from the deployed schema; that narrows the
+conditional bond-rescaling migration issue but does not substitute for a
+private-data upgrade rehearsal. Private/custom trust contexts are not certified.
+Verified database/Redis recovery, original encryption keys, relevant uploads
+and isolated migration rehearsal remain production rollout prerequisites.
+Chart 2.2.12 coordinates the updated defaults and application metadata for
+Flux's `ChartVersion` reconciliation.
 
 The application is automatically upgraded when the Helm chart or app version is updated in `helmrelease.yaml`. Flux will detect the changes and apply them.
 

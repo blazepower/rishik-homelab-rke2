@@ -19,6 +19,10 @@ VALUES = yaml.safe_load((APP / "helmrelease.yaml").read_text())["spec"]["values"
 DEFAULTS = yaml.safe_load((CHART / "values.yaml").read_text())
 FACTORY = json.loads((APP / "factory-ca.json").read_text())
 IMAGE = VALUES["image"]["repository"] + ":" + VALUES["image"]["tag"]
+UPGRADE_BASELINE = (
+    "ghcr.io/we-promise/sure:0.7.2-alpha.2@sha256:"
+    "b5d6d822fdef24c1af06ad455ce003139a2bd50cb6cf76a84a147dfd06b0e3dc"
+)
 POSTGRES = DEFAULTS["postgresql"]["image"]["repository"] + ":" + DEFAULTS["postgresql"]["image"]["tag"]
 REDIS = DEFAULTS["redis"]["image"]["repository"] + ":" + DEFAULTS["redis"]["image"]["tag"]
 
@@ -299,9 +303,15 @@ class SureLinuxAcceptance(unittest.TestCase):
     def setUpClass(cls):
         if not shutil.which("docker"):
             raise AssertionError("Linux acceptance requires the approved Docker runner")
-        for image in (IMAGE, POSTGRES, REDIS):
+        for image in (IMAGE, UPGRADE_BASELINE, POSTGRES, REDIS):
             subprocess.run(["docker", "pull", "--platform=linux/amd64", image],
                            check=True, capture_output=True, timeout=300)
+        labels = json.loads(subprocess.run(
+            ["docker", "image", "inspect", "--format={{json .Config.Labels}}", UPGRADE_BASELINE],
+            check=True, capture_output=True, timeout=30,
+        ).stdout)
+        if labels.get("org.opencontainers.image.revision") != "53e831039d4757a501dd1dd65d9f9c892d1be1a1":
+            raise AssertionError("upgrade fixture differs from the deployed immutable source")
 
     def setUp(self):
         self.base = ROOT / ("fleet-sure-test-" + uuid.uuid4().hex)
@@ -367,6 +377,33 @@ class SureLinuxAcceptance(unittest.TestCase):
         options += ["--volume", str(self.base / "fixtures") + ":/sure-public-fixtures:ro"]
         return options
 
+    def database_fixture(self):
+        owner = self.create(options=["--entrypoint=ruby"], command=["-e", "sleep 900"])
+        self.docker("start", owner)
+        self.assertEqual(self.docker("inspect", "--format={{.HostConfig.NetworkMode}}", owner).stdout.strip(), b"none")
+        network = "container:" + owner
+        postgres = self.create(POSTGRES, options=[
+            "--user=70:70", "--tmpfs=/pgdata:rw,uid=70,gid=70,mode=0700",
+            "--tmpfs=/var/run/postgresql:rw,uid=70,gid=70,mode=0775",
+            "--env=PGDATA=/pgdata", "--env=POSTGRES_DB=sure_fixture", "--env=POSTGRES_USER=fixture",
+            "--env=POSTGRES_PASSWORD=public-test-fixture",  # gitleaks:allow
+        ], network=network)
+        redis = self.create(REDIS, options=["--read-only", "--user=1000:1000", "--entrypoint=redis-server"],
+                            command=["--bind", "127.0.0.1", "--save", "", "--appendonly", "no"], network=network)
+        self.docker("start", postgres)
+        self.docker("start", redis)
+        self.wait_ready(["exec", postgres, "pg_isready", "-U", "fixture", "-d", "sure_fixture"], 60,
+                        "fresh disposable PostgreSQL fixture")
+        self.wait_ready(["exec", redis, "redis-cli", "ping"], 30, "fresh disposable Redis fixture")
+        environment = {
+            "RAILS_ENV": "production", "SECRET_KEY_BASE": "1" * 128,
+            "SELF_HOSTING_ENABLED": "true", "RAILS_FORCE_SSL": "false", "RAILS_ASSUME_SSL": "false",
+            "DB_HOST": "127.0.0.1", "POSTGRES_DB": "sure_fixture", "TMPDIR": "/rails/tmp",
+            "POSTGRES_USER": "fixture", "POSTGRES_PASSWORD": "public-test-fixture",  # gitleaks:allow
+            "REDIS_URL": "redis://127.0.0.1:6379/1",
+        }
+        return network, postgres, environment
+
     def test_bad_policy_or_factory_drift_prevents_initializer_success_before_app_start(self):
         tools = self.base / "tools"
         shutil.copytree(self.tools, tools)
@@ -405,31 +442,7 @@ class SureLinuxAcceptance(unittest.TestCase):
         fixture_data = self.docker("start", "--attach", baseline).stdout
         json.loads(fixture_data)
         (fixtures / "public-negative-roots.json").write_bytes(fixture_data)
-        owner = self.create(options=["--entrypoint=ruby"], command=["-e", "sleep 900"])
-        self.docker("start", owner)
-        self.assertEqual(self.docker("inspect", "--format={{.HostConfig.NetworkMode}}", owner).stdout.strip(), b"none")
-        network = "container:" + owner
-        postgres = self.create(POSTGRES, options=[
-            "--user=70:70", "--tmpfs=/pgdata:rw,uid=70,gid=70,mode=0700",
-            "--tmpfs=/var/run/postgresql:rw,uid=70,gid=70,mode=0775",
-            "--env=PGDATA=/pgdata", "--env=POSTGRES_DB=sure_fixture", "--env=POSTGRES_USER=fixture",
-            "--env=POSTGRES_PASSWORD=public-test-fixture",  # gitleaks:allow
-        ], network=network)
-        redis = self.create(REDIS, options=["--read-only", "--user=1000:1000", "--entrypoint=redis-server"],
-                            command=["--bind", "127.0.0.1", "--save", "", "--appendonly", "no"], network=network)
-        self.docker("start", postgres)
-        self.docker("start", redis)
-        self.wait_ready(["exec", postgres, "pg_isready", "-U", "fixture", "-d", "sure_fixture"], 60,
-                        "fresh disposable PostgreSQL fixture")
-        self.wait_ready(["exec", redis, "redis-cli", "ping"], 30, "fresh disposable Redis fixture")
-        environment = {
-            "RAILS_ENV": "production", "SECRET_KEY_BASE": "1" * 128,
-            "SELF_HOSTING_ENABLED": "true", "RAILS_FORCE_SSL": "false", "RAILS_ASSUME_SSL": "false",
-            "DB_HOST": "127.0.0.1", "POSTGRES_DB": "sure_fixture",
-            "TMPDIR": "/rails/tmp",
-            "POSTGRES_USER": "fixture", "POSTGRES_PASSWORD": "public-test-fixture",  # gitleaks:allow
-            "REDIS_URL": "redis://127.0.0.1:6379/1",
-        }
+        network, postgres, environment = self.database_fixture()
         options = self.app_options(output)
         for key, value in environment.items():
             options += ["--env=" + key + "=" + value]
@@ -456,6 +469,55 @@ class SureLinuxAcceptance(unittest.TestCase):
             self.docker("exec", container, "ruby", "-rsocket", "-e",
                         "abort 'non-loopback interface' unless Socket.getifaddrs.all?"
                         "{|a|!a.addr||!a.addr.ip?||['127.0.0.1','::1'].include?(a.addr.ip_address)}")
+
+    def test_upgrade_from_deployed_schema_restores_before_original_candidate_migrations(self):
+        (self.base / "fixtures").mkdir()
+        output, _, code = self.initialize()
+        self.assertEqual(code, 0)
+        network, postgres, environment = self.database_fixture()
+        options = self.app_options(output)
+        options += ["--env=" + key + "=" + value for key, value in environment.items()]
+        readiness = (
+            "require 'net/http';r=Net::HTTP.start('127.0.0.1',3000,open_timeout:1,read_timeout:2)"
+            "{|h|h.get('/')};exit((200..399).include?(r.code.to_i) ? 0 : 1)"
+        )
+        old = self.create(UPGRADE_BASELINE, options=options, network=network)
+        self.docker("start", old)
+        self.wait_ready(["exec", old, "ruby", "-e", readiness], 180, "actual deployed-image schema fixture")
+        query = ["exec", postgres, "psql", "-U", "fixture", "-d", "sure_fixture", "-At", "-v", "ON_ERROR_STOP=1"]
+        self.assertEqual(self.docker(*query, "-c", "SELECT max(version) FROM schema_migrations").stdout.strip(),
+                         b"20260531153000")
+        self.assertEqual(self.docker(*query, "-c",
+                         "SELECT to_regclass('public.trade_republic_items') IS NULL").stdout.strip(), b"t")
+        self.docker(*query, "-c",
+                    "INSERT INTO families(id,name,currency,created_at,updated_at) VALUES "
+                    "('00000000-0000-0000-0000-000000000001','Public upgrade fixture','USD',now(),now())")
+        self.docker("stop", "--time=30", old)
+        self.docker("exec", postgres, "pg_dump", "-U", "fixture", "-d", "sure_fixture",
+                    "--format=custom", "--file=/pgdata/upgrade-fixture.dump")
+        self.docker("exec", postgres, "createdb", "-U", "fixture", "sure_upgrade_restore")
+        self.docker("exec", postgres, "pg_restore", "-U", "fixture", "-d", "sure_upgrade_restore",
+                    "--exit-on-error", "/pgdata/upgrade-fixture.dump")
+        self.docker("exec", postgres, "rm", "/pgdata/upgrade-fixture.dump")
+        restored = [part.replace("POSTGRES_DB=sure_fixture", "POSTGRES_DB=sure_upgrade_restore")
+                    for part in options]
+        candidate = self.create(options=restored, network=network)
+        self.docker("start", candidate)
+        self.wait_ready(["exec", candidate, "ruby", "-e", readiness], 360,
+                        "restored deployed-schema upgrade through unchanged candidate entrypoint")
+        restored_query = [part.replace("sure_fixture", "sure_upgrade_restore") for part in query]
+        self.assertEqual(self.docker(*restored_query, "-c",
+                         "SELECT name||':'||currency FROM families WHERE "
+                         "id='00000000-0000-0000-0000-000000000001'").stdout.strip(),
+                         b"Public upgrade fixture:USD")
+        self.docker("exec", candidate, "./bin/rails", "runner",
+                    "abort 'pending migration' if ActiveRecord::Base.connection_pool.migration_context.needs_migration?",
+                    timeout=60)
+        self.assertEqual(self.docker(*restored_query, "-c",
+                         "SELECT count(*) FROM information_schema.columns WHERE table_schema='public' "
+                         "AND table_name='trade_republic_items' AND column_name='session_expires_at'").stdout.strip(),
+                         b"1")
+        self.docker("exec", candidate, "ruby", "-e", READONLY_PROBE)
 
     def wait_ready(self, command, seconds, description):
         deadline = time.monotonic() + seconds
