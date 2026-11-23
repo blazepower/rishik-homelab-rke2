@@ -30,6 +30,44 @@ h = load("maintenance_host", "node-maintenance-host.py")
 
 
 class MaintenanceTests(unittest.TestCase):
+    def test_required_node_affinity_is_checked_against_the_actual_peer(self):
+        peer = {"metadata": {"name": "rishik-worker2", "labels": {"kubernetes.io/os": "linux"}},
+                "spec": {}, "status": {"allocatable": {"cpu": "4", "memory": "4Gi", "pods": "10"}}}
+        pod = {"metadata": {"namespace": "public", "name": "fixture", "uid": "fixture",
+                           "ownerReferences": [{"kind": "ReplicaSet", "uid": "public-controller"}]},
+               "spec": {"nodeName": "rishik-worker1", "containers": [], "affinity": {}},
+               "status": {"phase": "Running"}}
+        worker_term = {"matchExpressions": [
+            {"key": "kubernetes.io/os", "operator": "In", "values": ["linux"]},
+            {"key": "node-role.kubernetes.io/control-plane", "operator": "DoesNotExist"}]}
+        name_term = {"matchFields": [
+            {"key": "metadata.name", "operator": "In", "values": ["rishik-worker2"]}]}
+        for terms in ([worker_term], [name_term], [
+                {"matchExpressions": [{"key": "kubernetes.io/os", "operator": "In", "values": ["windows"]}]},
+                worker_term]):
+            pod["spec"]["affinity"] = {"nodeAffinity": {
+                "requiredDuringSchedulingIgnoredDuringExecution": {"nodeSelectorTerms": terms}}}
+            with self.subTest(terms=terms):
+                self.assertFalse(m.scheduling_blockers("rishik-worker1", peer, [pod]))
+        mismatched = copy.deepcopy(peer)
+        mismatched["metadata"]["labels"]["node-role.kubernetes.io/control-plane"] = ""
+        self.assertTrue(m.scheduling_blockers("rishik-worker1", mismatched, [pod]))
+        for terms in ([], [{}], [{"matchExpressions": [
+                {"key": "cpu", "operator": "Gt", "values": ["2"]}]}], [
+                {"matchFields": [{"key": "metadata.uid", "operator": "In", "values": ["unknown"]}]}]):
+            pod["spec"]["affinity"] = {"nodeAffinity": {
+                "requiredDuringSchedulingIgnoredDuringExecution": {"nodeSelectorTerms": terms}}}
+            with self.subTest(terms=terms):
+                self.assertTrue(m.scheduling_blockers("rishik-worker1", peer, [pod]))
+        pod["spec"]["affinity"] = {"nodeAffinity": {
+            "requiredDuringSchedulingIgnoredDuringExecution": {"nodeSelectorTerms": [worker_term]}},
+            "podAntiAffinity": {"requiredDuringSchedulingIgnoredDuringExecution": [
+                {"labelSelector": {"matchLabels": {"app": "public"}}, "topologyKey": "kubernetes.io/hostname"}]}}
+        self.assertTrue(m.scheduling_blockers("rishik-worker1", peer, [pod]))
+        pod["spec"]["affinity"].pop("podAntiAffinity")
+        pod["spec"]["topologySpreadConstraints"] = [{"whenUnsatisfiable": "DoNotSchedule"}]
+        self.assertTrue(m.scheduling_blockers("rishik-worker1", peer, [pod]))
+
     def plex_fixture(self):
         policy = json.loads(m.POLICY.read_text())
         labels = {"app": "plex", "controller-revision-hash": "plex-revision"}

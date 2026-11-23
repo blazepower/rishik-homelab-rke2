@@ -111,9 +111,14 @@ Resolve every blocker before approval. In particular:
   its host's drain. The held Plex downtime contract below treats its exact
   replacement as expected Pending on worker1 instead of claiming GPU migration.
 - The conservative capacity check counts resource requests, init containers,
-  extended resources and pod slots on the other worker. Affinity/topology,
-  hostPath and PV locality constraints block rather than being guessed safe.
-  It does not claim to emulate the Kubernetes scheduler.
+  extended resources and pod slots on the other worker. Required node affinity
+  is checked against the actual peer's labels/name: terms are ORed and each
+  term's expressions/fields are ANDed. Label `In`, `NotIn`, `Exists` and
+  `DoesNotExist`, and `metadata.name` field `In`/`NotIn` are supported.
+  Unsupported operators/fields and empty required terms remain blocked.
+  Required inter-pod affinity/anti-affinity, hard topology spread, hostPath and
+  PV locality still require explicit design. This does not claim to emulate
+  the Kubernetes scheduler or relax any workload's actual placement policy.
 - The four reviewed Longhorn CSI sidecar Deployments (`csi-attacher`,
   `csi-provisioner`, `csi-resizer`, `csi-snapshotter`) use only the driver's
   local UNIX socket, not application data. This exact

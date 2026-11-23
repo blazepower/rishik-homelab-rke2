@@ -159,6 +159,26 @@ def matches(selector, labels):
     return True
 
 
+def node_affinity_allows_peer(affinity, node):
+    required = affinity.get("requiredDuringSchedulingIgnoredDuringExecution")
+    if required is None:
+        return True
+    terms = required.get("nodeSelectorTerms", [])
+    if any(expression.get("operator") not in ("In", "NotIn", "Exists", "DoesNotExist")
+           for term in terms for expression in term.get("matchExpressions", [])):
+        return False
+    if any(field.get("key") != "metadata.name" or field.get("operator") not in ("In", "NotIn")
+           for term in terms for field in term.get("matchFields", [])):
+        return False
+    for term in terms:
+        expressions, fields = term.get("matchExpressions", []), term.get("matchFields", [])
+        if ((expressions or fields)
+                and matches({"matchExpressions": expressions}, node["metadata"].get("labels", {}))
+                and matches({"matchExpressions": fields}, {"metadata.name": node["metadata"]["name"]})):
+            return True
+    return False
+
+
 def evictable(pod):
     return (pod["status"].get("phase") not in ("Succeeded", "Failed")
             and "kubernetes.io/config.mirror" not in pod["metadata"].get("annotations", {})
@@ -364,8 +384,9 @@ def scheduling_blockers(node, target, pods, socket_reviews=(), pending_reviews=(
             blockers.append(identity + ": nodeSelector prevents migration to the other worker")
         # Do not pretend that a resource-sum heuristic implements the scheduler.
         affinity = spec.get("affinity") or {}
-        if (any(affinity.get(kind, {}).get("requiredDuringSchedulingIgnoredDuringExecution")
-                for kind in ("nodeAffinity", "podAffinity", "podAntiAffinity"))
+        if (not node_affinity_allows_peer(affinity.get("nodeAffinity", {}), target)
+                or any(affinity.get(kind, {}).get("requiredDuringSchedulingIgnoredDuringExecution")
+                       for kind in ("podAffinity", "podAntiAffinity"))
                 or any(c["whenUnsatisfiable"] == "DoNotSchedule" for c in spec.get("topologySpreadConstraints", []))):
             blockers.append(identity + ": affinity/topology constraints require explicit maintenance design")
         if (any(v.get("hostPath") for v in spec.get("volumes", []))
