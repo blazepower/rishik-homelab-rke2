@@ -27,7 +27,7 @@ spec:
     # Use Sure fork (community fork with SimpleFIN support)
     image:
       repository: ghcr.io/we-promise/sure
-      tag: "0.7.2-alpha.2@sha256:b5d6d822fdef24c1af06ad455ce003139a2bd50cb6cf76a84a147dfd06b0e3dc"
+      tag: "0.7.6@sha256:61cd4c1fa9917200f8db4434b45d968235f375c52cdbdc81bf4a4df555a2f090"
 
     runtimeCaHardening:
       enabled: true
