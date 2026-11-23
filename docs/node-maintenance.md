@@ -83,6 +83,16 @@ versions, actual kubectl/API versions and simulated package candidates. Plans ex
 Store plans outside Git; they contain technical metadata, not records,
 credentials or raw workload logs.
 
+For OS maintenance of worker2 without attempting worker1 or the controller, add
+`--worker2-only` to `plan`. The selection is part of the approval hash and is
+preserved when `apply` rebuilds the plan. It cannot be used for RKE2 upgrades,
+which retain the controller-first minor-upgrade sequence. Only worker2's
+eviction/host steps are selected; all nodes, storage copies, quarantines,
+workload health, package bindings and recovery-access checks are still checked.
+Worker1-only eviction blockers do not become worker2 blockers, but this flag
+does not waive any worker2 capacity, PDB, placement or native-storage gate.
+The scope remains held source, not a drain/reboot approval.
+
 Resolve every blocker before approval. In particular:
 
 - The workstation's `kubectl` must be within one minor of both the current API

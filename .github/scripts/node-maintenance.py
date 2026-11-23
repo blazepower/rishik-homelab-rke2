@@ -553,7 +553,9 @@ def audit_nodes(policy):
     return {node["name"]: remote(node, {"operation": "audit"}) for node in policy["nodes"]}
 
 
-def build_plan(policy, action, minor, inventory):
+def build_plan(policy, action, minor, inventory, worker2_only=False):
+    require(isinstance(worker2_only, bool) and (not worker2_only or action == "os"),
+            "Worker2-only scope is supported only for OS maintenance, not RKE2 upgrades")
     pods, nodes, pdbs = items("pods"), items("nodes"), items("poddisruptionbudgets")
     pvcs = {(p["metadata"]["namespace"], p["metadata"]["name"]): p["spec"].get("volumeName")
             for p in items("persistentvolumeclaims")}
@@ -592,6 +594,9 @@ def build_plan(policy, action, minor, inventory):
         blockers.append(str(error))
     order = policy["nodes"] if action == "rke2" else sorted(policy["nodes"], key=lambda n: (
         n["role"] == "server", n["name"] != "rishik-worker2"))
+    if worker2_only:
+        order = [n for n in order if n["name"] == "rishik-worker2" and n["role"] == "agent"]
+        require(len(order) == 1, "Expected exactly one worker2 agent for the selected scope")
     for node in order:
         name, host = node["name"], inventory[node["name"]]
         require(host["name"] == name and host["os"] == "ubuntu"
@@ -630,11 +635,13 @@ def build_plan(policy, action, minor, inventory):
         "created_epoch": int(time.time()), "cluster_uid": get("namespace", name="kube-system")["metadata"]["uid"],
         "policy_sha256": sha(POLICY.read_bytes()), "runner_sha256": sha(Path(__file__).read_bytes()),
         "host_sha256": sha(HOST.read_bytes()), "action": action, "release": release,
+        "worker2_only": worker2_only,
         "outage_budget": {"maximum_seconds": MAX_OUTAGE_SECONDS, "recovery_reserve_seconds": RECOVERY_RESERVE_SECONDS},
         "nodes": order, "bindings": bindings, "kubectl": client, "quarantine": protected, "blockers": sorted(set(blockers)),
         "reviewed_csi_sockets": sockets,
         "reviewed_plex_downtime": pending_reviews,
-        "impact": "Serial drains delete reviewed emptyDir data. OS: host reboot and disable desktop, printing, "
+        "impact": ("Worker2-only scope; worker1/controller are not maintenance targets. " if worker2_only else "")
+                  + "Serial drains delete reviewed emptyDir data. OS: host reboot and disable desktop, printing, "
                   "Bluetooth, mDNS advertisement and modem services; preserve networking/storage/GPU drivers. "
                   "RKE2: service restarts. Controller step interrupts the sole API/etcd server. "
                   "No package removal, forced drain, automatic restore, or controller uncordon.",
@@ -647,6 +654,12 @@ def check_plan(plan, approval, cluster_uid, now=None):
     require(0 <= age < 4 * 3600, "Plan is expired or has a future timestamp")
     require(plan["cluster_uid"] == cluster_uid, "Kubernetes context points at a different cluster")
     require(plan["action"] in ("os", "rke2"), "Unsupported maintenance operation")
+    require(isinstance(plan.get("worker2_only", False), bool), "Invalid maintenance scope")
+    if plan.get("worker2_only"):
+        expected = [n for n in json.loads(POLICY.read_text())["nodes"]
+                    if n["name"] == "rishik-worker2" and n["role"] == "agent"]
+        require(plan["action"] == "os" and len(expected) == 1 and plan["nodes"] == expected,
+                "Worker2-only approval cannot maintain another node or upgrade RKE2")
     require(plan["policy_sha256"] == sha(POLICY.read_bytes())
             and plan["runner_sha256"] == sha(Path(__file__).read_bytes())
             and plan["host_sha256"] == sha(HOST.read_bytes()) == sha(HOST_BYTES),
@@ -744,7 +757,7 @@ def apply(plan, approval, policy, recovery_directory, token_confirmed, compatibi
     inventory = audit_nodes(policy)
     fresh = build_plan(policy, plan["action"],
                        ".".join(str(x) for x in version(plan["release"]["version"])[:2]) if plan["release"] else None,
-                       inventory)
+                       inventory, worker2_only=plan.get("worker2_only", False))
     require(not fresh["blockers"] and all(fresh[key] == plan[key]
             for key in ("bindings", "nodes", "release", "quarantine", "kubectl", "reviewed_csi_sockets")),
             "Cluster/host/package/client state changed or blockers appeared; generate a new plan")
@@ -828,7 +841,8 @@ def apply(plan, approval, policy, recovery_directory, token_confirmed, compatibi
     budget.remaining()
     require(get("configmap", "kube-system", LOCK)["data"]["run_id"] == run_id, "Maintenance lock ownership changed")
     kube("-n", "kube-system", "delete", "configmap", LOCK)
-    print("Fleet maintenance accepted. Controller remains cordoned; Kured remains suspended.")
+    print(("Worker2" if plan.get("worker2_only") else "Fleet")
+          + " maintenance accepted. Controller remains cordoned; Kured remains suspended.")
 
 
 def discover(policy):
@@ -860,6 +874,8 @@ def main():
     plan_parser = commands.add_parser("plan")
     plan_parser.add_argument("--action", choices=("os", "rke2"), required=True)
     plan_parser.add_argument("--minor", help="Pinned target minor, e.g. 1.36; no minor skipping")
+    plan_parser.add_argument("--worker2-only", action="store_true",
+                             help="OS maintenance of worker2 only; retain full-cluster safety checks")
     plan_parser.add_argument("--output", type=Path, required=True)
     apply_parser = commands.add_parser("apply")
     apply_parser.add_argument("--plan", type=Path, required=True)
@@ -879,7 +895,8 @@ def main():
         if args.command == "audit":
             print(json.dumps(inventory, indent=2))
         else:
-            plan = build_plan(policy, args.action, args.minor, inventory)
+            plan = build_plan(policy, args.action, args.minor, inventory,
+                              worker2_only=args.worker2_only)
             args.output.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
             print(json.dumps({"plan_sha256": sha(canonical(plan)), "blockers": plan["blockers"],
                               "impact": plan["impact"]}, indent=2))

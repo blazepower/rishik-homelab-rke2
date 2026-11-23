@@ -314,6 +314,24 @@ class MaintenanceTests(unittest.TestCase):
         with patch.object(m, "HOST_BYTES", b"different executable source"), self.assertRaises(RuntimeError):
             m.check_plan(plan, approval, "cluster", now=101)
 
+    def test_worker2_scope_cannot_authorize_other_nodes_or_rke2(self):
+        policy = json.loads(m.POLICY.read_text())
+        worker = next(n for n in policy["nodes"] if n["name"] == "rishik-worker2")
+        plan = {
+            "created_epoch": 100, "cluster_uid": "cluster", "action": "os",
+            "policy_sha256": m.sha(m.POLICY.read_bytes()),
+            "runner_sha256": m.sha(Path(m.__file__).read_bytes()),
+            "host_sha256": m.sha(m.HOST.read_bytes()), "blockers": [],
+            "worker2_only": True, "nodes": [worker],
+        }
+        m.check_plan(plan, m.sha(m.canonical(plan)), "cluster", now=101)
+        for change in ({"action": "rke2"}, {"nodes": policy["nodes"]},
+                       {"nodes": []}, {"nodes": [{**worker, "ssh": "other-host"}]},
+                       {"worker2_only": "yes"}):
+            changed = {**plan, **change}
+            with self.subTest(change=change), self.assertRaises(RuntimeError):
+                m.check_plan(changed, m.sha(m.canonical(changed)), "cluster", now=101)
+
     def storage(self, state="attached"):
         volume = {"metadata": {"name": "vol"}, "spec": {"numberOfReplicas": 2},
                   "status": {"state": state, "robustness": "healthy"}}
@@ -657,13 +675,22 @@ class MaintenanceTests(unittest.TestCase):
         plex_pdb = copy.deepcopy(pdb)
         plex_pdb["metadata"]["name"] = "plex-pdb"
         plex_pdb["spec"]["selector"] = {"matchLabels": {"app": "plex"}}
-        resources = {"pods": [pod, plex_pod], "nodes": nodes, "poddisruptionbudgets": [pdb, plex_pdb]}
+        worker2_pod, worker2_pdb = copy.deepcopy(pod), copy.deepcopy(pdb)
+        worker2_pod["metadata"].update(name="worker2-app", labels={"app": "worker2"})
+        worker2_pod["spec"]["nodeName"] = "rishik-worker2"
+        worker2_pdb["metadata"]["name"] = "worker2-app-pdb"
+        worker2_pdb["spec"]["selector"] = {"matchLabels": {"app": "worker2"}}
+        resources = {"pods": [pod, worker2_pod, plex_pod], "nodes": nodes,
+                     "poddisruptionbudgets": [pdb, worker2_pdb, plex_pdb]}
         versions = {"clientVersion": {"gitVersion": "v1.35.10"}, "serverVersion": {"gitVersion": "v1.35.10+rke2r1"}}
         with patch.object(m, "items", side_effect=lambda r: resources.get(r, [])), \
                 patch.object(m, "get", side_effect=lambda r, *args, **kwargs: plex_controller if r == "statefulset"
                              else {"metadata": {"uid": "cluster"}}), patch.object(m, "health"), \
                 patch.object(m, "kube", side_effect=lambda *args: json.dumps(versions)):
             os_plan = m.build_plan(policy, "os", None, inventory)
+            worker2_plan = m.build_plan(policy, "os", None, inventory, worker2_only=True)
+            with self.assertRaises(RuntimeError):
+                m.build_plan(policy, "rke2", "1.36", inventory, worker2_only=True)
             rke_plan = m.build_plan(policy, "rke2", "1.36", inventory)
             versions["clientVersion"]["gitVersion"] = "v1.34.2"
             unsupported = m.build_plan(policy, "rke2", "1.36", inventory)
@@ -677,15 +704,31 @@ class MaintenanceTests(unittest.TestCase):
                              or "plex-plex-media-server-0: nodeSelector" in b for b in os_plan["blockers"]))
         self.assertEqual(os_plan["kubectl"]["client"], "v1.35.10")
         self.assertTrue(any("one-minor skew" in b for b in unsupported["blockers"]))
+        self.assertTrue(worker2_plan["worker2_only"])
+        self.assertEqual(worker2_plan["nodes"], [policy["nodes"][1]])
+        self.assertEqual(worker2_plan["bindings"], os_plan["bindings"])
+        self.assertEqual(worker2_plan["reviewed_plex_downtime"], plex_review)
+        self.assertEqual(worker2_plan["blockers"],
+                         ["rishik-worker2: PDB media/worker2-app-pdb blocks drain",
+                          "rishik-worker2: other worker lacks requested resource/pod capacity"])
 
     def test_successful_os_run_is_serial_and_keeps_controller_cordoned(self):
+        self._assert_successful_os_run(worker2_only=False)
+
+    def test_successful_worker2_only_run_never_maintains_worker1_or_controller(self):
+        self._assert_successful_os_run(worker2_only=True)
+
+    def _assert_successful_os_run(self, worker2_only):
         policy, _, _, _, plex_review = self.plex_fixture()
         order = [policy["nodes"][1], policy["nodes"][2], policy["nodes"][0]]
+        if worker2_only:
+            order = order[:1]
         plan = {"action": "os", "release": None, "quarantine": {}, "kubectl": {}, "reviewed_csi_sockets": [],
-                "reviewed_plex_downtime": plex_review,
+                "reviewed_plex_downtime": plex_review, "worker2_only": worker2_only,
                 "nodes": order, "bindings": {
-            n["name"]: {"boot_id": "old", "source_version": "v1.35.10+rke2r1", "pending_packages": []} for n in order}}
-        states = {n["name"]: {"boot_id": "old", "pending_packages": []} for n in order}
+            n["name"]: {"boot_id": "old", "source_version": "v1.35.10+rke2r1",
+                        "pending_packages": []} for n in policy["nodes"]}}
+        states = {n["name"]: {"boot_id": "old", "pending_packages": []} for n in policy["nodes"]}
         lock, calls, privileged_steps = {}, [], []
 
         def fake_kube(*args):
@@ -717,7 +760,7 @@ class MaintenanceTests(unittest.TestCase):
         with patch("builtins.print"), tempfile.TemporaryDirectory() as output, patch.object(m.tempfile, "mkdtemp", return_value=output), \
                 patch.object(m, "check_plan"), patch.object(m, "get", side_effect=fake_get), \
                 patch.object(m, "audit_nodes", return_value={}), \
-                patch.object(m, "build_plan", return_value={**plan, "blockers": []}), \
+                patch.object(m, "build_plan", return_value={**plan, "blockers": []}) as rebuild, \
                 patch.object(m, "health"), patch.object(m, "stable_health"), \
                 patch.object(m, "items", return_value=[]), patch.object(m, "reviewed_plex_downtime", return_value=plex_review), \
                 patch.object(m, "drained_health", return_value={}) as drained, patch.object(m.time, "sleep"), \
@@ -726,14 +769,20 @@ class MaintenanceTests(unittest.TestCase):
                 patch.object(m, "wait_for", side_effect=lambda check, **kwargs: check()), \
                 patch.object(m, "kube", side_effect=fake_kube), patch.object(m, "run", return_value=""):
             m.apply(plan, "approved", policy, "/recovery", True, False)
-        self.assertEqual(privileged_steps, ["rishik-worker2", "rishik-worker1", "rishik-controller"])
+        rebuild.assert_called_once_with({**policy, "_quarantine": plan["quarantine"]},
+                                        "os", None, {}, worker2_only=worker2_only)
+        self.assertEqual(privileged_steps, [n["name"] for n in order])
         self.assertEqual([call.args[1]["name"] for call in drained.call_args_list],
-                         ["rishik-worker2", "rishik-worker1", "rishik-controller"])
+                         [n["name"] for n in order])
         self.assertEqual([call.kwargs for call in drained.call_args_list],
-                         [{}, {"pending_reviews": plex_review}, {}])
+                         [{}] if worker2_only else [{}, {"pending_reviews": plex_review}, {}])
         self.assertNotIn(("uncordon", "rishik-controller"), calls)
         self.assertEqual([c for c in calls if c[0] == "uncordon"],
-                         [("uncordon", "rishik-worker2"), ("uncordon", "rishik-worker1")])
+                         [("uncordon", n["name"]) for n in order if n["role"] == "agent"])
+        if worker2_only:
+            for name in ("rishik-worker1", "rishik-controller"):
+                self.assertEqual(states[name]["boot_id"], "old")
+                self.assertNotIn(("cordon", name), calls)
         self.assertIn(("-n", "kube-system", "delete", "configmap", m.LOCK), calls)
         acquired = next(c for c in calls if "create" in c and "configmap" in c)
         self.assertTrue(any(c.startswith("--from-literal=started_epoch=") for c in acquired))
