@@ -215,17 +215,27 @@ kubectl describe ingress -n sure-finance sure-finance
 
 ## Backup and Restore
 
-### Backup PostgreSQL Database
-```bash
-kubectl exec -n sure-finance statefulset/sure-finance-postgresql -- \
-  pg_dump -U maybe maybe > sure-finance-backup-$(date +%Y%m%d).sql
-```
+Upgrade recovery uses a cold, coordinated archive of the active PostgreSQL and
+Redis PVCs, with web/Sidekiq writers and both backends stopped. Private bytes stay
+inside the homelab. `.github/scripts/sure-encrypted-recovery.rb` encrypts the
+compressed archive with AES-256-GCM and a random salt/nonce; HKDF derives a
+domain-separated recovery key from the existing `SECRET_KEY_BASE`. Only the
+existing Kubernetes Secret reference is supplied to the recovery container.
+Never print/export the key, put it on a command line, or rotate it before the
+retained recovery archive is superseded.
 
-### Restore PostgreSQL Database
-```bash
-kubectl exec -i -n sure-finance statefulset/sure-finance-postgresql -- \
-  psql -U maybe maybe < sure-finance-backup-YYYYMMDD.sql
-```
+The recovery tool authenticates the complete archive before releasing any
+plaintext. `.github/scripts/sure-restore-archive.rb` extracts it inside an isolated
+restore pod without changing CSI-owned mount-root metadata or requiring root.
+Use the exact backed-up PostgreSQL major/image and original encryption key.
+Boot the original Sure version against the restored database first; then rehearse
+the candidate migrations with external egress denied and verify core record
+identities. Do not restore a physical archive into a running database or assume
+that downgrading the application reverses data migrations.
+
+The current app/worker upload directories were verified empty for this upgrade.
+If uploads are present in a later upgrade, include them in the coordinated
+encrypted recovery state; PostgreSQL/Redis backups alone are insufficient.
 
 ## Upgrading
 
@@ -247,6 +257,14 @@ but the vendor entrypoint now writes a version/schema stamp under
 already accommodates this; startup and native trust defaults are not replaced.
 All eleven denied SPKIs, native positive/negative controls, exact unaffected
 root preservation and read-only replacement barriers remain required.
+
+Ruby in 0.7.6 rejects a foreign-owned, world-writable temporary directory without
+the sticky bit. Kubernetes creates the `emptyDir` root with that layout, so merely
+setting `TMPDIR=/rails/tmp` prevents MiniMagick/Rails from booting. A separate
+credential-free, non-root initializer creates `/rails/tmp/runtime` owned by the
+application with mode `0700`. Both Rails and Sidekiq select that directory without
+changing the original vendor entrypoint, making the root filesystem writable,
+or granting the runtime initializer access to trust outputs.
 
 Run `python -B .github/scripts/test-sure-runtime-ca-hardening.py`. Full original
 Rails/Sidekiq startup and mounted native-store acceptance require the existing

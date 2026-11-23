@@ -218,7 +218,7 @@ class SureChartTests(unittest.TestCase):
             self.assertTrue(app["securityContext"]["readOnlyRootFilesystem"])
             self.assertEqual(app["securityContext"]["capabilities"]["drop"], ["ALL"])
             self.assertEqual(next(item["value"] for item in app["env"] if item["name"] == "TMPDIR"),
-                             "/rails/tmp")
+                             "/rails/tmp/runtime")
             mounts = {mount["mountPath"]: mount for mount in app["volumeMounts"]}
             for path in ("/etc/ssl/certs", "/usr/share/ca-certificates",
                          "/" + FACTORY["bundles"]["aws"], "/" + FACTORY["bundles"]["skylight"]):
@@ -227,6 +227,21 @@ class SureChartTests(unittest.TestCase):
                 self.assertIn(path, mounts)
             self.assertNotIn("/etc/ssl/private", mounts)
             self.assertNotIn("/usr/local/share/ca-certificates", mounts)
+
+    def test_owned_tmp_initializer_is_separate_from_trust_and_database_credentials(self):
+        pods = [doc["spec"]["template"]["spec"] for doc in render(VALUES)
+                if doc["kind"] == "Deployment" and not doc["metadata"]["name"].endswith("-redis")]
+        for pod in pods:
+            init = pod["initContainers"][1]
+            self.assertEqual(init["name"], "prepare-runtime-tmp")
+            self.assertEqual(init["image"], IMAGE)
+            self.assertNotIn("env", init)
+            self.assertNotIn("envFrom", init)
+            self.assertEqual(init["volumeMounts"], [
+                {"name": "sure-runtime-tmp", "mountPath": "/rails/tmp"}])
+            self.assertEqual(init["securityContext"]["runAsUser"], 1000)
+            self.assertTrue(init["securityContext"]["readOnlyRootFilesystem"])
+            self.assertEqual(init["securityContext"]["capabilities"]["drop"], ["ALL"])
 
     def test_rails_entrypoint_and_sidekiq_command_are_not_wrapped_or_replaced(self):
         apps = {doc["spec"]["template"]["spec"]["containers"][0]["name"]:
@@ -374,6 +389,7 @@ class SureLinuxAcceptance(unittest.TestCase):
             options += ["--volume", str(output / source) + ":" + target + ":ro"]
         for path in ("/rails/tmp", "/rails/log", "/rails/storage"):
             options += ["--tmpfs", path + ":rw,uid=1000,gid=1000,mode=0775"]
+        options += ["--tmpfs=/rails/tmp/runtime:rw,uid=1000,gid=1000,mode=0700"]
         options += ["--volume", str(self.tools) + ":/ca-test-tools:ro"]
         options += ["--volume", str(self.base / "fixtures") + ":/sure-public-fixtures:ro"]
         return options
@@ -399,7 +415,7 @@ class SureLinuxAcceptance(unittest.TestCase):
         environment = {
             "RAILS_ENV": "production", "SECRET_KEY_BASE": "1" * 128,
             "SELF_HOSTING_ENABLED": "true", "RAILS_FORCE_SSL": "false", "RAILS_ASSUME_SSL": "false",
-            "DB_HOST": "127.0.0.1", "POSTGRES_DB": "sure_fixture", "TMPDIR": "/rails/tmp",
+            "DB_HOST": "127.0.0.1", "POSTGRES_DB": "sure_fixture", "TMPDIR": "/rails/tmp/runtime",
             "POSTGRES_USER": "fixture", "POSTGRES_PASSWORD": "public-test-fixture",  # gitleaks:allow
             "REDIS_URL": "redis://127.0.0.1:6379/1",
         }
@@ -428,6 +444,33 @@ class SureLinuxAcceptance(unittest.TestCase):
             output, _, code = self.initialize(tools)
             self.assertEqual(code, 78)
             self.assertEqual(list(output.iterdir()), [])
+
+    def test_authenticated_recovery_tool_rejects_wrong_keys_and_corrupt_archives(self):
+        name = self.create(options=[
+            "--entrypoint=ruby", "--read-only", "--user=1000:1000",
+            "--tmpfs=/tmp:rw,uid=1000,gid=1000,mode=0700",
+            "--volume", str(ROOT / ".github/scripts") + ":/scripts:ro",
+        ], command=["/scripts/sure-encrypted-recovery.rb", "self-test"])
+        result = self.docker("start", "--attach", name)
+        self.assertEqual(json.loads(result.stdout), {"recovery_crypto_self_test": True})
+
+    def test_new_ruby_uses_owned_tmp_below_foreign_owned_world_writable_parent(self):
+        options = ["--entrypoint=ruby", "--read-only", "--user=1000:1000",
+                   "--tmpfs=/rails/tmp:rw,uid=0,gid=1000,mode=0777"]
+        invalid = self.create(options=[*options, "--env=TMPDIR=/rails/tmp"],
+                              command=["-e", "require 'tmpdir';begin;Dir.tmpdir;exit 1;"
+                                       "rescue ArgumentError;exit 42;end"])
+        self.docker("start", "--attach", invalid, check=False)
+        self.assertEqual(json.loads(self.docker("inspect", "--format={{json .State}}", invalid).stdout)["ExitCode"],
+                         42)
+        deployment = next(doc for doc in render(VALUES) if doc["kind"] == "Deployment"
+                          and doc["metadata"]["name"].endswith("maybe-finance"))
+        command = deployment["spec"]["template"]["spec"]["initContainers"][1]["command"]
+        code = command[2] + (";require 'tmpdir';raise 'wrong temporary directory' unless "
+                             "Dir.tmpdir==ENV.fetch('TMPDIR');raise 'unsafe temporary permissions' unless "
+                             "File.stat(Dir.tmpdir).mode&0777==0700")
+        valid = self.create(options=[*options, "--env=TMPDIR=/rails/tmp/runtime"], command=["-e", code])
+        self.docker("start", "--attach", valid)
 
     def test_original_rails_and_sidekiq_startup_native_defaults_and_mount_barriers(self):
         self.assertEqual(json.loads(self.docker("image", "inspect", "--format={{json .Config.Entrypoint}}",

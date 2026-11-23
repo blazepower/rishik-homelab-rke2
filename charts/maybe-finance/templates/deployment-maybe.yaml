@@ -37,7 +37,7 @@ spec:
           env:
             {{- if .Values.runtimeCaHardening.enabled }}
             - name: TMPDIR
-              value: /rails/tmp
+              value: /rails/tmp/runtime
             {{- end }}
             - name: SELF_HOSTING_ENABLED
               value: {{ .Values.env.SELF_HOSTING_ENABLED | quote }}
