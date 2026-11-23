@@ -30,6 +30,118 @@ h = load("maintenance_host", "node-maintenance-host.py")
 
 
 class MaintenanceTests(unittest.TestCase):
+    def cold_fixture(self):
+        def obj(kind, name, spec, **metadata):
+            return {"kind": kind, "metadata": {
+                "namespace": "public", "name": name, "uid": name + "-uid", "generation": 1, **metadata},
+                "spec": spec, "status": {"observedGeneration": 1, "readyReplicas": spec.get("replicas", 0)}}
+        controllers = [
+            obj("Deployment", "frontend", {"replicas": 0, "template": {
+                "spec": {"containers": [{"name": "app", "env": [
+                    {"name": "PRIVATE_VALUE", "value": "do-not-persist-workload-values"}]}]}}}),
+            obj("StatefulSet", "database", {"replicas": 1, "persistentVolumeClaimRetentionPolicy": {
+                "whenScaled": "Retain", "whenDeleted": "Retain"}}),
+        ]
+        data_pod = obj("Pod", "database-0", {
+            "nodeName": "rishik-worker2", "volumes": [
+                {"name": "data", "persistentVolumeClaim": {"claimName": "data"}}]},
+            ownerReferences=[{"controller": True, "kind": "StatefulSet",
+                              "name": "database", "uid": "database-uid"}])
+        data_pod["status"] = {"phase": "Running"}
+        scaled = obj("ScaledObject", "scaler", {"scaleTargetRef": {"name": "frontend"}},
+                     annotations={"autoscaling.keda.sh/paused-replicas": "0", "private-note": "do-not-persist-notes",
+                                  "autoscaling.keda.sh/paused-private-note": "do-not-persist-prefix-notes"})
+        return {
+            "pods": [data_pod], "deployments": controllers[:1], "statefulsets": controllers[1:],
+            "replicasets": [],
+            "persistentvolumeclaims": [obj("PersistentVolumeClaim", "data", {"volumeName": "pv"})],
+            "persistentvolumes": [obj("PersistentVolume", "pv", {
+                "csi": {"driver": "driver.longhorn.io", "volumeHandle": "volume"}})],
+            "scaledobjects.keda.sh": [scaled],
+            "horizontalpodautoscalers": [obj("HorizontalPodAutoscaler", "hpa", {
+                "scaleTargetRef": {"kind": "Deployment", "name": "frontend"}},
+                ownerReferences=[{"controller": True, "kind": "ScaledObject",
+                                  "name": "scaler", "uid": "scaler-uid"}])],
+            "cronjobs": [obj("CronJob", "backup", {"suspend": True})],
+            "kustomizations.kustomize.toolkit.fluxcd.io": [obj("Kustomization", "apps", {"suspend": False})],
+            "helmreleases.helm.toolkit.fluxcd.io": [],
+            "volumes.longhorn.io": [{"metadata": {"name": "volume", "uid": "volume-uid"},
+                                     "status": {"state": "attached"}}],
+            "replicas.longhorn.io": [],
+        }
+
+    def capture_cold_fixture(self, resources):
+        with patch.object(m, "items", side_effect=lambda resource, namespace=None: resources[resource]), \
+                patch.object(m, "health", return_value={"attached_two_rw": 1, "quarantine": {}}), \
+                patch.object(m, "get", return_value={"metadata": {"uid": "cluster"}}), \
+                patch.object(m, "kube") as mutate, patch.object(m, "remote") as remote:
+            result = m.cold_inventory(json.loads(m.POLICY.read_text()))
+        mutate.assert_not_called()
+        remote.assert_not_called()
+        return result
+
+    def test_cold_inventory_preserves_zero_and_pause_state_without_serializing_workloads(self):
+        result = self.capture_cold_fixture(self.cold_fixture())
+        self.assertEqual({r["name"]: r["original"]["replicas"] for r in result["controllers"]},
+                         {"frontend": 0, "database": 1})
+        self.assertEqual(result["autoscalers"][0]["original"]["pause_annotations"],
+                         {"autoscaling.keda.sh/paused-replicas": "0"})
+        self.assertEqual(result["schedules"][0]["original"], {"suspend_present": True, "suspend": True})
+        self.assertEqual(result["reconciliation"][0]["original"], {"suspend_present": True, "suspend": False})
+        self.assertEqual(result["storage_users"][0]["pvc_uid"], "data-uid")
+        self.assertEqual(result["volumes"][0]["uid"], "volume-uid")
+        self.assertFalse(any("HPA has no verified" in b for b in result["blockers"]))
+        self.assertNotIn("do-not-persist", json.dumps(result))
+        self.assertFalse(result["executable"])
+        with self.assertRaisesRegex(RuntimeError, "Unsupported maintenance operation"):
+            m.check_plan(result, m.sha(m.canonical(result)), "cluster")
+
+    def test_cold_inventory_rejects_destructive_retention_and_unstable_controllers(self):
+        for case in ("delete-pvcs", "not-ready"):
+            resources = self.cold_fixture()
+            controller = resources["statefulsets"][0]
+            if case == "delete-pvcs":
+                controller["spec"]["persistentVolumeClaimRetentionPolicy"]["whenScaled"] = "Delete"
+            else:
+                controller["status"]["readyReplicas"] = 0
+            with self.subTest(case=case), self.assertRaises(RuntimeError):
+                self.capture_cold_fixture(resources)
+
+    def test_cold_inventory_includes_idle_claim_namespaces_without_starting_their_apps(self):
+        resources = self.cold_fixture()
+        claim = copy.deepcopy(resources["persistentvolumeclaims"][0])
+        claim["metadata"].update(namespace="idle", uid="idle-claim")
+        resources["persistentvolumeclaims"].append(claim)
+        controller = copy.deepcopy(resources["deployments"][0])
+        controller["metadata"].update(namespace="idle", uid="idle-controller")
+        resources["deployments"].append(controller)
+        result = self.capture_cold_fixture(resources)
+        self.assertEqual(result["namespaces"], ["idle", "public"])
+        idle = [r for r in result["controllers"] if r["namespace"] == "idle"]
+        self.assertEqual(len(idle), 1)
+        self.assertEqual(idle[0]["original"]["replicas"], 0)
+
+    def test_cold_inventory_surfaces_unmanaged_scaling_and_uncaptured_storage_writers(self):
+        for case in ("hpa-owner", "job", "daemonset", "bare-pod", "unused-attachment"):
+            resources = self.cold_fixture()
+            if case == "hpa-owner":
+                resources["horizontalpodautoscalers"][0]["metadata"]["ownerReferences"][0]["uid"] = "foreign"
+            elif case == "unused-attachment":
+                resources["volumes.longhorn.io"].append({
+                    "metadata": {"name": "untracked", "uid": "untracked-uid"}, "status": {"state": "attached"}})
+            else:
+                owners = resources["pods"][0]["metadata"]["ownerReferences"]
+                if case == "bare-pod":
+                    owners.clear()
+                else:
+                    owners[0]["kind"] = "Job" if case == "job" else "DaemonSet"
+            result = self.capture_cold_fixture(resources)
+            expected = {"hpa-owner": "HPA has no verified", "job": "active Job must finish",
+                        "daemonset": "not a scalable application", "bare-pod": "no verified captured",
+                        "unused-attachment": "no captured application user"}[case]
+            with self.subTest(case=case):
+                self.assertTrue(any(expected in b for b in result["blockers"]))
+
     def test_required_node_affinity_is_checked_against_the_actual_peer(self):
         peer = {"metadata": {"name": "rishik-worker2", "labels": {"kubernetes.io/os": "linux"}},
                 "spec": {}, "status": {"allocatable": {"cpu": "4", "memory": "4Gi", "pods": "10"}}}

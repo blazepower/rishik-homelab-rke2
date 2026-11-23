@@ -93,6 +93,24 @@ Worker1-only eviction blockers do not become worker2 blockers, but this flag
 does not waive any worker2 capacity, PDB, placement or native-storage gate.
 The scope remains held source, not a drain/reboot approval.
 
+For cold-stop preparation, `cold-inventory --output <new-file>` captures a
+read-only restoration inventory and refuses to overwrite an existing receipt.
+It discovers bound Longhorn claims (including idle application namespaces) and
+active users, captures their Deployment/StatefulSet cohort, and records exact
+UIDs/specification hashes and original
+replica counts, including zero. It also records KEDA/HPA ownership, scheduled
+jobs and original Flux suspension states. Only technical bindings and selected
+restoration fields are saved, not workload templates, environment values or
+credentials. Scale-down PVC deletion policies are rejected; unmatched HPA
+owners and active jobs remain explicit blockers.
+
+This command does not suspend, scale, change PDBs or create a disruption window.
+Its `cold-inventory` action is deliberately not accepted by `apply`. Cold-stop
+execution still needs reviewed autoscaler/operator ordering, complete
+infrastructure/native storage contracts, and durable recovery independent of
+the workstation. Keep two clean detached storage copies rather than treating
+this inventory as permission for temporary single-replica writes.
+
 Resolve every blocker before approval. In particular:
 
 - The workstation's `kubectl` must be within one minor of both the current API

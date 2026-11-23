@@ -553,6 +553,187 @@ def audit_nodes(policy):
     return {node["name"]: remote(node, {"operation": "audit"}) for node in policy["nodes"]}
 
 
+def cold_inventory(policy):
+    """Capture restoration intent without freezing, scaling or approving anything."""
+    pods = items("pods")
+    baseline = health(policy, pods)
+    pvcs = {(p["metadata"]["namespace"], p["metadata"]["name"]): p
+            for p in items("persistentvolumeclaims")}
+    pvs = {p["metadata"]["name"]: p for p in items("persistentvolumes")}
+    claims = []
+    for pvc in pvcs.values():
+        pv = pvs.get(pvc["spec"].get("volumeName"))
+        if pv and pv["spec"].get("csi", {}).get("driver") == "driver.longhorn.io":
+            claims.append({
+                "namespace": pvc["metadata"]["namespace"], "pvc": pvc["metadata"]["name"],
+                "pvc_uid": pvc["metadata"]["uid"], "pv": pv["metadata"]["name"],
+                "pv_uid": pv["metadata"]["uid"], "volume": pv["spec"]["csi"]["volumeHandle"],
+            })
+    users = []
+    for pod in pods:
+        if pod["status"].get("phase") in ("Succeeded", "Failed"):
+            continue
+        meta = pod["metadata"]
+        for mount in pod["spec"].get("volumes", []):
+            claim = mount.get("persistentVolumeClaim", {}).get("claimName")
+            pvc = pvcs.get((meta["namespace"], claim))
+            pv = pvs.get(pvc["spec"].get("volumeName")) if pvc else None
+            if pv and pv["spec"].get("csi", {}).get("driver") == "driver.longhorn.io":
+                users.append({
+                    "namespace": meta["namespace"], "pod": meta["name"], "pod_uid": meta["uid"],
+                    "pvc": claim, "pvc_uid": pvc["metadata"]["uid"],
+                    "pv": pv["metadata"]["name"], "pv_uid": pv["metadata"]["uid"],
+                    "volume": pv["spec"]["csi"]["volumeHandle"],
+                })
+    namespaces = {r["namespace"] for r in claims}
+    require(bool(namespaces), "No bound Longhorn application claims found; no cold-stop cohort")
+
+    def binding(obj, original):
+        meta = obj["metadata"]
+        return {
+            "kind": obj["kind"], "namespace": meta["namespace"], "name": meta["name"],
+            "uid": meta["uid"], "generation": meta.get("generation"),
+            "spec_sha256": sha(canonical(obj["spec"])), "original": original,
+            "controllers": [{k: owner[k] for k in ("kind", "name", "uid")}
+                            for owner in meta.get("ownerReferences", []) if owner.get("controller")],
+        }
+
+    controllers, releases = [], set()
+    for obj in items("deployments") + items("statefulsets"):
+        meta, spec = obj["metadata"], obj["spec"]
+        if meta["namespace"] not in namespaces:
+            continue
+        desired = spec.get("replicas", 1)
+        require(type(desired) is int and desired >= 0, "Invalid original replica count")
+        require(not meta.get("deletionTimestamp")
+                and obj.get("status", {}).get("observedGeneration", 0) >= meta["generation"]
+                and obj["status"].get("readyReplicas", 0) == desired,
+                meta["namespace"] + "/" + meta["name"] + ": controller is not stable")
+        require(spec.get("persistentVolumeClaimRetentionPolicy", {}).get("whenScaled", "Retain") == "Retain",
+                meta["namespace"] + "/" + meta["name"] + ": scale-down would delete PVCs")
+        controllers.append(binding(obj, {"replicas": desired}))
+        labels = meta.get("labels", {})
+        if labels.get("helm.toolkit.fluxcd.io/name"):
+            releases.add((labels.get("helm.toolkit.fluxcd.io/namespace", meta["namespace"]),
+                          labels["helm.toolkit.fluxcd.io/name"]))
+    require(bool(controllers), "No application controllers found for the cold-stop cohort")
+    targets = {(r["namespace"], r["kind"], r["name"]): r for r in controllers}
+    blockers = [
+        "Inventory only: native drain, exact infrastructure expected-Pending and NFS mount contracts remain required",
+        "Durable restoration independent of the workstation must be accepted before applications are stopped",
+        "Autoscaler/operator shutdown and restoration order must be reviewed before changing replicas",
+        "Worker2 router DNS must be verified independent of the AdGuard cold stop",
+    ]
+    sets = {r["metadata"]["uid"]: r for r in items("replicasets")}
+    controller_uids = {r["uid"] for r in controllers}
+    user_uids = {r["pod_uid"] for r in users}
+    for pod in pods:
+        meta = pod["metadata"]
+        if meta["namespace"] not in namespaces or pod["status"].get("phase") in ("Succeeded", "Failed"):
+            continue
+        if not evictable(pod):
+            if meta["uid"] in user_uids:
+                blockers.append(meta["namespace"] + "/" + meta["name"]
+                                + ": storage user is not a scalable application Pod")
+            continue
+        owners = [o for o in meta.get("ownerReferences", []) if o.get("controller")]
+        if len(owners) == 1 and owners[0]["kind"] == "ReplicaSet":
+            replica = sets.get(owners[0]["uid"])
+            owners = ([o for o in replica["metadata"].get("ownerReferences", []) if o.get("controller")]
+                      if replica and replica["metadata"]["namespace"] == meta["namespace"]
+                      and replica["metadata"]["name"] == owners[0]["name"] else [])
+        if (len(owners) != 1 or owners[0]["uid"] not in controller_uids
+                or owners[0]["kind"] not in ("Deployment", "StatefulSet")):
+            blockers.append(meta["namespace"] + "/" + meta["name"]
+                            + ": Pod has no verified captured application controller")
+    autoscalers = []
+    for obj in items("scaledobjects.keda.sh"):
+        if obj["metadata"]["namespace"] not in namespaces:
+            continue
+        target = obj["spec"].get("scaleTargetRef", {})
+        key = (obj["metadata"]["namespace"], target.get("kind", "Deployment"), target.get("name"))
+        require(key in targets, "KEDA target is outside the captured application controllers")
+        annotations = obj["metadata"].get("annotations", {})
+        pause_keys = {"autoscaling.keda.sh/paused", "autoscaling.keda.sh/paused-replicas",
+                      "autoscaling.keda.sh/paused-scale-in", "autoscaling.keda.sh/paused-scale-out"}
+        row = binding(obj, {"pause_annotations": {
+            key: value for key, value in annotations.items() if key in pause_keys}})
+        row["target"] = {"kind": key[1], "name": key[2], "uid": targets[key]["uid"]}
+        autoscalers.append(row)
+    hpas = []
+    for obj in items("horizontalpodautoscalers"):
+        if obj["metadata"]["namespace"] not in namespaces:
+            continue
+        target = obj["spec"]["scaleTargetRef"]
+        key = (obj["metadata"]["namespace"], target["kind"], target["name"])
+        require(key in targets, "HPA target is outside the captured application controllers")
+        row = binding(obj, {})
+        row["target"] = {"kind": key[1], "name": key[2], "uid": targets[key]["uid"]}
+        hpas.append(row)
+        if not any(a["namespace"] == row["namespace"] and a["target"] == row["target"]
+                   and any(o["kind"] == "ScaledObject" and o["uid"] == a["uid"]
+                           and o["name"] == a["name"] for o in row["controllers"]) for a in autoscalers):
+            blockers.append(row["namespace"] + "/" + row["name"] + ": HPA has no verified captured KEDA owner")
+    schedules = []
+    for obj in items("cronjobs"):
+        if obj["metadata"]["namespace"] in namespaces:
+            schedules.append(binding(obj, {
+                "suspend_present": "suspend" in obj["spec"], "suspend": obj["spec"].get("suspend", False)}))
+            if obj.get("status", {}).get("active"):
+                blockers.append(obj["metadata"]["namespace"] + "/" + obj["metadata"]["name"]
+                                + ": scheduled jobs are still active")
+    for pod in pods:
+        if (pod["metadata"]["namespace"] in namespaces and evictable(pod)
+                and any(o.get("controller") and o["kind"] == "Job"
+                        for o in pod["metadata"].get("ownerReferences", []))):
+            blockers.append(pod["metadata"]["namespace"] + "/" + pod["metadata"]["name"]
+                            + ": active Job must finish before the cold stop")
+    reconciliation = []
+    found = set()
+    for obj in items("kustomizations.kustomize.toolkit.fluxcd.io") + items("helmreleases.helm.toolkit.fluxcd.io"):
+        key = (obj["metadata"]["namespace"], obj["metadata"]["name"])
+        if obj["kind"] == "HelmRelease":
+            if key not in releases:
+                continue
+            found.add(key)
+        reconciliation.append(binding(obj, {
+            "suspend_present": "suspend" in obj["spec"], "suspend": obj["spec"].get("suspend", False)}))
+    require(found == releases, "A captured application's HelmRelease reconciliation owner is missing")
+    volumes = items("volumes.longhorn.io", policy["storage_namespace"])
+    replicas = items("replicas.longhorn.io", policy["storage_namespace"])
+    volume_bindings = []
+    used = {u["volume"] for u in users}
+    for volume in volumes:
+        name = volume["metadata"]["name"]
+        if volume["status"]["state"] == "attached" and name not in used:
+            blockers.append(name + ": attached volume has no captured application user")
+        volume_bindings.append({
+            "name": name, "uid": volume["metadata"]["uid"], "state": volume["status"]["state"],
+            "replicas": sorted([{
+                "name": r["metadata"]["name"], "uid": r["metadata"]["uid"], "node": r["spec"].get("nodeID"),
+                "data_directory": r["spec"].get("dataDirectoryName"), "active": r["spec"].get("active"),
+                "healthy_at": r["spec"].get("healthyAt"), "failed_at": r["spec"].get("failedAt"),
+            } for r in replicas if r["spec"]["volumeName"] == name], key=lambda r: r["name"]),
+        })
+    order = lambda r: (r["namespace"], r["kind"], r["name"])
+    return {
+        "action": "cold-inventory", "executable": False, "created_epoch": int(time.time()),
+        "cluster_uid": get("namespace", name="kube-system")["metadata"]["uid"],
+        "policy_sha256": sha(POLICY.read_bytes()), "runner_sha256": sha(Path(__file__).read_bytes()),
+        "host_sha256": sha(HOST_BYTES), "maintenance_node": "rishik-worker2",
+        "namespaces": sorted(namespaces), "controllers": sorted(controllers, key=order),
+        "claims": sorted(claims, key=lambda r: (r["namespace"], r["pvc"])),
+        "storage_users": sorted(users, key=lambda r: (r["namespace"], r["pod"], r["pvc"])),
+        "volumes": sorted(volume_bindings, key=lambda r: r["name"]),
+        "autoscalers": sorted(autoscalers, key=order), "hpas": sorted(hpas, key=order),
+        "schedules": sorted(schedules, key=order), "reconciliation": sorted(reconciliation, key=order),
+        "baseline_health": baseline, "blockers": sorted(set(blockers)),
+        "impact": "Read-only restoration inventory, not a drain plan or permission to scale. "
+                  "Cold maintenance must retain two clean detached copies, preserve original zero replicas, "
+                  "and restore original autoscaler, scheduler and Flux states within the outage budget.",
+    }
+
+
 def build_plan(policy, action, minor, inventory, worker2_only=False):
     require(isinstance(worker2_only, bool) and (not worker2_only or action == "os"),
             "Worker2-only scope is supported only for OS maintenance, not RKE2 upgrades")
@@ -877,6 +1058,9 @@ def main():
     plan_parser.add_argument("--worker2-only", action="store_true",
                              help="OS maintenance of worker2 only; retain full-cluster safety checks")
     plan_parser.add_argument("--output", type=Path, required=True)
+    cold_parser = commands.add_parser("cold-inventory",
+                                     help="Read-only restoration bindings; cannot be applied as a maintenance plan")
+    cold_parser.add_argument("--output", type=Path, required=True)
     apply_parser = commands.add_parser("apply")
     apply_parser.add_argument("--plan", type=Path, required=True)
     apply_parser.add_argument("--approve", required=True, help="SHA256 printed by plan")
@@ -890,6 +1074,13 @@ def main():
     elif args.command == "apply":
         apply(json.loads(args.plan.read_text(encoding="utf-8")), args.approve, policy,
               args.recovery_directory, args.token_backup_confirmed, args.compatibility_reviewed)
+    elif args.command == "cold-inventory":
+        snapshot = cold_inventory(policy)
+        with args.output.open("x", encoding="utf-8") as output:
+            output.write(json.dumps(snapshot, indent=2) + "\n")
+        print(json.dumps({"inventory_sha256": sha(canonical(snapshot)), "executable": False,
+                          "controllers": len(snapshot["controllers"]), "blockers": snapshot["blockers"],
+                          "impact": snapshot["impact"]}, indent=2))
     else:
         inventory = audit_nodes(policy)
         if args.command == "audit":
