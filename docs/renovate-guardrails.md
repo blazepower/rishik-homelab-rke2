@@ -59,7 +59,11 @@ held `tag: 5.33.2`. Every reconcile therefore restored the broken image.
   markers (`alpha`, `beta`, `rc`, `preview`, etc.). The rule is package-scoped
   and marker-aware rather than rejecting every hyphenated Docker tag, so stable
   compatibility/build tags such as `-alpine`, `-bookworm`, and `-ls123` remain
-  eligible.
+  eligible. Sure alone uses `loose` versioning: default Docker versioning treats
+  `alpha.2` as a compatibility suffix and rejects stable or `-hotfix.1` updates
+  before the allowed-version filter can help. Keep manual merge approval and the
+  review queue limit; discovering an update is not runtime CA, migration, or
+  recovery acceptance.
 - **Flux bootstrap controllers are upgraded as one official Flux release.**
   Individual image updates in `gotk-components.yaml` are disabled; regenerate
   the complete bundle, including matching CRDs and RBAC, when reviewing a new
@@ -70,6 +74,11 @@ held `tag: 5.33.2`. Every reconcile therefore restored the broken image.
   one minor of the API server, so `1.37.x` is not safe against this cluster.
 - **Infrastructure charts have independent PRs**, rather than one bundle
   coupling admission, storage, networking and scheduling controllers.
+- **Owned HTTP add-on runtimes stay paired with chart `0.16.0`.** Review new
+  chart CRDs/RBAC and the matching application source before changing that
+  exact ceiling or any of the three owned digests. Source/binary advisory,
+  unchanged-filesystem, native HTTP scaling and anonymous publication gates
+  must pass again. Core KEDA remains independently eligible for updates.
 - **Longhorn chart automation is held at the existing exact pin.** Resume it
   only after a dedicated storage upgrade review covers backup/restore,
   engine versions, replica health and maintenance capacity. This hold does

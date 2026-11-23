@@ -50,6 +50,27 @@ recipe pass. Release metadata correction is not remediation of these records.
 Native behavior, licensing, publication and deployment remain unaccepted until
 the remaining gate is resolved.
 
+The November 22 recheck retained the exact tagged source revision
+`1b2171b110bb2a2542e1322035c6583ec86eb976`, post-patch module hashes and
+unstripped Go 1.27.4 Linux/amd64 build flags. Windows-hosted cross-compilation
+succeeded; the four upstream get/exec/rollout/version short-test packages passed
+on Windows. The live govulncheck v1.9.0 database timestamp was
+`2026-11-11T02:51:11Z`: source analysis returned no findings, but binary analysis
+returned module, package and `main` findings for **both** records. The current
+master's stricter package-only rejection is preserved alongside the CLI-specific
+regression, not weakened to accept this artifact. These host checks do not
+substitute for Linux image/native-runtime acceptance.
+
+Neither current Go advisory record has a `fixed` version event or an affected
+package/function list. The latest available stable 1.36 source is already
+v1.36.6; 1.37 is outside supported skew for a 1.35 API server. Choosing another
+root-module release or updating unrelated CLI dependencies cannot leave these
+open-ended module ranges. The upstream
+[namespace-termination advisory](https://github.com/kubernetes/kubernetes/issues/126587)
+also states that no fixed version exists. A genuine accepted source/advisory
+resolution is still required; cluster-side mitigations, source-only clearance,
+renaming the main module or changing the scanner are not substitutes.
+
 Unlike the large `alpine/k8s` reference image, the owned runtime uses the pinned
 official Alpine 3.24.4 amd64 base and adds only kubectl and its source/licenses.
 The base's 16-package inventory is retained except the explicit, signed
@@ -104,7 +125,10 @@ PCRE2's backport addresses CVE-2026-89157 and CVE-2026-89161; the former's
 The actual patched source passes upstream short tests and govulncheck v1.9.0
 source **and actual built-binary** scans. JSON mode can return exit zero with
 findings, so acceptance parses every finding and rejects function or
-package-wide matches, including wildcard function entries. Module-only matches
+package-wide matches, including wildcard function entries and package-only
+traces with no function field. A package-only result can reflect conservative
+analysis rather than a proven reachable function; it still blocks acceptance.
+Module-only matches
 and the real advisory DB timestamp remain in provenance rather than being
 silently treated as clearance. The image retains the exact patch, updated
 module licenses and corresponding-source/build evidence. An independent

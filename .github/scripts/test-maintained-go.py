@@ -181,16 +181,27 @@ class AdvisoryProtocolTest(unittest.TestCase):
             with self.subTest(function=function), self.assertRaises(AssertionError):
                 build.advisory_summary(text, "binary", "v1.9.0")
 
-    def test_reviewed_module_id_does_not_exempt_a_main_function_finding(self):
+    def test_reviewed_module_id_does_not_exempt_cli_package_or_main_findings(self):
         config = json.dumps({"config": scanner_config("binary")})
         trace = {"module": "k8s.io/kubernetes", "version": "v1.36.6+dirty",
-                 "package": "k8s.io/kubernetes/cmd/kubectl", "function": "main"}
+                 "package": "k8s.io/kubernetes/cmd/kubectl"}
         for advisory in ("GO-2025-3521", "GO-2025-3547"):
-            with self.subTest(advisory=advisory), self.assertRaises(AssertionError):
-                build.advisory_summary(
-                    config + json.dumps({"finding": {"osv": advisory, "trace": [trace]}}),
-                    "binary", "v1.9.0",
-                )
+            for finding_trace in (trace, {**trace, "function": "main"}):
+                with self.subTest(advisory=advisory, trace=finding_trace), self.assertRaises(AssertionError):
+                    build.advisory_summary(
+                        config + json.dumps({"finding": {"osv": advisory, "trace": [finding_trace]}}),
+                        "binary", "v1.9.0",
+                    )
+
+    def test_rejects_package_only_matches_without_function_fields(self):
+        for mode in ("source", "binary"):
+            text = json.dumps({"config": scanner_config(mode)}) + json.dumps(
+                {"finding": {"osv": "GO-fixture", "trace": [{
+                    "module": "knative.dev/pkg", "version": "v0.0.0-fixture",
+                    "package": "knative.dev/pkg/webhook",
+                }]}})
+            with self.subTest(mode=mode), self.assertRaisesRegex(AssertionError, "GO-fixture"):
+                build.advisory_summary(text, mode, "v1.9.0")
 
     def test_rejects_missing_or_weakened_scanner_configuration(self):
         with self.assertRaises(ValueError):

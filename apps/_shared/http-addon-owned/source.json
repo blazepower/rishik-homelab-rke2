@@ -1,0 +1,54 @@
+{
+  "repository": "https://github.com/kedacore/http-add-on.git",
+  "revision": "5355d0a17578be9a7566a89f495af093eea6b584",
+  "version": "v0.16.0",
+  "compiler": "go1.27.4",
+  "govulncheck": "v1.9.0",
+  "builder": "docker.io/library/golang:1.27.4-bookworm@sha256:4fa7c968ba93f1635670522dbb01a2c78150443e1385746924566079f36570ea",
+  "patch_sha256": "d9b705a93ea68d2c7061cb73d94a0beac4a9ad973a93c02cb719073e361f7f69",
+  "module_sha256": {
+    "go.mod": "16904a6560f4897ece11e82c76bf95e9975a0ba41f97a842d107051677a7c78b",
+    "go.sum": "16ea6de68922543a5647e9d1136b6e655f42f43d85da39d8d27dcf8a4b7b6d3d"
+  },
+  "required_modules": {
+    "github.com/kedacore/keda/v2": "v2.21.1",
+    "golang.org/x/net": "v0.62.0",
+    "k8s.io/client-go": "v0.36.6",
+    "sigs.k8s.io/controller-runtime": "v0.24.1"
+  },
+  "components": {
+    "operator": {
+      "vendor": "ghcr.io/kedacore/http-add-on-operator@sha256:2ae0076d549fb7d12b3d9ecb1e87d035c7ee73e94a640ff53842e70ab0824da0",
+      "vendor_binary_sha256": "0457e2a054d3ffbe21cd2207e5833dae4c6b61b1647e6e297227dbd178a98081"
+    },
+    "scaler": {
+      "vendor": "ghcr.io/kedacore/http-add-on-scaler@sha256:db5223b1a37521ec0f099ac04785bfc069f5c3ebf4bacffd04e5127b0876dffb",
+      "vendor_binary_sha256": "6bceaad91e00e1f833e8765dd783f0d0a71011a5e82369c3d3667351857f64b6"
+    },
+    "interceptor": {
+      "vendor": "ghcr.io/kedacore/http-add-on-interceptor@sha256:3a9a454b949edd5dee711ed14e603cc3b91b7c065905ecc251fe0a56a4c026f1",
+      "vendor_binary_sha256": "b4e813e8ef43b7b8640ac08e2a0f4821e8184b2153a60bfda3872c117c64e142"
+    }
+  },
+  "native": {
+    "kubectl_url": "https://dl.k8s.io/release/v1.36.6/bin/linux/amd64/kubectl",
+    "kubectl_sha256": "29818b6729dc9262b692307470d0558d027725e738be5dd47c760261868a2634",
+    "kind_url": "https://github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-amd64",
+    "kind_sha256": "aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d",
+    "node": "docker.io/kindest/node:v1.35.0@sha256:986401fce0e567a9860075ba9df8c8459bd99a35f79024d8a682773fb40f0753",
+    "backend": "docker.io/hashicorp/http-echo:1.0.0@sha256:2c213d6c05a0f68adfe9c7fe1a78a314e5c4fee783e2ee8592d49f10d0c4513f",
+    "core_image_tags": {
+      "keda": "2.21.1@sha256:3cf67fd9662888224a2b60e1d6629eb4dc11821aa621a920132aa664d595a8f4",
+      "metricsApiServer": "2.21.1@sha256:24df19f4bf5e8368c79dddf74011971ef9fd566180cdbe93f92ed628584146f2",
+      "webhooks": "2.21.1@sha256:afbaf9407657824b9a9697a59a4647f9c6fabe14951cc265f7419c0ba39168fd"
+    },
+    "core_chart": {
+      "url": "https://kedacore.github.io/charts/keda-2.21.1.tgz",
+      "sha256": "76b45621e48e18c9872cdc0c46295e4cbac1236fd379d06bca38ef91d8fb883e"
+    },
+    "addon_chart": {
+      "url": "https://kedacore.github.io/charts/keda-add-ons-http-0.16.0.tgz",
+      "sha256": "363f7250851f948661f7301c7e3bcb33c2cf19f4e26e2247f71ae61d339abe82"
+    }
+  }
+}

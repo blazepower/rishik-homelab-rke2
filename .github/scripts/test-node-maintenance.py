@@ -163,6 +163,53 @@ class MaintenanceTests(unittest.TestCase):
                 with self.subTest(state=state, failure=failure), self.assertRaises(RuntimeError):
                     m.storage_check([v], [e], r, {"worker1", "worker2"})
 
+    def test_post_drain_accepts_only_the_selected_node_additional_cordon(self):
+        policy = json.loads(m.POLICY.read_text())
+        nodes = [{"metadata": {"name": n["name"]},
+                  "spec": {"unschedulable": n["role"] == "server"},
+                  "status": {"conditions": [
+                      {"type": "Ready", "status": "True"},
+                      {"type": "MemoryPressure", "status": "False"},
+                  ]}} for n in policy["nodes"]]
+        target = next(n for n in nodes if n["metadata"]["name"] == "rishik-worker2")
+        target["spec"]["unschedulable"] = True
+        m.check_nodes(policy, nodes, "rishik-worker2")
+        for failure in ("target-uncordoned", "peer-cordoned", "controller-uncordoned", "peer-not-ready",
+                        "pressure", "unknown-target"):
+            changed = copy.deepcopy(nodes)
+            by_name = {n["metadata"]["name"]: n for n in changed}
+            if failure == "target-uncordoned":
+                by_name["rishik-worker2"]["spec"]["unschedulable"] = False
+            elif failure == "peer-cordoned":
+                by_name["rishik-worker1"]["spec"]["unschedulable"] = True
+            elif failure == "controller-uncordoned":
+                by_name["rishik-controller"]["spec"]["unschedulable"] = False
+            elif failure == "peer-not-ready":
+                by_name["rishik-worker1"]["status"]["conditions"][0]["status"] = "False"
+            elif failure == "pressure":
+                by_name["rishik-worker1"]["status"]["conditions"][1]["status"] = "True"
+            with self.subTest(failure=failure), self.assertRaises(RuntimeError):
+                m.check_nodes(policy, changed, "unknown" if failure == "unknown-target" else "rishik-worker2")
+
+    def test_post_drain_rechecks_full_health_and_rejects_remaining_evictable_pods(self):
+        node = {"name": "worker"}
+        pod = {"metadata": {"name": "app", "namespace": "media"},
+               "spec": {"nodeName": "worker"}, "status": {"phase": "Running"}}
+        with patch.object(m, "items", return_value=[pod]), patch.object(m, "health") as health, \
+                self.assertRaisesRegex(RuntimeError, "Drain left active evictable pods"):
+            try:
+                m.drained_health({}, node)
+            finally:
+                health.assert_not_called()
+        daemon = copy.deepcopy(pod)
+        daemon["metadata"]["ownerReferences"] = [{"kind": "DaemonSet"}]
+        completed = copy.deepcopy(pod)
+        completed["status"]["phase"] = "Succeeded"
+        with patch.object(m, "items", return_value=[daemon, completed]), \
+                patch.object(m, "health", return_value={"attached_two_rw": 1}) as health:
+            self.assertEqual(m.drained_health({}, node), {"attached_two_rw": 1})
+            health.assert_called_once_with({}, [daemon, completed], draining_node="worker")
+
     def test_snapshot_embedded_checksum(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "snapshot"
@@ -269,6 +316,36 @@ class MaintenanceTests(unittest.TestCase):
                 m.apply(plan, "approval", policy, "/protected/recovery", True, False)
             self.assertFalse(any("delete" in call or "uncordon" in call for call in calls))
             self.assertEqual(remote.call_count, 2)
+
+    def test_successful_drain_with_new_storage_failure_never_changes_host_or_releases_lock(self):
+        policy = json.loads(m.POLICY.read_text())
+        node = policy["nodes"][1]
+        plan = {"action": "os", "release": None, "quarantine": {}, "kubectl": {}, "reviewed_csi_sockets": [],
+                "nodes": [node], "bindings": {node["name"]: {
+                    "boot_id": "boot", "source_version": "v1.35.10+rke2r1", "pending_packages": []}}}
+
+        def fake_remote(node, payload, privileged=False):
+            if privileged:
+                raise RuntimeError("privileged host step reached after unhealthy drain")
+            return {"boot_id": "boot", "pending_packages": [], "off_node_directory_verified": True}
+
+        with patch("builtins.print"), tempfile.TemporaryDirectory() as output, \
+                patch.object(m.tempfile, "mkdtemp", return_value=output), patch.object(m, "check_plan"), \
+                patch.object(m, "get", return_value={"metadata": {"uid": "cluster"}}), \
+                patch.object(m, "audit_nodes", return_value={}), \
+                patch.object(m, "build_plan", return_value={**plan, "blockers": []}), \
+                patch.object(m, "stable_health"), patch.object(m, "items", return_value=[]), \
+                patch.object(m, "health", side_effect=RuntimeError("post-drain storage drift")), \
+                patch.object(m, "etcd_tool", return_value={}), patch.object(m, "capture_evidence", return_value={}), \
+                patch.object(m, "remote", side_effect=fake_remote) as remote, \
+                patch.object(m, "receipt") as receipt, patch.object(m, "kube") as kube, \
+                patch.object(m, "run", return_value="") as run:
+            with self.assertRaisesRegex(RuntimeError, "post-drain storage drift"):
+                m.apply(plan, "approval", policy, "/protected/recovery", True, False)
+            self.assertTrue(any("drain" in call.args[0] for call in run.call_args_list))
+            self.assertFalse(any(call.kwargs.get("privileged") for call in remote.call_args_list))
+            receipt.assert_not_called()
+            self.assertFalse(any("delete" in call.args or "uncordon" in call.args for call in kube.call_args_list))
 
     def test_missing_recovery_protection_stops_before_lock_or_cordon(self):
         policy = json.loads(m.POLICY.read_text())
@@ -449,13 +526,16 @@ class MaintenanceTests(unittest.TestCase):
                 patch.object(m, "check_plan"), patch.object(m, "get", side_effect=fake_get), \
                 patch.object(m, "audit_nodes", return_value={}), \
                 patch.object(m, "build_plan", return_value={**plan, "blockers": []}), \
-                patch.object(m, "health"), patch.object(m, "stable_health"), patch.object(m.time, "sleep"), \
+                patch.object(m, "health"), patch.object(m, "stable_health"), \
+                patch.object(m, "drained_health", return_value={}) as drained, patch.object(m.time, "sleep"), \
                 patch.object(m, "etcd_tool", return_value={}), patch.object(m, "capture_evidence", return_value={}), \
                 patch.object(m, "remote", side_effect=fake_remote), patch.object(m, "receipt", side_effect=fake_receipt), \
                 patch.object(m, "wait_for", side_effect=lambda check, **kwargs: check()), \
                 patch.object(m, "kube", side_effect=fake_kube), patch.object(m, "run", return_value=""):
             m.apply(plan, "approved", policy, "/recovery", True, False)
         self.assertEqual(privileged_steps, ["rishik-worker2", "rishik-worker1", "rishik-controller"])
+        self.assertEqual([call.args[1]["name"] for call in drained.call_args_list],
+                         ["rishik-worker2", "rishik-worker1", "rishik-controller"])
         self.assertNotIn(("uncordon", "rishik-controller"), calls)
         self.assertEqual([c for c in calls if c[0] == "uncordon"],
                          [("uncordon", "rishik-worker2"), ("uncordon", "rishik-worker1")])
