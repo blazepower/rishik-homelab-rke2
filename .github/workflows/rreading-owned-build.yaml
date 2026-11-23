@@ -5,6 +5,7 @@ on:
     paths:
       - apps/_shared/rreading-owned/**
       - .github/scripts/rreading-native-acceptance.py
+      - .github/scripts/test-owned-image-builds.py
       - .github/workflows/rreading-owned-build.yaml
   workflow_dispatch:
     inputs:
@@ -18,11 +19,19 @@ permissions:
 
 jobs:
   native:
+    name: Native acceptance (PostgreSQL ${{ matrix.postgres_major }})
     runs-on: ubuntu-26.04
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - postgres_major: 16
+            postgres_image: postgres:16.15-alpine@sha256:aa6cb33cf4c19c765cefcf48d96176258800870a9a1e930ad126200f9d825139
+          - postgres_major: 19
+            postgres_image: postgres:19.0-alpine@sha256:8b0ff4cdf221f0c53d7fcda681d3b461be725c492cd881c5ec9c0ad25023f188
     permissions:
       contents: read
-      packages: write
     env:
       GOTOOLCHAIN: go1.27.4
       GOMAXPROCS: "2"
@@ -31,7 +40,7 @@ jobs:
       GR_TEST_COOKIE: ""
     services:
       postgres:
-        image: postgres:19.0-alpine@sha256:8b0ff4cdf221f0c53d7fcda681d3b461be725c492cd881c5ec9c0ad25023f188
+        image: ${{ matrix.postgres_image }}
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: synthetic-source-vet
@@ -50,6 +59,9 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
+
+      - name: Verify database coverage and publication gating
+        run: python3 -B .github/scripts/test-owned-image-builds.py -k rreading
 
       - name: Fetch clean immutable owned GPL source and build native CLI
         run: |
@@ -132,8 +144,51 @@ jobs:
           print(json.dumps(summary))
           PY
 
+      - name: Retain the exact production-major accepted image
+        if: matrix.postgres_major == 16
+        run: docker save rreading-owned:proof --output "$RUNNER_TEMP/rreading-image/runtime-image.tar"
+
+      - name: Retain actual executable and corresponding GPL provenance
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: rreading-owned-native-evidence-pg${{ matrix.postgres_major }}
+          path: |
+            ${{ runner.temp }}/rreading-image/actual-main
+            ${{ runner.temp }}/rreading-image/source.json
+            ${{ runner.temp }}/rreading-image/build-info.txt
+            ${{ runner.temp }}/rreading-image/advisories.json
+            ${{ runner.temp }}/rreading-image/*-vuln.jsonl
+            ${{ runner.temp }}/rreading-image/runtime-image.tar
+            ${{ runner.temp }}/rreading-image/LICENSE
+          if-no-files-found: error
+
+  publish:
+    name: Publish accepted immutable image
+    needs: native
+    if: github.event_name == 'workflow_dispatch' && inputs.publish
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Download the production-major acceptance evidence
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: rreading-owned-native-evidence-pg16
+          path: ${{ runner.temp }}/rreading-image
+
+      - name: Load and verify the exact accepted executable
+        run: |
+          set -euo pipefail
+          docker load --input "$RUNNER_TEMP/rreading-image/runtime-image.tar"
+          container="$(docker create rreading-owned:proof)"
+          trap 'docker rm "$container" >/dev/null' EXIT
+          docker cp "$container:/main" "$RUNNER_TEMP/rreading-image/loaded-main"
+          cmp "$RUNNER_TEMP/rreading-image/actual-main" "$RUNNER_TEMP/rreading-image/loaded-main"
+
       - name: Authenticate publication only on accepted master
-        if: github.event_name == 'workflow_dispatch' && inputs.publish
         env:
           REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -141,7 +196,6 @@ jobs:
           printf '%s' "$REGISTRY_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
 
       - name: Publish accepted immutable image only
-        if: github.event_name == 'workflow_dispatch' && inputs.publish
         run: |
           set -euo pipefail
           tag="ghcr.io/blazepower/maintained-rreading-hardcover:$GITHUB_SHA"
@@ -149,21 +203,13 @@ jobs:
           docker push "$tag"
           docker image inspect "$tag" --format '{{json .RepoDigests}}' > "$RUNNER_TEMP/rreading-image/published-digests.json"
 
-      - name: Retain actual executable and corresponding GPL provenance
-        if: always()
+      - name: Retain immutable publication evidence
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: rreading-owned-native-evidence
-          path: |
-            ${{ runner.temp }}/rreading-image/actual-main
-            ${{ runner.temp }}/rreading-image/source.json
-            ${{ runner.temp }}/rreading-image/build-info.txt
-            ${{ runner.temp }}/rreading-image/advisories.json
-            ${{ runner.temp }}/rreading-image/*-vuln.jsonl
-            ${{ runner.temp }}/rreading-image/published-digests.json
-            ${{ runner.temp }}/rreading-image/LICENSE
+          name: rreading-owned-published-digests
+          path: ${{ runner.temp }}/rreading-image/published-digests.json
           if-no-files-found: error
 
       - name: Remove ephemeral registry authentication
-        if: always() && github.event_name == 'workflow_dispatch' && inputs.publish
+        if: always()
         run: docker logout ghcr.io

@@ -42,6 +42,11 @@ The application requires three secrets:
 - Port: 5432
 - Service: `rreading-glasses-postgresql`
 
+The owned-image workflow runs the full native acceptance against both PostgreSQL
+16 (the deployed major) and 19 using separate disposable databases. Publication
+waits for both matrix jobs and reuses the exact PostgreSQL 16-tested image; it
+does not upgrade or migrate the production database.
+
 ## Sealing Secrets
 
 To create and seal the credentials:

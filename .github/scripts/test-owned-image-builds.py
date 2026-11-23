@@ -26,6 +26,33 @@ CERTIFICATE = b"-----BEGIN CERTIFICATE-----\nfixture\n-----END CERTIFICATE-----\
 
 
 class OwnedBuildTests(unittest.TestCase):
+    def test_rreading_acceptance_retains_production_major_alongside_postgres_19(self):
+        text = (ROOT / ".github/workflows/rreading-owned-build.yaml").read_text()
+        native = text.split("\n  publish:", 1)[0]
+        majors = re.findall(r"(?m)^          - postgres_major: (\d+)$", native)
+        self.assertEqual(set(majors), {"16", "19"})
+        self.assertIn("      fail-fast: false\n", native)
+        self.assertIn("image: ${{ matrix.postgres_image }}", native)
+        self.assertIn("postgres:16.15-alpine@sha256:", native)
+        self.assertIn("postgres:19.0-alpine@sha256:", native)
+        self.assertIn("rreading-owned-native-evidence-pg${{ matrix.postgres_major }}", native)
+        self.assertIn("rreading-native-acceptance.py", native)
+
+    def test_rreading_publication_waits_for_both_majors_and_reuses_the_accepted_image(self):
+        text = (ROOT / ".github/workflows/rreading-owned-build.yaml").read_text()
+        native, publish = text.split("\n  publish:", 1)
+        self.assertNotIn("docker push", native)
+        self.assertNotIn("docker login", native)
+        self.assertIn("    needs: native\n", publish)
+        self.assertIn("if: github.event_name == 'workflow_dispatch' && inputs.publish", publish)
+        self.assertNotIn("always()", publish.split("    steps:", 1)[0])
+        self.assertIn("name: rreading-owned-native-evidence-pg16", publish)
+        self.assertIn("docker save rreading-owned:proof", native)
+        self.assertIn('docker load --input "$RUNNER_TEMP/rreading-image/runtime-image.tar"', publish)
+        self.assertLess(publish.index("cmp "), publish.index("docker login"))
+        self.assertLess(publish.index('test "$GITHUB_REF" = refs/heads/master'), publish.index("docker login"))
+        self.assertLess(publish.index("docker login"), publish.index("docker push"))
+
     def test_freshness_and_immutable_output(self):
         for name in WORKFLOWS:
             with self.subTest(workflow=name):
