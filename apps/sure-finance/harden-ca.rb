@@ -144,6 +144,9 @@ module SureTrust
     manifest.fetch("default_aliases").each do |path, target|
       raise InputError, "native default CA alias changed" unless File.readlink("/" + path) == target
     end
+    unless sha(File.binread("/rails/bin/docker-entrypoint")) == manifest.fetch("entrypoint_sha256")
+      raise InputError, "factory entrypoint changed"
+    end
     summary = prepare(manifest, denied, "/ca-output")
     puts JSON.generate({sure_public_ca_overlay_verified: true, bundles: summary})
   end

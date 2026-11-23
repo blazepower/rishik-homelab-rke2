@@ -229,6 +229,31 @@ kubectl exec -i -n sure-finance statefulset/sure-finance-postgresql -- \
 
 ## Upgrading
 
+### Audited runtime CA overlays
+
+The enabled deployment pins Sure 0.7.6 by immutable index. `factory-ca.json`
+binds that index to its independently audited linux/amd64 manifest, image config,
+public CA inventory and original entrypoint hash. The initializer refuses CA,
+native-default alias or entrypoint drift **before** Rails `db:prepare` or Sidekiq
+starts. CI checks the actual pulled image config as well as the selected index;
+updating a tag/digest alone is not an approved factory refresh.
+
+The 0.7.6 public audit is recorded separately in
+`.github/security/sure-0.7.6-public-audit.json`; the older 0.7.2-alpha.2 report
+remains historical. Public OS/AWS/Skylight CA files and aliases are unchanged,
+but the vendor entrypoint now writes a version/schema stamp under
+`/rails/storage/.sure-runtime` after migrations. Existing writable storage
+already accommodates this; startup and native trust defaults are not replaced.
+All eleven denied SPKIs, native positive/negative controls, exact unaffected
+root preservation and read-only replacement barriers remain required.
+
+Run `python -B .github/scripts/test-sure-runtime-ca-hardening.py`. Full original
+Rails/Sidekiq startup and mounted native-store acceptance require the existing
+Linux CI Docker job with disposable loopback-only PostgreSQL/Redis fixtures.
+Private/custom trust contexts are not certified. Passing that job does not
+authorize a production rollout: database/Redis backups, migration compatibility
+and the existing serial storage activation gates still need coordinator review.
+
 The application is automatically upgraded when the Helm chart or app version is updated in `helmrelease.yaml`. Flux will detect the changes and apply them.
 
 To manually trigger an upgrade:
