@@ -35,6 +35,11 @@ allows five minutes for database migrations before liveness checks begin.
 
 ## Upgrade and recovery
 
+The v2.50.0 chart source is paired with the v2.50.0 bundled application's
+immutable multi-platform image digest in `helmrelease.yaml`. Always update both
+pins together and run `.github/scripts/test-kaneo-upgrade.py`; changing only
+the chart tag leaves the old application image deployed.
+
 Both Deployments use `Recreate`: old and new application versions must not run
 startup migrations concurrently, and PostgreSQL must not have competing writers
 on its existing RWO volume. The database image remains pinned to the current
