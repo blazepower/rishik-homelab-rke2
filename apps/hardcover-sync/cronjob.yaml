@@ -28,7 +28,7 @@ spec:
             fsGroup: 65532
           containers:
             - name: hardcover-sync
-              image: ghcr.io/blazepower/hardcover-sync@sha256:830c81881ccba7611746bd5bf0437c9b2bd62744a10a7017c5a11ffc3d39e250
+              image: ghcr.io/blazepower/hardcover-sync@sha256:95d4aa6ae67ddc9cb5138a6b7dce3bfb9cb37761b713ebef5e51759ddcd44265
               imagePullPolicy: Always
               env:
                 - name: BOOKSHELF_URL
