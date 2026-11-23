@@ -41,5 +41,16 @@
     "fix": "Refresh independently audited immutable factory binding and entrypoint hash; require selected index plus actual container platform-manifest/config binding in CI and entrypoint hash in initializer before app start. Keep all existing native-store and startup acceptance assertions.",
     "containerd_compatibility": "Run45111059743 exposed the modern containerd image store's index-based local image ID, which is not a config digest. Require the actual container ImageManifestDescriptor to equal the audited amd64 digest; classic Docker without that descriptor must match the audited config digest. Index alone never proves platform binding."
   },
-  "remaining_gates": ["Full existing Linux Sure acceptance on pushed head", "Coordinator review of migrations and verified database/Redis backups", "Separately authorized serial storage activation and production rollout", "Explicit private/custom trust contexts remain outside certification"]
+  "subsequent_linux_acceptance": {
+    "head": "2384525782ebee10e0f103e2544da6d7b7454062",
+    "run_id": 45111499787,
+    "job_id": 137484649786,
+    "conclusion": "success",
+    "tests": 20,
+    "skipped": 0,
+    "seconds": 60.635,
+    "all_ci_jobs_passed": 17,
+    "scope": "Exact runtime platform binding; original Rails migrations/HTTP readiness and Sidekiq registration; initializer policy, CA and entrypoint drift rejection; native defaults, all public bundle controls, preserved roots and read-only replacement barriers in loopback-only disposable fixtures"
+  },
+  "remaining_gates": ["Coordinator review of migrations and verified database/Redis backups", "Separately authorized serial storage activation and production rollout", "Explicit private/custom trust contexts remain outside certification"]
 }
