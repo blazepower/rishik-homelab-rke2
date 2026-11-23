@@ -4,18 +4,24 @@ This deployment now runs **[Seerr](https://github.com/seerr-team/seerr)** (`ghcr
 
 The Helm release name, deployment name, PVC (`overseerr-config`), Service, and Ingress hostname are intentionally **kept as `overseerr`** to avoid breaking Flux state, ingress URLs, and dependent apps (Sonarr/Radarr webhooks, Homepage widgets). Rename later if desired.
 
-## Suspended SYSTEM CA guard preparation
+## SYSTEM CA guard
 
-The HelmRelease is staged with `spec.suspend: true`. Stock-image init copies the
+The HelmRelease is active with `spec.suspend: false`. Stock-image init copies the
 exact Seerr image's `/etc/ssl` into an `emptyDir`; the shared eleven-key SPKI
 guard filters its public bundle before the unchanged entrypoint runs. The whole
 directory, including `cert.pem`, is read-only. This bundle-only image has no
 vendor source directories: unexpected/missing layout fails closed, not through
 empty fallback directories. Guard init has no config PVC access.
 
-This is **SYSTEM-only**: Node22.23.4's default/bundled roots were already clear.
-No Node trust flags, extra roots, certifi, custom contexts, application version
-or migration behavior are changed. This does not authorize activation.
+This is **SYSTEM-only**: the guard does not change Node trust flags, extra roots,
+certifi, custom contexts, entrypoints or migration behavior. Seerr 3.5.2 ships
+Node22.23.5 and a public system bundle with zero blocked keys. Exact-image
+acceptance checks the audited index/amd64 digests and zero removals rather than
+requiring a blocked key in an already-clean vendor bundle. It still verifies
+unaffected roots, read-only stores, isolated original startup and native Node
+system/default/bundled root inventories. Historical 3.5.1 evidence remains in
+`.github/security/fleet-application-ca-report.json`; a new image requires fresh
+acceptance and does not inherit historical runtime or rollout clearance.
 See `.github/security/fleet-native-app-ca-report.json`; isolated validation:
 `python .github/scripts/test-native-app-ca-hardening.py --registry --docker --render`.
 

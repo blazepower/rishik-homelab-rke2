@@ -51,10 +51,21 @@
       "public_tree_layout": ["etc/ssl", "usr/share/ca-certificates", "usr/local/share/ca-certificates"]
     },
     "overseerr": {
-      "index": "ghcr.io/seerr-team/seerr@sha256:d8fab675b55ad293ded98fd71efcfd46054cbad9746534ae1cc4794a88c0b3be",
-      "amd64": "ghcr.io/seerr-team/seerr@sha256:2636191726a315dbd75228537f7be74b2fa7498998bb22e37b5b5c8756018fba",
-      "original_tag": "v3.5.1",
-      "runtime": "Node22.23.4",
+      "index": "ghcr.io/seerr-team/seerr@sha256:aadee014b40e28cf9aa4928bc9d1183a6eb08f8c44d543cddc9efdcb16549be2",
+      "amd64": "ghcr.io/seerr-team/seerr@sha256:ccddd8e5c5b026790b447f4c97937751083227584c793864db218b460def7959",
+      "original_tag": "v3.5.2",
+      "runtime": "Node22.23.5",
+      "native_node_version": "v22.23.5",
+      "public_store_denied_copies": 0,
+      "public_export": {
+        "captured_utc": "2026-11-23",
+        "method": "Immutable public amd64 export; independent cryptography SPKI comparison with the shared eleven-key policy. No image execution, user data or cluster changes.",
+        "bundle_sha256": "5961c0a3c65459931c023e0075c09733f09aea4ca439cb85bc4a08bb4f3f568b",
+        "unaffected_der_identities": 118,
+        "historical_factory_audit_preserved": ".github/security/fleet-application-ca-report.json",
+        "isolated_startup_and_native_inventory": "Required in exact-image CI; not certified by this export",
+        "rollout_clearance": false
+      },
       "public_tree_layout": ["etc/ssl"],
       "source_trees": "Verified absent in exact immutable image; copy guard rejects unexpected source trees rather than silently making empty replacements"
     }
