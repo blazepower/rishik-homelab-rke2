@@ -235,7 +235,8 @@ The enabled deployment pins Sure 0.7.6 by immutable index. `factory-ca.json`
 binds that index to its independently audited linux/amd64 manifest, image config,
 public CA inventory and original entrypoint hash. The initializer refuses CA,
 native-default alias or entrypoint drift **before** Rails `db:prepare` or Sidekiq
-starts. CI checks the actual pulled image config as well as the selected index;
+starts. CI checks the actual container's platform manifest (containerd) or
+config identity (classic Docker), as well as the selected index;
 updating a tag/digest alone is not an approved factory refresh.
 
 The 0.7.6 public audit is recorded separately in

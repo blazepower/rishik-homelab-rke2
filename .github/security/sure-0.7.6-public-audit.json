@@ -38,7 +38,8 @@
     "job_id": 137427028119,
     "observed": "18 tests, two failures: chart asserted obsolete 0.7.2-alpha.2 pin; full startup test reached NATIVE_PROBE after initializer, Rails HTTP/schema readiness and Sidekiq registration, but generic Docker exec diagnostic hid the failing assertion.",
     "independent_reproduction": "New public image has identical complete CA inventory, aliases and vendor bundle paths, but a different original entrypoint hash; old factory metadata necessarily fails the native probe entrypoint equality assertion.",
-    "fix": "Refresh independently audited immutable factory binding and entrypoint hash; require index/config binding in CI and entrypoint hash in initializer before app start. Keep all existing native-store and startup acceptance assertions."
+    "fix": "Refresh independently audited immutable factory binding and entrypoint hash; require selected index plus actual container platform-manifest/config binding in CI and entrypoint hash in initializer before app start. Keep all existing native-store and startup acceptance assertions.",
+    "containerd_compatibility": "Run45111059743 exposed the modern containerd image store's index-based local image ID, which is not a config digest. Require the actual container ImageManifestDescriptor to equal the audited amd64 digest; classic Docker without that descriptor must match the audited config digest. Index alone never proves platform binding."
   },
   "remaining_gates": ["Full existing Linux Sure acceptance on pushed head", "Coordinator review of migrations and verified database/Redis backups", "Separately authorized serial storage activation and production rollout", "Explicit private/custom trust contexts remain outside certification"]
 }

@@ -38,13 +38,23 @@ def sidekiq_probe_command(container):
     return ["exec", container, "bundle", "exec", "ruby", "-e", SIDEKIQ_REGISTRATION_PROBE]
 
 
-def factory_image_binding(image, factory, config_digest=None):
+def factory_image_binding(image, factory, runtime_id=None, runtime_manifest=None):
     repository, digest = image.split("@")
     repository = repository.rsplit(":", 1)[0]
     if factory["image_index"] != repository + "@" + digest:
         raise AssertionError("selected image index differs from audited factory")
-    if config_digest is not None and config_digest != factory["image_config"]:
-        raise AssertionError("pulled amd64 image config differs from audited factory")
+    if runtime_id is None:
+        return
+    # Classic Docker identifies configs; containerd identifies indexes/manifests.
+    amd64 = factory["image_amd64"].split("@")[1]
+    if runtime_manifest is not None:
+        if runtime_manifest != amd64:
+            raise AssertionError("running platform manifest differs from audited factory")
+        if runtime_id in (digest, amd64, factory["image_config"]):
+            return
+    elif runtime_id == factory["image_config"]:
+        return
+    raise AssertionError("runtime image identity differs from audited factory: " + str(runtime_id))
 
 
 def probe_diagnostics(result):
@@ -75,8 +85,19 @@ class SureProbeTests(unittest.TestCase):
         factory_image_binding(IMAGE, FACTORY, FACTORY["image_config"])
         with self.assertRaisesRegex(AssertionError, "image index"):
             factory_image_binding(IMAGE.rsplit("@", 1)[0] + "@sha256:" + "0" * 64, FACTORY)
-        with self.assertRaisesRegex(AssertionError, "image config"):
+        with self.assertRaisesRegex(AssertionError, "image identity"):
             factory_image_binding(IMAGE, FACTORY, "sha256:" + "0" * 64)
+
+    def test_containerd_index_identity_requires_exact_running_amd64_manifest(self):
+        index = FACTORY["image_index"].split("@")[1]
+        amd64 = FACTORY["image_amd64"].split("@")[1]
+        factory_image_binding(IMAGE, FACTORY, index, amd64)
+        with self.assertRaisesRegex(AssertionError, "image identity"):
+            factory_image_binding(IMAGE, FACTORY, index)
+        with self.assertRaisesRegex(AssertionError, "platform manifest"):
+            factory_image_binding(IMAGE, FACTORY, index, "sha256:" + "0" * 64)
+        with self.assertRaisesRegex(AssertionError, "platform manifest"):
+            factory_image_binding(IMAGE, FACTORY, FACTORY["image_config"], "sha256:" + "0" * 64)
 
     def test_registration_probe_uses_factory_bundle_and_live_sidekiq_api(self):
         command = sidekiq_probe_command("fixture")
@@ -281,10 +302,6 @@ class SureLinuxAcceptance(unittest.TestCase):
         for image in (IMAGE, POSTGRES, REDIS):
             subprocess.run(["docker", "pull", "--platform=linux/amd64", image],
                            check=True, capture_output=True, timeout=300)
-        config_digest = subprocess.check_output(
-            ["docker", "image", "inspect", "--format={{.Id}}", IMAGE], timeout=30,
-        ).decode().strip()
-        factory_image_binding(IMAGE, FACTORY, config_digest)
 
     def setUp(self):
         self.base = ROOT / ("fleet-sure-test-" + uuid.uuid4().hex)
@@ -312,6 +329,10 @@ class SureLinuxAcceptance(unittest.TestCase):
         self.containers.append(name)
         self.docker("create", "--name", name, "--platform=linux/amd64", "--network=" + network,
                     "--cap-drop=ALL", "--security-opt=no-new-privileges", *options, image, *command)
+        if image == IMAGE:
+            inspected = json.loads(self.docker("inspect", name).stdout)[0]
+            descriptor = inspected.get("ImageManifestDescriptor") or {}
+            factory_image_binding(IMAGE, FACTORY, inspected["Image"], descriptor.get("digest"))
         return name
 
     def initialize(self, tools=None):
