@@ -55,7 +55,7 @@ Do not enable Kured solely to restore this metric.
 3. RKE2 1.37: a separate plan after the entire 1.36 fleet is accepted.
 
 The initial proposals are RKE2 `v1.36.6+rke2r1`, then `v1.37.2+rke2r1`,
-and Ubuntu kernel `7.0.0-43-generic`. These are **proposals, not deployment
+and Ubuntu kernel `7.0.0-44-generic`. These are **proposals, not deployment
 clearance**. Review target release notes and the actual Canal/CoreDNS,
 Longhorn/CSI, Kyverno, Traefik, Intel GPU and Ubuntu combinations before
 using `--compatibility-reviewed`. An OS support matrix is not evidence that
