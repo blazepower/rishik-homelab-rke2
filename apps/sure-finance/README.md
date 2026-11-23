@@ -265,7 +265,8 @@ private-data upgrade rehearsal. Private/custom trust contexts are not certified.
 Verified database/Redis recovery, original encryption keys, relevant uploads
 and isolated migration rehearsal remain production rollout prerequisites.
 Chart 2.2.12 coordinates the updated defaults and application metadata for
-Flux's `ChartVersion` reconciliation.
+Flux's `ChartVersion` reconciliation. The release explicitly retains the
+deployed Redis digest, avoiding an implicit backend update from cached defaults.
 
 The application is automatically upgraded when the Helm chart or app version is updated in `helmrelease.yaml`. Flux will detect the changes and apply them.
 

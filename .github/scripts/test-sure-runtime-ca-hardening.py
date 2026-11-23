@@ -24,7 +24,8 @@ UPGRADE_BASELINE = (
     "b5d6d822fdef24c1af06ad455ce003139a2bd50cb6cf76a84a147dfd06b0e3dc"
 )
 POSTGRES = DEFAULTS["postgresql"]["image"]["repository"] + ":" + DEFAULTS["postgresql"]["image"]["tag"]
-REDIS = DEFAULTS["redis"]["image"]["repository"] + ":" + DEFAULTS["redis"]["image"]["tag"]
+REDIS_IMAGE = VALUES.get("redis", {}).get("image", DEFAULTS["redis"]["image"])
+REDIS = REDIS_IMAGE["repository"] + ":" + REDIS_IMAGE["tag"]
 
 
 def render(values):
