@@ -10,9 +10,12 @@ Actions to create pull requests. Nothing auto-merges or connects GitHub
 hosted runners to the cluster.
 
 The local Python 3.11+ runner uses existing `kubectl`, OpenSSH and interactive
-sudo. It does not install a runner, collect passwords, change sudoers, export
+sudo. It does not install a permanent host runner, collect passwords, change sudoers, export
 kubeconfigs or put cluster credentials in GitHub. Run from a real terminal;
-keep it open throughout maintenance. Do not pipe its input or run `apply`
+keep it open throughout ordinary `apply`. The held `cold-apply` below instead
+frontloads authentication and uses exact run-scoped root jobs; after its verified
+manual-authentication-complete message, the workstation only observes.
+Do not pipe input or run either apply command
 through an assistant's noninteractive command runner.
 
 Application downtime, including multiple applications together, is accepted.
@@ -137,16 +140,32 @@ change is performed or claimed.
 The source execution ordering is:
 
 1. Rebuild the exact plan and recheck host/packages, code/client and metadata.
-   Verify the existing real worker2 sudo channel and controller recovery mount.
+   Verify the controller recovery mount.
    Acquire a new non-expiring lock with its own immutable 12h deadline; never
    overwrite/reuse the expired November 16 ledger.
 2. Install the approved source bundle and root-owned fsynced restoration journal
    on the unchanged controller using existing SSH/interactive sudo. Enable a
    persistent systemd guard timer, execute its native context/storage self-check,
-   and verify it actually ran. Verify existing controller-to-worker2 audit SSH
-   and worker2-to-controller read-only status SSH, and the real worker2 sudo
-   channel again **before the first pause**. Missing access is a blocker, never
-   a reason to create keys, sudoers rules or a privileged pod.
+   and verify it actually ran. Using the existing real worker2 sudo terminal,
+   stage the same approved source and start one root-owned worker2 systemd
+   **standby** job before `cold-start`. Bind its exact approved OS payload,
+   source hashes, plan/run/host-step IDs, original host boot/kernel/package and
+   node bindings, and immutable deadline. Verify an actual live root PID, exact
+   unit hash, fresh worker/peer readiness and original bindings; creating a unit
+   or finding no unit is not readiness. The controller rechecks that proof,
+   its native guard, source and all pre-pause gates before starting.
+   There are three privileged setup calls: controller registration, worker
+   standby registration, controller start. **All manual authentication is before
+   the first pause.** Only after these proofs does the root start helper print
+   `Manual authentication complete; autonomous ...`. You may then leave the
+   terminal; the workstation only observes. Setup duration depends on real
+   SSH/authentication and native checks, not the subsequent drain/APT duration.
+   No `sudo -v`, cached-sudo lifetime or later normal privileged host-start,
+   receipt-complete or recovery call is required.
+   Verify existing controller-to-worker2 read-only audit/receipt SSH and
+   worker2-to-controller read-only status SSH. Missing host trust/authentication
+   is a blocker, never a reason to install keys, known_hosts entries, sudoers
+   rules, a generic root gateway or a privileged pod.
 3. Freeze exact Flux reconciliation and scheduled producers; require no
    in-flight reconciliations or active Jobs. In addition to the four media schedules,
    explicitly bind `kube-system/media-mount-handler`: this five-minute,
@@ -198,11 +217,25 @@ The source execution ordering is:
    worker1's actual resident native IM and remaining workloads are counted.
    Remaining selected migration Pods/controllers/PVCs are independently hash-bound;
    unbound, local, hostPath or node-affinity-constrained PVs are not waived.
-6. At the host handoff, the selected real terminal performs worker2 OS only.
-   APT is never killed. Recheck the immutable reserve and controller guard
+6. After all current cold storage, released native PDB, actual drain and
+   infrastructure gates pass again under the controller journal mutex, the
+   root executor authorizes only its existing precise host slot. The standby
+   polls only bound root-owned **read-only** controller status over preexisting
+   strict BatchMode SSH. It remains inert until that authorization: no package,
+   service, kernel, application or node mutations. Cancelled, stale, expired,
+   changed boot/source/peer, clock rollback, reserve or lost-executor slots
+   cannot launch. The controller refreshes native protection while the job waits
+   or runs packages and irrevocably revokes on native peer drift; a stale native
+   host-slot heartbeat cannot authorize a launch/reboot. A long normal drain is
+   still inert, not mistaken for an authorized but stale slot.
+   The single-shot unit accepts only its run ID, never a caller
+   command or replacement OS payload; terminal claim/receipt records cannot be
+   replayed. APT is never killed. Recheck the immutable reserve and controller guard
    authority immediately before starting and before **scheduling and executing**
    the deferred reboot. A long transaction cannot authorize a late reboot.
-   A package receipt is **not** reboot completion: keep only the existing host
+   The controller ingests the exact bound root-owned 0444 worker package receipt
+   itself over existing read-only SSH; no workstation receipt forwarding or late
+   sudo is involved. A package receipt is **not** reboot completion: keep only the existing host
    slot authorized while its ten-second timer runs, then require idle host units
    and a verified new boot/approved kernel before normal restoration. Use a
    single-shot timer that does not remain active after elapse. Check native
@@ -247,8 +280,19 @@ turn. Records are under `/var/lib/node-maintenance-cold/<run-id>`; a root-owned
 0444 technical status receipt is separate. The guard requests original-state
 recovery on executor loss or when the final two-hour reserve begins. Fsynced
 write-ahead mutation intentions and a controller flock prevent competing
-recovery/scale actions. A late host launch reads a revoked handoff before APT;
-the guard does not warm while APT/reboot units or a normal drain remain active.
+recovery/scale actions. The waiting standby is not a running dpkg transaction,
+but an idle/missing unit alone cannot prove it will not claim a stale slot.
+Recovery irrevocably revokes the controller slot, then requires a terminal
+worker acknowledgment under the same worker mutex used for claim. A worker
+that claimed just before revocation must finish/refuse its exact operation;
+recovery waits for its acknowledgment/receipt and genuinely idle standby,
+APT/reboot units, empty package cgroups and native shutdown jobs. No stop/kill
+is used to manufacture idleness. A revoked launch rechecks before APT and reboot;
+the guard also waits for any normal drain to finish.
+Worker records are root-owned under `/var/lib/node-maintenance-cold-worker/<run-id>`;
+only the technical 0444 status/receipt is exposed under
+`/var/lib/node-maintenance-cold-worker-status`. The standby unit is run-scoped
+under `/run/systemd/system`, not enabled at boot and not a permanent host agent.
 `cold-recover` requests the same protected original-state recovery; it never
 restarts the outage clock or resumes upgrades. Reserve entry, executor loss and
 explicit recovery revoke pending host/reboot launches. If reboot is refused and
@@ -256,6 +300,24 @@ the old boot is still healthy with all units and shutdown jobs idle, restore the
 original applications under native two-copy protection rather than demand a boot
 that never occurred. Report `recovered-after-failure`, never maintenance acceptance.
 If a reboot did occur, its kernel/headless identity must still be verified.
+
+Stage/start failures occur before any pause. An unclaimed unqueued idle standby
+is terminally cancelled under its worker mutex; a live/queued standby receives
+the same irrevocable controller revocation and acknowledges it naturally.
+The setup error requests the original controller recovery channel while still
+before `cold-start`; the workstation never deletes the lock or resets the clock.
+If staging failed too early to establish a root-owned acknowledgment, a worker
+crashed before acknowledging, or an original channel is missing, cancellation
+cannot be safely inferred. Fail closed loudly, retain the original lock/deadline,
+and treat this as a runtime blocker requiring the existing explicit operator
+channel, not an absence-of-unit waiver or an automatic privilege/trust change.
+An ambiguous final `cold-start` SSH/authentication failure never triggers another
+automatic sudo prompt: it might already have paused applications. A start that
+never reached the root helper leaves the standby inert in registered mode.
+Cancellation remains unverified; use read-only status and, if needed, the
+existing explicit `cold-recover` operator channel. A root start-helper preflight
+or executor unit start failure instead revokes the slot and requests the guard
+itself, without another workstation authentication.
 
 Unsafe/degraded storage, identity drift, lost native peers, a busy package
 transaction or unavailable worker2 can block restoration. The timer retries and
@@ -271,6 +333,12 @@ fresh runtime provenance/metadata/package bindings; native PDB release and
 normal eviction under strict cold protection; actual HA/capacity acceptance;
 worker2 kernel reboot and restored HTTPS/VPN/application health; and interruption
 recovery on those real channels. Local mocks are **not native live acceptance**.
+In particular, strict controller-to-`rishik@192.168.1.12` SSH currently lacks a
+verified trusted ED25519 host entry on the selected existing channels; worker2
+root access and the reverse status channel are not proven. This held extension
+is not deployable until those original bidirectional channels and the actual
+guard/standby/receipt lifecycle have been independently verified. This source
+does not add or waive host trust.
 
 Resolve every blocker before approval. In particular:
 

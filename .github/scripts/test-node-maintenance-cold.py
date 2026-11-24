@@ -7,10 +7,13 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
+import shlex
 import sys
 import time
+from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
+import zlib
 
 
 sys.dont_write_bytecode = True
@@ -275,9 +278,22 @@ class FakeAPI:
     def host_audit(self, policy, name):
         return {"boot_id": self.host_boot, "kernel": policy["kernel"], "default_target": "multi-user.target"}
 
-    def host_idle(self, policy, step_id):
+    def host_idle(self, policy, step_id, run_id=None):
         # systemd-run's transient units live under /run and vanish at reboot.
         return self.host_boot == "old-worker2"
+
+    def worker_status(self, policy, run_id):
+        state = self.journal.read()
+        contract = state["worker_contract"]
+        record = {"contract": contract, "contract_sha256": state["worker_contract_sha256"],
+                  "phase": "cancelled" if state.get("host_slot_cancelled") else "waiting",
+                  "ready_epoch": time.time(), "peer_epoch": time.time(), "pid": 1234,
+                  "original_host": {k: contract["bindings"][c.WORKER][k] for k in ("boot_id", "kernel", "pending_packages")}}
+        if state.get("host_receipt"):
+            record.update(phase="packages-complete", receipt=state["host_receipt"])
+        return {"record": record, "unit": {"LoadState": "loaded", "ActiveState": "active",
+                                         "Job": "0", "MainPID": "1234", "User": "root"},
+                "unit_sha256": c.sha(c.worker_unit(contract).encode())}
 
 
 def fixture(hpa_behavior=None, handler_suspend=False):
@@ -495,11 +511,15 @@ def fixture(hpa_behavior=None, handler_suspend=False):
     start = time.time()
     state = {"run_id": "1" * 32, "plan_sha256": approval, "started_epoch": start, "deadline_epoch": start + 43200,
              "last_epoch": start, "guard_registered": True, "mode": "disrupting", "phase": "registered",
-             "mutations": {}, "completed": False, "host_step_id": "2" * 32, "host_started": False, "host_complete": False}
+             "mutations": {}, "completed": False, "host_step_id": "2" * 32, "host_started": False, "host_complete": False,
+             "worker_ready_verified": True}
+    contract = c.worker_contract(plan, policy, state["run_id"], state["host_step_id"], start, start + 43200)
+    state.update(worker_contract=contract, worker_contract_sha256=c.sha(c.canonical(contract)))
     api.add("configmap", {**obj("ConfigMap", "kube-system", c.m.LOCK, {}), "data": {
         "run_id": state["run_id"], "plan_sha256": approval, "started_epoch": str(start), "deadline_epoch": str(start + 43200)}})
     api.get("configmap", "kube-system", c.m.LOCK)["data"]["host_step_id"] = state["host_step_id"]
-    return policy, api, plan, approval, MemoryJournal(state)
+    api.journal = MemoryJournal(state)
+    return policy, api, plan, approval, api.journal
 
 
 class ColdTests(unittest.TestCase):
@@ -566,6 +586,470 @@ class ColdTests(unittest.TestCase):
             self.coordinator.mutate(self.plan["schedules"][0], "suspend", True)
         self.assertEqual(self.api.events, [])
         self.assertEqual(self.journal.read()["mutations"], {})
+
+    def standby_peer(self, authorized=False):
+        peer = self.journal.read()
+        contract = peer["worker_contract"]
+        peer.update(mode="registered", phase="registered", guard_verified_epoch=time.time(),
+                    guard_active=True, guard_enabled=True, executor_active=True, host_reboot_authorized=False,
+                    controller_name=c.SERVER, controller_boot_id=contract["bindings"][c.SERVER]["boot_id"],
+                    controller_kernel=contract["bindings"][c.SERVER]["kernel"],
+                    live_source_bindings=contract["source_bindings"])
+        if authorized:
+            peer.update(mode="disrupting", phase="awaiting-host", host_started=True, host_reboot_authorized=True,
+                        host_native_gate_epoch=time.time())
+        return peer
+
+    def worker_journal(self, phase="staged"):
+        contract = self.journal.read()["worker_contract"]
+        return MemoryJournal({"contract": contract, "contract_sha256": c.sha(c.canonical(contract)),
+                              "phase": phase, "last_epoch": contract["started_epoch"], "pid": 0})
+
+    def test_apply_frontloads_all_privileged_auth_and_only_observes_after_first_pause(self):
+        start = self.journal.read()["started_epoch"]
+        calls, paused = [], False
+        statuses = iter([{"phase": "awaiting-host", "mode": "disrupting", "completed": False},
+                         {"phase": "accepted", "mode": "recovering", "completed": True}])
+        def remote(node, payload, privileged=False):
+            nonlocal paused
+            calls.append((payload["operation"], privileged, paused))
+            if privileged:
+                self.assertFalse(paused, "A privileged call occurred after first pause")
+            if payload["operation"] == "recovery-audit":
+                return {"off_node_directory_verified": True}
+            if payload["operation"] == "cold-worker-status":
+                return self.api.worker_status(self.policy, payload["run_id"])
+            if payload["operation"] == "cold-start":
+                paused = True
+            if payload["operation"] == "cold-status":
+                return {**self.journal.read(), **next(statuses)}
+        with patch.object(c.sys.stdin, "isatty", return_value=True), patch.object(c.sys.stdout, "isatty", return_value=True), \
+                patch.object(c, "API", return_value=self.api), \
+                patch.object(c, "build_plan", return_value=self.plan), patch.object(c.m, "remote", side_effect=remote), \
+                patch.object(c.m, "kube"), patch.object(c.m, "run", side_effect=AssertionError("No CLI SSH after setup")), \
+                patch.object(c, "stage_transport", return_value="/bound/source.json"), \
+                patch.object(c.Path, "mkdir"), patch.object(c.Path, "write_bytes"), \
+                patch.object(c.uuid, "uuid4", side_effect=[SimpleNamespace(hex="1" * 32), SimpleNamespace(hex="2" * 32)]), \
+                patch.object(c.time, "time", return_value=start), patch.object(c.time, "sleep"):
+            c.apply(self.plan, self.approval, self.policy, "/existing/protected/mount", True)
+        self.assertEqual([op for op, privileged, _ in calls if privileged],
+                         ["cold-register", "cold-worker-register", "cold-start"])
+        self.assertTrue(all(not privileged for _, privileged, after in calls if after))
+
+    def test_cli_loss_after_setup_never_requests_late_privileged_recovery(self):
+        start = self.journal.read()["started_epoch"]
+        def remote(node, payload, privileged=False):
+            if payload["operation"] == "recovery-audit":
+                return {"off_node_directory_verified": True}
+            if payload["operation"] == "cold-worker-status":
+                return self.api.worker_status(self.policy, payload["run_id"])
+            if payload["operation"] == "cold-status":
+                raise RuntimeError("workstation disappeared")
+        with patch.object(c.sys.stdin, "isatty", return_value=True), patch.object(c.sys.stdout, "isatty", return_value=True), \
+                patch.object(c, "API", return_value=self.api), \
+                patch.object(c, "build_plan", return_value=self.plan), patch.object(c.m, "remote", side_effect=remote), \
+                patch.object(c.m, "kube"), patch.object(c, "stage_transport", return_value="/bound/source.json"), \
+                patch.object(c.Path, "mkdir"), patch.object(c.Path, "write_bytes"), patch.object(c, "request_recovery") as recover, \
+                patch.object(c.uuid, "uuid4", side_effect=[SimpleNamespace(hex="1" * 32), SimpleNamespace(hex="2" * 32)]), \
+                patch.object(c.time, "time", return_value=start), self.assertRaisesRegex(RuntimeError, "workstation disappeared"):
+            c.apply(self.plan, self.approval, self.policy, "/existing/protected/mount", True)
+        recover.assert_not_called()
+
+    def test_live_standby_proof_rejects_inactive_absent_stale_pid_unit_original_or_bound_identity(self):
+        contract = self.journal.read()["worker_contract"]
+        proof = self.api.worker_status(self.policy, contract["run_id"])
+        c.worker_ready(proof, contract, time.time())
+        changes = [
+            ("unit", "ActiveState", "inactive"), ("unit", "LoadState", "not-found"),
+            ("unit", "MainPID", "0"), ("unit", "Job", "123"), ("unit", "User", "rishik"),
+            ("record", "phase", "claimed"), ("record", "ready_epoch", 0), ("record", "peer_epoch", time.time() + 60),
+            ("record", "original_host", {}), ("record", "contract_sha256", "0" * 64),
+        ]
+        for area, field, value in changes:
+            changed = copy.deepcopy(proof)
+            changed[area][field] = value
+            with self.subTest(field=field), self.assertRaises(RuntimeError):
+                c.worker_ready(changed, contract, time.time())
+        for field in ("run_id", "host_step_id", "plan_sha256", "source_bindings", "bindings", "deadline_epoch"):
+            changed = copy.deepcopy(proof)
+            changed["record"]["contract"][field] = "replayed"
+            with self.subTest(binding=field), self.assertRaises(RuntimeError):
+                c.worker_ready(changed, contract, time.time())
+        with self.assertRaises(RuntimeError):
+            c.worker_ready({**proof, "unit_sha256": "0" * 64}, contract, time.time())
+
+    def test_missing_exact_worker_or_native_guard_proof_cannot_start_or_pause(self):
+        self.journal.state.update(mode="registered", guard_verified_epoch=time.time())
+        for failure in ("worker", "guard"):
+            self.journal.state.update(mode="registered", host_slot_cancelled=False)
+            with self.subTest(failure=failure), patch.object(h, "load_cold", return_value=c), \
+                    patch.object(c, "load_runtime", return_value=self.coordinator), patch.object(h, "command") as command:
+                command.side_effect = lambda args: "active" if "is-active" in args else "enabled"
+                if failure == "worker":
+                    with patch.object(self.api, "worker_status", side_effect=RuntimeError("No trusted existing SSH channel")), \
+                            self.assertRaisesRegex(RuntimeError, "trusted"):
+                        h.cold_control({"operation": "cold-start", "run_id": "1" * 32})
+                else:
+                    self.journal.state["guard_verified_epoch"] = 0
+                    with self.assertRaisesRegex(RuntimeError, "guard readiness"):
+                        h.cold_control({"operation": "cold-start", "run_id": "1" * 32})
+                starts = [call.args[0] for call in command.call_args_list if call.args[0][1] == "start"]
+                self.assertEqual(starts, [["systemctl", "start", "--no-block",
+                                          "node-maintenance-cold-" + "1" * 32 + "-guard.service"]])
+        self.assertEqual(self.api.events, [])
+        self.assertEqual(self.journal.read()["mode"], "recovering")
+        self.assertTrue(self.journal.read()["host_slot_cancelled"])
+
+    def test_standby_is_inert_until_exact_authorized_slot_and_cannot_replay_terminal_job(self):
+        worker = self.worker_journal()
+        contract = worker.read()["contract"]
+        peer = self.standby_peer()
+        original = {k: contract["bindings"][c.WORKER][k] for k in ("boot_id", "kernel", "pending_packages")}
+        with patch.object(h, "worker_transaction", side_effect=lambda _, fn: worker.transaction(fn)), \
+                patch.object(h, "cold_peer_status", side_effect=lambda _: peer), patch.object(h.Path, "read_text", return_value="old-worker2"), \
+                patch.object(h.platform, "release", return_value=original["kernel"]), patch.object(h, "audit", return_value=original), \
+                patch.object(h, "command") as command:
+            self.assertEqual(h.standby_tick(Path("."), contract), "waiting")
+            self.assertEqual(worker.read()["original_host"], original)
+            command.assert_not_called()
+            peer.update(mode="disrupting", phase="cold-detached")
+            self.assertEqual(h.standby_tick(Path("."), contract), "waiting")
+            peer.update(phase="awaiting-host", host_started=True, host_reboot_authorized=True, host_native_gate_epoch=time.time())
+            self.assertEqual(h.standby_tick(Path("."), contract), "claim")
+            with self.assertRaisesRegex(RuntimeError, "single-shot"):
+                h.standby_tick(Path("."), contract)
+            command.assert_not_called()  # Claim journals authority; no caller-selected command.
+
+    def test_standby_cancel_reserve_clock_source_boot_peer_or_executor_loss_never_launches(self):
+        changes = [
+            {"host_slot_cancelled": True}, {"mode": "recovering"}, {"completed": True},
+            {"deadline_epoch": 0}, {"last_epoch": 0}, {"last_epoch": time.time() + 60},
+            {"executor_active": False}, {"guard_active": False}, {"guard_enabled": False},
+            {"controller_boot_id": "new"}, {"controller_kernel": "new"}, {"live_source_bindings": {}},
+            {"host_native_gate_epoch": 0},
+            {"host_step_id": "3" * 32}, {"plan_sha256": "0" * 64}, {"host_reboot_authorized": False},
+        ]
+        for change in changes + [{"peer_failure": True}, {"worker_boot": True}, {"local_clock": True}, {"reserve": True}]:
+            worker = self.worker_journal("waiting")
+            contract = worker.read()["contract"]
+            peer = {**self.standby_peer(authorized=True), **change}
+            now = contract["deadline_epoch"] - 7200 if change.get("reserve") else time.time()
+            if change.get("local_clock"):
+                worker.state["last_epoch"] = now + 60
+            with self.subTest(change=change), \
+                    patch.object(h, "worker_runtime", return_value=(Path("."), contract)), \
+                    patch.object(h, "worker_transaction", side_effect=lambda _, fn: worker.transaction(fn)), \
+                    patch.object(h, "cold_peer_status", side_effect=RuntimeError("strict SSH host trust missing") if change.get("peer_failure") else lambda _: peer), \
+                    patch.object(h.Path, "read_text", return_value="new" if change.get("worker_boot") else "old-worker2"), \
+                    patch.object(h.platform, "release", return_value=contract["bindings"][c.WORKER]["kernel"]), \
+                    patch.object(h.time, "time", return_value=now), patch.object(h, "main") as launch:
+                try:
+                    h.cold_standby(contract["run_id"])
+                except RuntimeError:
+                    pass
+                launch.assert_not_called()
+                self.assertEqual(worker.read()["phase"], "cancelled")
+
+    def test_revocation_between_worker_reads_cannot_claim_and_recovery_waits_for_ack_not_unit_absence(self):
+        worker = self.worker_journal("waiting")
+        contract = worker.read()["contract"]
+        first = self.standby_peer(authorized=True)
+        second = {**first, "host_slot_cancelled": True}
+        with patch.object(h, "worker_runtime", return_value=(Path("."), contract)), \
+                patch.object(h, "worker_transaction", side_effect=lambda _, fn: worker.transaction(fn)), \
+                patch.object(h, "cold_peer_status", side_effect=[first, second]), \
+                patch.object(h.Path, "read_text", return_value="old-worker2"), \
+                patch.object(h.platform, "release", return_value=contract["bindings"][c.WORKER]["kernel"]), \
+                patch.object(h, "audit", return_value=contract["bindings"][c.WORKER]), patch.object(h, "main") as launch:
+            with self.assertRaisesRegex(RuntimeError, "revoked during claim"):
+                h.cold_standby(contract["run_id"])
+        launch.assert_not_called()
+        self.assertEqual(worker.read()["phase"], "cancelled")
+        proof = self.api.worker_status(self.policy, contract["run_id"])
+        proof["record"]["phase"] = "waiting"
+        proof["unit"].update(ActiveState="inactive", LoadState="not-found", MainPID="0")
+        with patch.object(self.api, "worker_status", return_value=proof), \
+                patch.object(self.api, "host_idle", return_value=False), self.assertRaisesRegex(RuntimeError, "acknowledged"):
+            self.coordinator.recover()
+        self.assertTrue(self.api.items("configmap"))
+        self.assertFalse(any(e[0] == "patch" for e in self.api.events))
+
+    def test_claim_before_revocation_cannot_warm_until_root_job_and_package_children_are_idle(self):
+        contract = self.journal.read()["worker_contract"]
+        self.authorize_host_slot()
+        proof = self.api.worker_status(self.policy, contract["run_id"])
+        proof["record"]["phase"] = "claimed"
+        with patch.object(self.api, "worker_status", return_value=proof), self.assertRaisesRegex(RuntimeError, "acknowledged"):
+            self.coordinator.recover()
+        self.assertTrue(self.journal.read()["host_slot_cancelled"])
+        payload = {**contract["os_payload"], "contract_sha256": c.sha(c.canonical(contract))}
+        with patch.object(h, "cold_peer_status", return_value=self.standby_peer(authorized=True) | {"host_slot_cancelled": True}), \
+                patch.object(h, "command") as command, self.assertRaisesRegex(RuntimeError, "revoked"):
+            h.reserve(payload)
+        command.assert_not_called()
+        proof["record"]["phase"] = "cancelled"
+        with patch.object(self.api, "worker_status", return_value=proof), \
+                patch.object(self.api, "host_idle", side_effect=RuntimeError("package cgroup populated")), \
+                self.assertRaisesRegex(RuntimeError, "populated"):
+            self.coordinator.recover()
+        self.assertFalse(any(e[0] == "patch" for e in self.api.events))
+
+    def test_bound_receipt_replay_identity_and_clock_drift_are_rejected_before_new_boot(self):
+        self.record_package_receipt()
+        receipt = self.journal.read()["host_receipt"]
+        self.coordinator.ingest_worker_receipt(receipt)
+        for field, value in (("run_id", "3" * 32), ("old_boot_id", "new"), ("expected_kernel", "new"),
+                             ("contract_sha256", "0" * 64), ("completed_epoch", time.time() + 60),
+                             ("operation", "rke2"), ("name", c.PEER), ("headless", False), ("package_removals", True)):
+            with self.subTest(field=field), self.assertRaises(RuntimeError):
+                self.coordinator.ingest_worker_receipt({**receipt, field: value})
+        with self.assertRaisesRegex(RuntimeError, "not reboot completion"):
+            self.coordinator.host_completed()
+        self.assertFalse(self.journal.read()["host_complete"])
+
+    def test_setup_stage_failure_uses_only_before_pause_guarded_cancellation_and_keeps_lock_clock(self):
+        start = self.journal.read()["started_epoch"]
+        calls = []
+        def remote(node, payload, privileged=False):
+            calls.append(payload["operation"])
+            if payload["operation"] == "recovery-audit":
+                return {"off_node_directory_verified": True}
+            if payload["operation"] == "cold-status":
+                return self.journal.read()
+            if payload["operation"] == "audit":
+                return {"boot_id": "old-other"}
+        with patch.object(c.sys.stdin, "isatty", return_value=True), patch.object(c.sys.stdout, "isatty", return_value=True), \
+                patch.object(c, "API", return_value=self.api), \
+                patch.object(c, "build_plan", return_value=self.plan), patch.object(c.m, "remote", side_effect=remote), \
+                patch.object(c.m, "kube") as kube, patch.object(c, "stage_transport", side_effect=["/bound/source.json", RuntimeError("SCP failed")]), \
+                patch.object(c.Path, "mkdir"), patch.object(c.Path, "write_bytes"), \
+                patch.object(c.uuid, "uuid4", side_effect=[SimpleNamespace(hex="1" * 32), SimpleNamespace(hex="2" * 32)]), \
+                patch.object(c.time, "time", return_value=start), self.assertRaisesRegex(RuntimeError, "before any pause"):
+            c.apply(self.plan, self.approval, self.policy, "/existing/protected/mount", True)
+        self.assertIn("cold-recover", calls)
+        self.assertNotIn("cold-start", calls)
+        self.assertFalse(any("delete" in args.args for args in kube.call_args_list))
+        self.assertEqual(self.journal.read()["deadline_epoch"], start + 43200)
+
+    def test_standby_start_failure_cancels_only_unclaimed_idle_job_never_stops_or_kills(self):
+        for queued in (False, True):
+            worker = self.worker_journal("waiting")
+            contract = worker.read()["contract"]
+            proof = self.api.worker_status(self.policy, contract["run_id"])
+            proof["unit"].update(ActiveState="active" if queued else "inactive", Job="42" if queued else "0")
+            stream = MagicMock()
+            stream.__enter__.return_value = stream
+            with self.subTest(queued=queued), patch.object(h.Path, "open", return_value=stream), \
+                    patch.object(h.os, "fchmod", create=True), patch.object(h.os, "fsync"), \
+                    patch.object(h, "worker_transaction", side_effect=lambda _, fn: worker.transaction(fn)), \
+                    patch.object(h, "worker_status", return_value=proof), \
+                    patch.object(h, "command", side_effect=RuntimeError("start failed")) as command, \
+                    self.assertRaisesRegex(RuntimeError, "start failed"):
+                h.start_worker_standby(Path("."), contract, c)
+            self.assertEqual(worker.read()["phase"], "waiting" if queued else "cancelled")
+            self.assertEqual(worker.read()["contract"]["deadline_epoch"], contract["deadline_epoch"])
+            self.assertEqual(command.call_args.args[0], ["systemctl", "daemon-reload"])
+
+    def test_standby_entry_rejects_any_caller_chosen_payload_or_command(self):
+        with patch.object(h, "cold_standby") as standby:
+            h.main({"operation": "cold-standby", "run_id": "1" * 32})
+            standby.assert_called_once_with("1" * 32)
+            for field in ("command", "os_payload", "deadline_epoch", "host_step_id"):
+                with self.subTest(field=field), self.assertRaisesRegex(RuntimeError, "no command/payload"):
+                    h.main({"operation": "cold-standby", "run_id": "1" * 32, field: "caller-chosen"})
+
+    def test_long_normal_drain_is_inert_but_stale_authorized_slot_cannot_launch(self):
+        contract = self.journal.read()["worker_contract"]
+        now = contract["started_epoch"] + 600
+        peer = self.standby_peer()
+        peer.update(mode="disrupting", phase="draining", last_epoch=contract["started_epoch"])
+        self.assertEqual(h.standby_peer(contract, peer, now), "waiting")
+        peer.update(phase="awaiting-host", host_started=True, host_reboot_authorized=True, host_native_gate_epoch=now)
+        with self.assertRaisesRegex(RuntimeError, "stale"):
+            h.standby_peer(contract, peer, now)
+        peer["last_epoch"] = now
+        self.assertEqual(h.standby_peer(contract, peer, now), "claim")
+
+    def test_peer_status_uses_only_public_receipt_and_existing_strict_readonly_channel(self):
+        import ast
+        peer = self.standby_peer()
+        with patch.object(h, "command", return_value=json.dumps(peer)) as command:
+            self.assertEqual(h.cold_peer_status(peer["run_id"]), peer)
+        args = command.call_args.args[0]
+        self.assertEqual(args[:2], ["ssh", "-T"])
+        self.assertIn("BatchMode=yes", args)
+        self.assertIn("StrictHostKeyChecking=yes", args)
+        self.assertIn("rishik@192.168.1.10", args)
+        source = shlex.split(args[-1])[2]
+        ast.parse(source)
+        self.assertIn("/var/lib/node-maintenance-cold-status/", source)
+        self.assertNotIn("/var/lib/node-maintenance-cold/", source)  # Root-private staged source is not readable by SSH user.
+        self.assertNotIn("sudo", source)
+        self.assertIn("'active','activating'", source)  # Controller Type=oneshot stays activating while running.
+
+    def test_native_standby_idle_checks_waiting_unit_and_surviving_package_cgroup(self):
+        state = [{"ActiveState": "inactive", "LoadState": "not-found", "Job": "0"} for _ in range(3)]
+        state += [{"ActiveState": "inactive", "LoadState": "loaded", "Job": "0"} for _ in range(3)]
+        state[5]["ActiveState"] = "active"
+        with patch.object(c.m, "run", return_value=json.dumps(state)), self.assertRaisesRegex(RuntimeError, "still claim"):
+            c.API().host_idle(self.policy, "2" * 32, "1" * 32)
+        state[5]["ActiveState"] = "failed"
+        with patch.object(c.m, "run", side_effect=[json.dumps(state), RuntimeError("package cgroup populated")]), \
+                self.assertRaisesRegex(RuntimeError, "populated"):
+            c.API().host_idle(self.policy, "2" * 32, "1" * 32)
+        with patch.object(c.m, "run", side_effect=[json.dumps(state), "{}"]) as run:
+            self.assertFalse(c.API().host_idle(self.policy, "2" * 32, "1" * 32))
+        self.assertIn("populated 0", shlex.split(run.call_args.args[0][-1])[2])
+
+    def test_bound_host_reserve_revalidates_exact_payload_and_persistent_local_clock_before_reboot(self):
+        peer = self.standby_peer(authorized=True)
+        worker = self.worker_journal("packages-complete")
+        contract = worker.read()["contract"]
+        payload = {**contract["os_payload"], "operation": "reboot", "contract_sha256": c.sha(c.canonical(contract))}
+        with patch.object(h, "cold_peer_status", return_value=peer), \
+                patch.object(h, "worker_runtime", return_value=(Path("."), contract)), \
+                patch.object(h, "worker_transaction", side_effect=lambda _, fn: worker.transaction(fn)), \
+                patch.object(h, "command") as command:
+            h.reserve(payload)
+            for changed in ({"kernel": "caller-chosen"}, {"pending_packages": ["caller-chosen"]}, {"command": "caller-chosen"}):
+                with self.subTest(changed=changed), self.assertRaisesRegex(RuntimeError, "payload drift"):
+                    h.reserve(payload | changed)
+            worker.state["last_epoch"] = time.time() + 60
+            with self.assertRaisesRegex(RuntimeError, "local clock"):
+                h.reserve(payload)
+        command.assert_not_called()
+
+    def test_root_executor_start_failure_revokes_slot_without_manual_late_recovery(self):
+        self.journal.state.update(mode="registered", guard_verified_epoch=time.time())
+        versions = {"clientVersion": {"gitVersion": self.plan["controller_client"]["version"]},
+                    "serverVersion": {"gitVersion": self.plan["kubectl"]["server"]}}
+        def command(args):
+            if args[1] == "is-active":
+                return "active"
+            if args[1] == "is-enabled":
+                return "enabled"
+            if args[-1].endswith("-guard.service"):
+                return ""
+            raise RuntimeError("executor start failed")
+        with patch.object(h, "load_cold", return_value=c), patch.object(c, "load_runtime", return_value=self.coordinator), \
+                patch.object(self.api, "kube", return_value=json.dumps(versions)), \
+                patch.object(self.api, "host_audit", return_value=self.plan["bindings"][c.WORKER]), \
+                patch.object(h, "command", side_effect=command) as invoke, patch("builtins.print") as output, \
+                self.assertRaisesRegex(RuntimeError, "executor start failed"):
+            h.cold_control({"operation": "cold-start", "run_id": "1" * 32})
+        self.assertTrue(self.journal.read()["host_slot_cancelled"])
+        self.assertEqual(self.journal.read()["mode"], "recovering")
+        self.assertEqual(len([call for call in invoke.call_args_list if call.args[0][1] == "start"]), 2)
+        self.assertIn("Manual authentication complete", output.call_args.args[0])
+        self.assertFalse(any(e[0] == "patch" for e in self.api.events))
+
+    def test_native_peer_failure_revokes_waiting_or_claimed_slot_not_just_waiting_for_timeout(self):
+        for phase in ("waiting", "claimed"):
+            proof = self.api.worker_status(self.policy, "1" * 32)
+            proof["record"]["phase"] = phase
+            self.authorize_host_slot()
+            with self.subTest(phase=phase), patch.object(self.api, "worker_status", return_value=proof), \
+                    patch.object(self.coordinator, "infrastructure", side_effect=RuntimeError("Native peer protection lost")), \
+                    self.assertRaisesRegex(RuntimeError, "Native peer"):
+                self.coordinator.host_completed()
+            self.assertTrue(self.journal.read()["host_slot_cancelled"])
+            self.assertFalse(self.journal.read()["host_reboot_authorized"])
+        self.assertFalse(any(e[0] == "patch" for e in self.api.events))
+
+    def test_exact_bound_deferred_reboot_accepts_only_original_boot_and_packages_complete_receipt(self):
+        worker = self.worker_journal("packages-complete")
+        contract = worker.read()["contract"]
+        payload = contract["os_payload"] | {"operation": "reboot", "contract_sha256": c.sha(c.canonical(contract))}
+        def read(path, *args, **kwargs):
+            return "old-worker2" if str(path).endswith("boot_id") else json.dumps(worker.read())
+        with patch.object(h.os, "geteuid", return_value=0, create=True), patch.object(h.socket, "gethostname", return_value=c.WORKER), \
+                patch.object(h, "worker_runtime", return_value=(Path("."), contract)), \
+                patch.object(h.Path, "read_text", autospec=True, side_effect=read), \
+                patch.object(h, "cold_peer_status", side_effect=lambda _: self.standby_peer(authorized=True)), \
+                patch.object(h, "worker_transaction", side_effect=lambda _, fn: worker.transaction(fn)), patch.object(h, "command") as command:
+            h.main(payload)
+            command.assert_called_once_with(["systemctl", "reboot"])
+            command.reset_mock()
+            for change in ({"kernel": "unbound"}, {"deadline_epoch": payload["deadline_epoch"] + 1}):
+                with self.subTest(change=change), self.assertRaisesRegex(RuntimeError, "exact payload"):
+                    h.main(payload | change)
+            worker.state["phase"] = "failed"
+            with self.assertRaisesRegex(RuntimeError, "terminal receipt"):
+                h.main(payload)
+            command.assert_not_called()
+        with patch.object(h.os, "geteuid", return_value=0, create=True), patch.object(h.socket, "gethostname", return_value=c.WORKER), \
+                patch.object(h.Path, "read_text", return_value="already-new-boot"), patch.object(h, "command") as command, \
+                self.assertRaisesRegex(RuntimeError, "boot identity drift"):
+            h.main(payload)
+        command.assert_not_called()
+
+    def test_expired_package_receipt_can_support_safe_recovery_but_not_renew_success_clock(self):
+        self.authorize_host_slot()
+        deadline = self.journal.read()["deadline_epoch"]
+        self.coordinator.now = lambda: deadline + 60
+        receipt = {"run_id": "2" * 32, "name": c.WORKER, "operation": "os", "old_boot_id": "old-worker2",
+                   "expected_kernel": self.policy["kernel"], "completed_epoch": deadline + 30,
+                   "headless": True, "package_removals": False,
+                   "contract_sha256": self.journal.read()["worker_contract_sha256"]}
+        self.coordinator.ingest_worker_receipt(receipt)
+        self.assertTrue(self.journal.read()["host_packages_complete"])
+        with self.assertRaisesRegex(RuntimeError, "reserve"):
+            self.journal.transaction(lambda s: self.coordinator.gate(s, True))
+        self.assertEqual(self.journal.read()["deadline_epoch"], deadline)
+
+    def test_setup_without_original_cancellation_channel_reports_real_blocker_without_unlocking(self):
+        start = self.journal.read()["started_epoch"]
+        with patch.object(c.sys.stdin, "isatty", return_value=True), patch.object(c.sys.stdout, "isatty", return_value=True), \
+                patch.object(c, "API", return_value=self.api), patch.object(c, "build_plan", return_value=self.plan), \
+                patch.object(c.m, "remote", return_value={"off_node_directory_verified": True}), patch.object(c.m, "kube") as kube, \
+                patch.object(c, "stage_transport", side_effect=RuntimeError("strict trusted host missing")), \
+                patch.object(c.Path, "mkdir"), patch.object(c.Path, "write_bytes"), \
+                patch.object(c, "request_recovery", side_effect=RuntimeError("original channel unavailable")), \
+                patch.object(c.uuid, "uuid4", side_effect=[SimpleNamespace(hex="1" * 32), SimpleNamespace(hex="2" * 32)]), \
+                patch.object(c.time, "time", return_value=start), self.assertRaisesRegex(RuntimeError, "runtime blocker"):
+            c.apply(self.plan, self.approval, self.policy, "/existing/protected/mount", True)
+        self.assertFalse(any("delete" in call.args for call in kube.call_args_list))
+        self.assertEqual(self.journal.read()["deadline_epoch"], start + 43200)
+        self.assertEqual(self.journal.read()["mutations"], {})
+
+    def test_enlarged_exact_helper_still_fits_existing_windows_privileged_transport(self):
+        payload = c.controller_payload(self.plan, self.policy, "1" * 32, "cold-worker-register",
+                                       self.journal.read()["started_epoch"], self.journal.read()["deadline_epoch"])
+        payload.update(input_file="/home/rishik/.local/state/node-maintenance-cold/" + "1" * 32 + "/source.json",
+                       input_sha256="a" * 64, name=c.WORKER)
+        with patch.object(c.m.subprocess, "run", return_value=SimpleNamespace(returncode=0)) as run:
+            c.m.remote(self.plan["nodes"][0], payload, privileged=True)
+        self.assertLess(len(c.m.subprocess.list2cmdline(run.call_args.args[0])), 31000)
+
+    def test_deferred_reboot_preserves_exact_source_bytes_including_windows_line_endings(self):
+        import ast
+        payload = self.authorize_host_slot()
+        with patch.object(h, "cold_peer_status", side_effect=lambda _: self.journal.read()), patch.object(h, "command") as command:
+            h.schedule_reboot(payload)
+        bootstrap = ast.parse(command.call_args.args[0][-2])
+        values = [node.value for node in ast.walk(bootstrap) if isinstance(node, ast.Constant)
+                  and isinstance(node.value, str)]
+        self.assertEqual(len(values), 1)
+        self.assertEqual(zlib.decompress(base64.b64decode(values[0])), Path(h.__file__).read_bytes())
+
+    def test_ambiguous_final_start_failure_never_prompts_for_automatic_late_sudo(self):
+        start = self.journal.read()["started_epoch"]
+        def remote(node, payload, privileged=False):
+            if payload["operation"] == "recovery-audit":
+                return {"off_node_directory_verified": True}
+            if payload["operation"] == "cold-worker-status":
+                return self.api.worker_status(self.policy, payload["run_id"])
+            if payload["operation"] == "cold-start":
+                raise RuntimeError("SSH lost after unit might have started")
+        with patch.object(c.sys.stdin, "isatty", return_value=True), patch.object(c.sys.stdout, "isatty", return_value=True), \
+                patch.object(c, "API", return_value=self.api), patch.object(c, "build_plan", return_value=self.plan), \
+                patch.object(c.m, "remote", side_effect=remote), patch.object(c.m, "kube"), \
+                patch.object(c, "stage_transport", return_value="/bound/source.json"), patch.object(c.Path, "mkdir"), \
+                patch.object(c.Path, "write_bytes"), patch.object(c, "request_recovery") as recover, \
+                patch.object(c.uuid, "uuid4", side_effect=[SimpleNamespace(hex="1" * 32), SimpleNamespace(hex="2" * 32)]), \
+                patch.object(c.time, "time", return_value=start), self.assertRaisesRegex(RuntimeError, "cancellation is unverified"):
+            c.apply(self.plan, self.approval, self.policy, "/existing/protected/mount", True)
+        recover.assert_not_called()
 
     def test_native_hpa_pause_is_observed_and_identity_preserved(self):
         for row in self.plan["autoscalers"]:
@@ -1027,14 +1511,13 @@ class ColdTests(unittest.TestCase):
         self.assertEqual(self.journal.read()["deadline_epoch"], original["deadline_epoch"])
 
     def successful_hooks(self, reboot=True):
-        original_phase = self.coordinator.phase
-        def phase(value):
-            original_phase(value)
-            if value == "awaiting-host":
-                self.journal.transaction(lambda s: s.update(host_packages_complete=True, host_started=True,
-                                                           host_packages_complete_epoch=time.time() - (0 if reboot else 121),
-                                                           host_reboot_authorized=True, host_started_epoch=time.time()))
-        self.coordinator.phase = phase
+        original_authorize = self.coordinator.authorize_host
+        def authorize():
+            original_authorize()
+            self.record_package_receipt()
+            if not reboot:
+                self.journal.transaction(lambda s: s.update(host_packages_complete_epoch=time.time() - 121))
+        self.coordinator.authorize_host = authorize
         original_host_completed = self.coordinator.host_completed
         def host_completed():
             if reboot:
@@ -1132,13 +1615,13 @@ class ColdTests(unittest.TestCase):
                 "recovery_reserve_seconds": 7200}
 
     def record_package_receipt(self, payload=None):
-        payload = payload or self.authorize_host_slot()
+        payload = payload or (self.authorize_host_slot() if not self.journal.read()["host_started"] else {})
         state = self.journal.read()
         receipt = {"run_id": state["host_step_id"], "name": c.WORKER, "operation": "os",
                    "old_boot_id": "old-worker2", "expected_kernel": self.policy["kernel"], "completed_epoch": time.time(),
-                   "headless": True, "package_removals": False}
-        with patch.object(h, "load_cold", return_value=c), patch.object(c, "load_runtime", return_value=self.coordinator):
-            h.cold_control({"operation": "cold-host-complete", "run_id": state["run_id"], "receipt": receipt})
+                   "headless": True, "package_removals": False,
+                   "contract_sha256": state["worker_contract_sha256"]}
+        self.coordinator.ingest_worker_receipt(receipt)
         return payload
 
     def test_real_package_receipt_before_timer_keeps_authorization_until_verified_new_boot(self):

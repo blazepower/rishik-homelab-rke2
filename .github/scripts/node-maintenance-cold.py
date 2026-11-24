@@ -325,6 +325,50 @@ def source_bindings():
     return {name: sha((m.ROOT / Path(name)).read_bytes()) for name in BUNDLE_FILES}
 
 
+def worker_contract(plan, policy, run_id, step_id, started, deadline):
+    require(re.fullmatch("[a-f0-9]{32}", run_id) and re.fullmatch("[a-f0-9]{32}", step_id)
+            and run_id != step_id and deadline == started + 43200, "Invalid exact worker standby slot")
+    return {
+        "run_id": run_id, "host_step_id": step_id, "plan_sha256": sha(canonical(plan)),
+        "source_bindings": plan["source_bindings"], "bindings": plan["bindings"],
+        "started_epoch": started, "deadline_epoch": deadline,
+        "os_payload": {
+            "operation": "os", "run_id": step_id, "cold_run_id": run_id, "name": WORKER, "role": "agent",
+            "boot_id": plan["bindings"][WORKER]["boot_id"], "ubuntu_lts": policy["ubuntu_lts"],
+            "pending_packages": plan["bindings"][WORKER]["pending_packages"], "kernel": policy["kernel"],
+            "kernel_package": policy["kernel_package"], "deadline_epoch": deadline, "recovery_reserve_seconds": 7200,
+        },
+    }
+
+
+def worker_unit(contract):
+    directory = "/var/lib/node-maintenance-cold-worker/" + contract["run_id"]
+    payload = base64.b64encode(canonical({"operation": "cold-standby", "run_id": contract["run_id"]})).decode()
+    return ("[Unit]\nDescription=Single approved worker2 cold OS standby\n[Service]\nType=exec\nUser=root\n"
+            f"ExecStart=/usr/bin/python3 -B {directory}/.github/scripts/node-maintenance-host.py {payload}\n"
+            "UMask=0077\nRestart=no\nTimeoutStartSec=infinity\nTimeoutStopSec=infinity\n"
+            "SendSIGKILL=no\nKillMode=process\n")
+
+
+def verify_worker(record, contract):
+    require(record["contract"] == contract and record["contract_sha256"] == sha(canonical(contract)),
+            "Worker standby run/step/approval/source/host/deadline binding drift")
+
+
+def worker_ready(proof, contract, now):
+    record, unit = proof["record"], proof["unit"]
+    verify_worker(record, contract)
+    original = contract["bindings"][WORKER]
+    require(record["original_host"] == {k: original[k] for k in ("boot_id", "kernel", "pending_packages")},
+            "Standby did not verify original worker boot/kernel/package bindings")
+    require(record["phase"] == "waiting" and 0 <= now - record["ready_epoch"] < 30
+            and 0 <= now - record["peer_epoch"] < 30
+            and unit["LoadState"] == "loaded" and unit["ActiveState"] == "active" and unit["Job"] == "0"
+            and unit["User"] == "root" and int(unit["MainPID"]) == record["pid"] > 0
+            and proof["unit_sha256"] == sha(worker_unit(contract).encode()),
+            "Genuine live exact worker standby readiness required BEFORE first pause")
+
+
 class API:
     get = staticmethod(m.get)
     items = staticmethod(m.items)
@@ -344,21 +388,37 @@ class API:
         node = next(n for n in policy["nodes"] if n["name"] == name)
         return m.remote(node, {"operation": "audit"})
 
-    def host_idle(self, policy, step_id):
+    def worker_status(self, policy, run_id):
         node = next(n for n in policy["nodes"] if n["name"] == WORKER)
+        return m.remote(node, {"operation": "cold-worker-status", "run_id": run_id})
+
+    def host_idle(self, policy, step_id, run_id=None):
+        node = next(n for n in policy["nodes"] if n["name"] == WORKER)
+        standby = [f"node-maintenance-cold-worker-{run_id}.service"] if run_id else []
         code = ("import subprocess,json; "
                 f"units=['node-maintenance-{step_id}-os.service','node-maintenance-reboot-{step_id}.timer',"
-                f"'node-maintenance-reboot-{step_id}.service','reboot.target','shutdown.target']; "
+                f"'node-maintenance-reboot-{step_id}.service','reboot.target','shutdown.target']+{standby!r}; "
                 "states=[subprocess.run(['systemctl','show',u,'-p','ActiveState','-p','LoadState','-p','Job'],capture_output=True,text=True) for u in units]; "
                 "assert all(r.returncode==0 for r in states); "
                 "print(json.dumps([dict(v.split('=',1) for v in r.stdout.strip().splitlines()) for r in states]))")
         state = json.loads(m.run(["ssh", "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
                                  "-o", "ConnectTimeout=10", node["ssh"], shlex.join(["python3", "-c", code])]))
-        require(len(state) == 5 and all(s["ActiveState"] in ("inactive", "failed") and s["Job"] == "0"
+        require(len(state) == 5 + len(standby) and all(s["ActiveState"] in ("inactive", "failed") and s["Job"] == "0"
                                        for s in state[:3]),
                 "Host APT/reboot service or timer is active/queued; warming is unsafe")
         require(all(s["LoadState"] == "loaded" and s["Job"] == "0" and s["ActiveState"] == "inactive"
-                    for s in state[3:]), "Host shutdown/reboot job is pending; warming is unsafe")
+                    for s in state[3:5]), "Host shutdown/reboot job is pending; warming is unsafe")
+        if run_id:
+            require(state[5]["ActiveState"] in ("inactive", "failed") and state[5]["Job"] == "0",
+                    "Standby can still claim/execute; waiting is not idle authorization")
+            # A failed root process must not hide a surviving package child.
+            code = ("import json,pathlib,subprocess; "
+                    f"units=['node-maintenance-{step_id}-os.service','node-maintenance-cold-worker-{run_id}.service']; "
+                    "groups=[subprocess.check_output(['systemctl','show',u,'-p','ControlGroup','--value'],text=True).strip() for u in units]; "
+                    "assert all(not g or 'populated 0' in (pathlib.Path('/sys/fs/cgroup')/g.lstrip('/')/'cgroup.events').read_text() for g in groups); "
+                    "print('{}')")
+            m.run(["ssh", "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
+                   "-o", "ConnectTimeout=10", node["ssh"], shlex.join(["python3", "-c", code])])
         return state[0]["LoadState"] != "not-found"
 
 
@@ -831,6 +891,9 @@ class Journal:
         status["host_slot_cancelled"] = state.get("host_slot_cancelled", False)
         status["host_packages_complete"] = state.get("host_packages_complete", False)
         status["host_reboot_authorized"] = state.get("host_reboot_authorized", False)
+        for name in ("last_epoch", "guard_verified_epoch", "worker_contract", "worker_contract_sha256",
+                     "live_source_bindings", "host_native_gate_epoch"):
+            status[name] = state.get(name)
         status["failure_type"] = state.get("failure_type")
         status["failure_stage"] = state.get("failure_stage")
         status["failure_reason"] = state.get("failure_reason")
@@ -869,6 +932,8 @@ class Coordinator:
                 and state["deadline_epoch"] == state["started_epoch"] + 43200,
                 "Journal approval/deadline changed; never reset or extend clock")
         require(self.now() >= state["last_epoch"] >= state["started_epoch"], "Clock rollback; protection retained")
+        state["live_source_bindings"] = source_bindings()
+        require(state["live_source_bindings"] == self.plan["source_bindings"], "Live controller bound source drift")
         state["last_epoch"] = self.now()
         require(state["guard_registered"] is True, "Verified independent recovery guard required BEFORE first pause")
         lock = self.api.get("configmap", "kube-system", m.LOCK)
@@ -881,6 +946,7 @@ class Coordinator:
         if disrupting:
             require(state["mode"] == "disrupting" and self.now() < state["deadline_epoch"] - 7200,
                     "Recovery reserve/request reached; no further disruption")
+            require(state.get("worker_ready_verified") is True, "Exact live worker standby required BEFORE first pause")
 
     def phase(self, value):
         def update(state):
@@ -1104,6 +1170,8 @@ class Coordinator:
                 assert_binding(self.api.get(RESOURCES[row["kind"]], row["namespace"], row["name"]), row)
             cold_storage(self.plan, self.policy, self.api)
             native_gate(self.plan, self.policy, self.api)
+            state = self.journal.read()
+            worker_ready(self.api.worker_status(self.policy, state["run_id"]), state["worker_contract"], self.now())
             for row in sorted(self.plan["reconciliation"], key=lambda r: (
                     (r["kind"], r["namespace"], r["name"]) != ("Kustomization", "flux-system", "flux-system"),
                     r["kind"] != "Kustomization", key(r))):
@@ -1139,6 +1207,7 @@ class Coordinator:
             self.drain()
             self.wait(lambda: self.infrastructure(drained=True), disrupting=True)
             self.phase("awaiting-host")
+            self.authorize_host()
             self.wait(lambda: self.host_completed(), seconds=36000, disrupting=True)
             self.recover(success=True)
         except BaseException:
@@ -1182,12 +1251,69 @@ class Coordinator:
         require(code == 0, "Normal drain failed; recovery required, no forced eviction")
         self.journal.transaction(lambda state: self.gate(state, True))
 
-    def host_completed(self):
+    def authorize_host(self):
+        def mark(state):
+            self.gate(state, True)
+            require(state["phase"] == "awaiting-host" and not state["host_started"]
+                    and not state.get("host_slot_cancelled"), "Exact single host slot not available")
+            # Guard/recovery uses the same mutex; publish authorization only after
+            # ALL fresh native storage, released PDB, actual drain and HA gates.
+            self.infrastructure(drained=True)
+            worker_ready(self.api.worker_status(self.policy, state["run_id"]),
+                         state["worker_contract"], self.now())
+            self.gate(state, True)
+            state.update(host_started=True, host_started_epoch=self.now(), host_reboot_authorized=True,
+                         host_native_gate_epoch=self.now())
+        self.journal.transaction(mark)
+
+    def ingest_worker_receipt(self, receipt):
+        def finish(state):
+            self.gate(state)
+            require(state["host_started"] and receipt["run_id"] == state["host_step_id"]
+                    and receipt["name"] == WORKER and receipt["operation"] == "os"
+                    and receipt["old_boot_id"] == self.plan["bindings"][WORKER]["boot_id"]
+                    and receipt["expected_kernel"] == self.policy["kernel"]
+                    and receipt["headless"] is True and receipt["package_removals"] is False
+                    and receipt["contract_sha256"] == state["worker_contract_sha256"]
+                    and state["host_started_epoch"] <= receipt["completed_epoch"] <= self.now(),
+                    "Invalid exact root-owned worker2 package receipt")
+            if state.get("host_packages_complete"):
+                require(state["host_receipt"] == receipt, "Worker terminal receipt replay/drift")
+            state.update(host_packages_complete=True, host_packages_complete_epoch=receipt["completed_epoch"],
+                         host_receipt=receipt)
+        self.journal.transaction(finish)
+
+    def observe_worker(self):
         state = self.journal.read()
-        require(state.get("host_packages_complete"), "Awaiting selected real terminal worker2 package receipt")
+        proof = self.api.worker_status(self.policy, state["run_id"])
+        record = proof["record"]
+        verify_worker(record, state["worker_contract"])
+        require(proof["unit_sha256"] in (sha(worker_unit(state["worker_contract"]).encode()), None),
+                "Worker standby unit source drift")
+        if record.get("receipt"):
+            self.ingest_worker_receipt(record["receipt"])
+        return record
+
+    def host_completed(self):
+        record = self.observe_worker()
+        if record["phase"] in ("failed", "cancelled"):
+            self.request_recovery("worker-standby-revoked-or-host-failed")
+            raise RuntimeError("Worker standby terminal failure; original-state recovery required")
+        if record["phase"] in ("waiting", "claimed"):
+            try:
+                self.infrastructure(drained=True)
+                def refresh(state):
+                    self.gate(state, True)
+                    state["host_native_gate_epoch"] = self.now()
+                self.journal.transaction(refresh)
+            except RuntimeError:
+                self.request_recovery("native-peer-or-infrastructure-drift-in-host-slot")
+                raise
+        state = self.journal.read()
+        require(state.get("host_packages_complete"), "Awaiting exact autonomous worker2 package receipt")
         # Transient host units disappear across reboot. Their absence cannot
         # replace the new boot proof, nor veto a genuinely verified new boot.
-        self.api.host_idle(self.policy, state["host_step_id"])
+        self.api.host_idle(self.policy, state["host_step_id"], state["run_id"])
         host = self.api.host_audit(self.policy, WORKER)
         if host["boot_id"] == self.plan["bindings"][WORKER]["boot_id"]:
             if self.now() - state["host_packages_complete_epoch"] > 120:
@@ -1240,9 +1366,13 @@ class Coordinator:
                 self.journal.transaction(lambda s: s.update(drain_pid=None))
             else:
                 raise RuntimeError("Normal drain still running; guard will retry restoration, no process kill")
-        if state.get("host_started"):
-            self.phase("waiting-host-package-and-reboot-units")
-            observed = self.api.host_idle(self.policy, state["host_step_id"])
+        self.phase("waiting-worker-standby-revocation")
+        record = self.observe_worker()
+        # A stale authorized read can race with revocation. Only a terminal
+        # local acknowledgment under the worker mutex excludes a future claim.
+        require(record["phase"] in ("cancelled", "failed", "packages-complete"),
+                "Worker standby has not acknowledged irrevocable slot revocation; no warming")
+        observed = self.api.host_idle(self.policy, state["host_step_id"], state["run_id"])
         node = next(n for n in self.api.items("nodes") if n["metadata"]["name"] == WORKER)
         self.phase("waiting-worker2-ready")
         m.check_nodes(self.policy, self.api.items("nodes"), WORKER if node["spec"].get("unschedulable") else None)
@@ -1455,10 +1585,11 @@ def guard(directory, force=False):
     state = c.journal.read()
     if state.get("completed"):
         return
-    if state["mode"] == "registered":
+    if state["mode"] == "registered" and not force and time.time() < state["deadline_epoch"] - 7200:
         cold_storage(c.plan, c.policy, c.api)
         native_gate(c.plan, c.policy, c.api)
-        c.journal.transaction(lambda s: s.update(guard_verified_epoch=time.time()))
+        c.journal.transaction(lambda s: s.update(guard_verified_epoch=time.time(),
+                                                 live_source_bindings=source_bindings()))
         return
     unit = "node-maintenance-cold-" + state["run_id"] + ".service"
     active = m.run(["systemctl", "show", unit, "-p", "ActiveState", "--value"])
@@ -1499,6 +1630,15 @@ def request_recovery(run_id, policy):
     m.remote(server, payload, privileged=True)
 
 
+def stage_transport(node, run_id, local):
+    incoming = "/home/rishik/.local/state/node-maintenance-cold/" + run_id
+    m.run(["ssh", "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", node["ssh"],
+           shlex.join(["mkdir", "-m", "700", "-p", incoming])])
+    m.run(["scp", "-q", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
+           str(local / "source.json"), node["ssh"] + ":" + incoming + "/source.json"])
+    return incoming + "/source.json"
+
+
 def apply(plan, approval, policy, recovery_directory, token_confirmed):
     require(sys.stdin.isatty() and sys.stdout.isatty(), "Cold apply requires the existing real operator sudo terminal")
     check_plan(plan, approval, policy)
@@ -1515,34 +1655,47 @@ def apply(plan, approval, policy, recovery_directory, token_confirmed):
     started = time.time()
     deadline = started + 43200
     base = controller_payload(plan, policy, run_id, "cold-register", started, deadline)
-    access = {**base, "operation": "cold-access", "name": WORKER, "role": "agent",
-              "boot_id": plan["bindings"][WORKER]["boot_id"], "run_id": uuid.uuid4().hex}
-    # No password capture, noninteractive sudo substitute or privileged bypass pod.
-    m.remote(worker, access, privileged=True)
     m.kube("-n", "kube-system", "create", "configmap", m.LOCK,
            "--from-literal=run_id=" + run_id, "--from-literal=plan_sha256=" + approval,
            "--from-literal=started_epoch=" + str(started), "--from-literal=deadline_epoch=" + str(deadline),
            "--from-literal=host_step_id=" + step_id)
     print("Cold lock acquired; run_id=" + run_id + "; recovery deadline=" + str(deadline), flush=True)
-    bundle = {name: base64.b64encode((m.ROOT / Path(name)).read_bytes()).decode() for name in BUNDLE_FILES}
-    transport = canonical({"plan": plan, "approval": approval, "host_step_id": step_id,
-                           "bundle": base64.b64encode(zlib.compress(canonical(bundle))).decode()})
-    local = Path.cwd() / ".cold-runs" / run_id
-    local.mkdir(parents=True, exist_ok=False)
-    (local / "source.json").write_bytes(transport)
-    incoming = "/home/rishik/.local/state/node-maintenance-cold/" + run_id
-    m.run(["ssh", "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", server["ssh"],
-           shlex.join(["mkdir", "-m", "700", "-p", incoming])])
-    m.run(["scp", "-q", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
-           str(local / "source.json"), server["ssh"] + ":" + incoming + "/source.json"])
-    m.remote(server, {**base, "input_file": incoming + "/source.json",
-                      "input_sha256": sha(transport)}, privileged=True)
-    second = {**access, "run_id": uuid.uuid4().hex, "controller_run_id": run_id}
-    m.remote(worker, second, privileged=True)
-    proof = m.remote(worker, {"operation": "cold-access-receipt", "run_id": second["run_id"]})
-    m.remote(server, {**base, "operation": "cold-start", "worker2_access": proof}, privileged=True)
+    try:
+        bundle = {name: base64.b64encode((m.ROOT / Path(name)).read_bytes()).decode() for name in BUNDLE_FILES}
+        transport = canonical({"plan": plan, "approval": approval, "host_step_id": step_id,
+                               "bundle": base64.b64encode(zlib.compress(canonical(bundle))).decode()})
+        local = Path.cwd() / ".cold-runs" / run_id
+        local.mkdir(parents=True, exist_ok=False)
+        (local / "source.json").write_bytes(transport)
+        incoming = stage_transport(server, run_id, local)
+        m.remote(server, {**base, "input_file": incoming, "input_sha256": sha(transport)}, privileged=True)
+        incoming = stage_transport(worker, run_id, local)
+        m.remote(worker, {**base, "operation": "cold-worker-register", "name": WORKER, "role": "agent",
+                          "boot_id": plan["bindings"][WORKER]["boot_id"], "input_file": incoming,
+                          "input_sha256": sha(transport)}, privileged=True)
+        contract = worker_contract(plan, policy, run_id, step_id, started, deadline)
+        worker_ready(m.remote(worker, {"operation": "cold-worker-status", "run_id": run_id}), contract, time.time())
+    except (RuntimeError, OSError, ValueError, subprocess.SubprocessError, KeyboardInterrupt) as error:
+        # Still BEFORE cold-start/any pause. The original operator channel may
+        # request guarded cancellation; it never releases the lock itself.
+        try:
+            request_recovery(run_id, policy)
+        except (RuntimeError, OSError, ValueError, subprocess.SubprocessError) as recovery_error:
+            raise RuntimeError("Setup failed before any pause; guarded cancellation could not be verified. "
+                               "Retain the original lock/deadline; required existing SSH/sudo channel is a "
+                               "runtime blocker; inspect run " + run_id) from recovery_error
+        raise RuntimeError("Setup failed before any pause; original-state guard requested irrevocable standby "
+                           "cancellation. Retain lock until exact terminal acknowledgment; inspect run " + run_id) from error
+    try:
+        m.remote(server, {**base, "operation": "cold-start"}, privileged=True)
+    except (RuntimeError, OSError, ValueError, subprocess.SubprocessError, KeyboardInterrupt) as error:
+        # Transport failure is ambiguous: the root helper may already have
+        # started pausing. Never prompt for another automatic late sudo here.
+        raise RuntimeError("cold-start transport/authentication failed; cancellation is unverified. "
+                           "Retain the original lock/deadline and inspect the bound read-only status. "
+                           "If start never reached the root helper, the standby remains inert; use only "
+                           "the existing explicit cold-recover operator channel. Run " + run_id) from error
     print("Controller-owned cold coordinator/guard active; run_id=" + run_id, flush=True)
-    host_invoked = False
     while True:
         status = m.remote(server, {"operation": "cold-status", "run_id": run_id})
         require(status["deadline_epoch"] == deadline and status["plan_sha256"] == approval, "Guard status drift")
@@ -1552,23 +1705,6 @@ def apply(plan, approval, policy, recovery_directory, token_confirmed):
             return
         if status["mode"] == "recovering":
             raise RuntimeError("Independent original-state recovery active/blocked; retain lock and inspect run " + run_id)
-        if status["phase"] == "awaiting-host" and not host_invoked:
-            require(time.time() < deadline - 7200, "Reserve reached before worker2 OS launch")
-            m.remote(server, {**base, "operation": "cold-host-start"}, privileged=True)
-            host_invoked = True
-            payload = {
-                "operation": "os", "run_id": step_id, "cold_run_id": run_id, "name": WORKER, "role": "agent",
-                "boot_id": plan["bindings"][WORKER]["boot_id"], "ubuntu_lts": policy["ubuntu_lts"],
-                "pending_packages": plan["bindings"][WORKER]["pending_packages"], "kernel": policy["kernel"],
-                "kernel_package": policy["kernel_package"], "deadline_epoch": deadline, "recovery_reserve_seconds": 7200,
-            }
-            try:
-                m.remote(worker, payload, privileged=True)
-                receipt = m.receipt(worker, step_id)
-                m.remote(server, {**base, "operation": "cold-host-complete", "receipt": receipt}, privileged=True)
-            except BaseException:
-                request_recovery(run_id, policy)
-                raise
         time.sleep(5)
 
 

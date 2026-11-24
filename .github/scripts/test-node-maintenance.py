@@ -727,7 +727,7 @@ class MaintenanceTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 h.os_upgrade({"pending_packages": ["Inst approved (1.0)"],
                               "deadline_epoch": h.time.time() + 43200, "recovery_reserve_seconds": 7200})
-            command.assert_called_once_with(["apt-get", "update"])
+            command.assert_called_once_with(["apt-get", "update"], timeout=None)
 
     def test_preferred_scheduling_is_not_a_hard_blocker(self):
         pod = {"metadata": {"namespace": "system", "name": "app", "ownerReferences": [{"kind": "ReplicaSet"}]},

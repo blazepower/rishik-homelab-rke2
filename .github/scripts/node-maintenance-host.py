@@ -170,12 +170,13 @@ def os_upgrade(payload):
     reserve(payload)
     before = audit()
     require(before["kernel_metapackage_installed"], "Supported Ubuntu kernel metapackage is missing")
-    command(["apt-get", "update"])
+    command(["apt-get", "update"], timeout=None)
     refreshed = audit()
     require(refreshed["pending_packages"] == payload["pending_packages"],
             "APT candidates changed after refresh; generate and approve a new plan")
     require(not command(["dpkg", "--audit"]), "dpkg needs repair before maintenance")
     require(not command(["apt-mark", "showhold"]), "Held packages need individual review")
+    reserve(payload)
     # Never permit package removal, a release upgrade, autoremove or a foreign kernel.
     command(["apt-get", "-y", "--no-remove", "--with-new-pkgs",
              "-o", "Dpkg::Options::=--force-confold", "upgrade"], timeout=None)
@@ -204,6 +205,20 @@ def reserve(payload):
                 and status["deadline_epoch"] == payload["deadline_epoch"]
                 and status.get("host_reboot_authorized") is True
                 and not status.get("host_slot_cancelled"), "Independent guard revoked worker2 host disruption")
+        if payload.get("contract_sha256"):
+            require(status["worker_contract_sha256"] == payload["contract_sha256"],
+                    "Exact standby source/approval slot drift")
+            require(standby_peer(status["worker_contract"], status, time.time(), launching=True) == "claim",
+                    "Standby launch revoked")
+            directory, contract = worker_runtime(payload["cold_run_id"])
+            require(payload == {**contract["os_payload"], "operation": payload["operation"],
+                                "contract_sha256": payload["contract_sha256"]}, "Standby OS/reboot payload drift")
+            def clock(state):
+                now = time.time()
+                require(now >= state["last_epoch"] and state["phase"] in ("claimed", "packages-complete"),
+                        "Standby local clock/terminal authorization revoked")
+                state["last_epoch"] = now
+            worker_transaction(directory, clock)
 
 
 def cold_public(path):
@@ -216,7 +231,7 @@ def cold_public(path):
 def schedule_reboot(payload):
     reserve(payload)
     reboot = {**payload, "operation": "reboot"}
-    source = Path(__file__).read_text() if "__file__" in globals() else globals().get("__maintenance_host_source__")
+    source = Path(__file__).read_bytes().decode("utf-8") if "__file__" in globals() else globals().get("__maintenance_host_source__")
     require(source, "Deferred reboot requires the exact bound host helper source")
     command(["systemd-run", "--unit=node-maintenance-reboot-" + payload["run_id"],
              "--on-active=10s", "--timer-property=RemainAfterElapse=no", "--property=SendSIGKILL=no",
@@ -233,11 +248,287 @@ def cold_peer_status(run_id):
         "import json,pathlib,stat; "
         f"p=pathlib.Path('/var/lib/node-maintenance-cold-status/{run_id}.json'); "
         "s=p.lstat(); assert stat.S_ISREG(s.st_mode) and s.st_uid==0 and stat.S_IMODE(s.st_mode)==0o444; "
-        "print(p.read_text())"
+        "v=json.loads(p.read_text()); "
+        "import socket,subprocess,platform; "
+        "v['controller_name']=socket.gethostname(); "
+        "v['controller_boot_id']=pathlib.Path('/proc/sys/kernel/random/boot_id').read_text().strip(); "
+        "v['controller_kernel']=platform.release(); "
+        f"u='node-maintenance-cold-{run_id}'; "
+        "defstate=lambda unit,prop: subprocess.check_output(['systemctl','show',unit,'-p',prop,'--value'],text=True).strip(); "
+        "v['executor_active']=(defstate(u+'.service','ActiveState') in ('active','activating') and int(defstate(u+'.service','MainPID'))>0); "
+        "v['guard_active']=(defstate(u+'-guard.timer','ActiveState')=='active'); "
+        "v['guard_enabled']=(subprocess.check_output(['systemctl','is-enabled',u+'-guard.timer'],text=True).strip()=='enabled'); "
+        "print(json.dumps(v))"
     )
     return json.loads(command(["ssh", "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
                                "-o", "ConnectTimeout=10", "rishik@192.168.1.10",
                                shlex.join(["python3", "-c", source])]))
+
+
+def standby_peer(contract, peer, now, launching=False):
+    require(peer["run_id"] == contract["run_id"] and peer["host_step_id"] == contract["host_step_id"]
+            and peer["plan_sha256"] == contract["plan_sha256"]
+            and peer["worker_contract"] == contract
+            and peer["worker_contract_sha256"] == hashlib.sha256(
+                json.dumps(contract, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+            and peer["started_epoch"] == contract["started_epoch"]
+            and peer["deadline_epoch"] == contract["deadline_epoch"],
+            "Standby controller identity/source/approval/clock replay")
+    require(peer["controller_name"] == "rishik-controller"
+            and peer["controller_boot_id"] == contract["bindings"]["rishik-controller"]["boot_id"]
+            and peer["controller_kernel"] == contract["bindings"]["rishik-controller"]["kernel"]
+            and peer["live_source_bindings"] == contract["source_bindings"],
+            "Standby original controller boot/kernel/source drift")
+    require(now >= contract["started_epoch"] and now < contract["deadline_epoch"] - 7200,
+            "Standby clock/reserve/expiry revoked")
+    if peer.get("host_slot_cancelled") or peer["mode"] == "recovering" or peer["completed"]:
+        return "cancelled"
+    require(peer["guard_registered"] is True and peer["guard_active"] is True and peer["guard_enabled"] is True,
+            "Standby independent guard unavailable")
+    epoch = peer["guard_verified_epoch"] if peer["mode"] == "registered" else peer["last_epoch"]
+    require(contract["started_epoch"] <= epoch <= now, "Standby stale/rolled-back controller clock")
+    if peer["mode"] == "registered" or launching or peer["host_started"]:
+        require(now - epoch < 60, "Standby stale controller launch slot")
+    if peer["mode"] == "registered":
+        require(not launching and not peer["host_started"] and not peer.get("host_reboot_authorized"),
+                "Standby registered slot cannot launch")
+        return "waiting"
+    require(peer["mode"] == "disrupting", "Standby controller mode drift")
+    if not peer["executor_active"] and not launching and peer["phase"] == "registered" and not peer["host_started"]:
+        return "waiting"  # Inert cold-start -> systemd startup handoff, never launch authority.
+    require(peer["executor_active"] is True, "Standby executor loss; launch revoked")
+    if peer["phase"] == "awaiting-host" and peer["host_started"] is True and peer["host_reboot_authorized"] is True:
+        require(0 <= now - peer["host_native_gate_epoch"] < 60, "Standby stale native storage/peer host slot")
+        return "claim"
+    require(not launching and not peer["host_started"], "Standby precise host slot unavailable")
+    return "waiting"
+
+
+def read_transport(payload):
+    incoming = Path(payload["input_file"])
+    require(incoming.parent == Path("/home/rishik/.local/state/node-maintenance-cold") / payload["run_id"]
+            and incoming.name == "source.json" and not incoming.is_symlink(), "Unexpected bound standby input")
+    data = incoming.read_bytes()
+    require(hashlib.sha256(data).hexdigest() == payload["input_sha256"], "Standby input transport drift")
+    transport = json.loads(data)
+    require(set(transport) == {"plan", "approval", "host_step_id", "bundle"}, "Unexpected standby transport fields")
+    require(hashlib.sha256(json.dumps(transport["plan"], sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+            == transport["approval"], "Standby exact plan approval mismatch")
+    files = json.loads(zlib.decompress(base64.b64decode(transport["bundle"])))
+    expected = {".github/scripts/node-maintenance.py", ".github/scripts/node-maintenance-host.py",
+                ".github/scripts/node-maintenance-cold.py", "node-config/maintenance/policy.json",
+                "apps/_shared/http-addon-owned/source.json"}
+    require(set(files) == expected == set(transport["plan"]["source_bindings"]), "Unexpected standby source bundle")
+    return transport, files
+
+
+def worker_write(directory, state):
+    for path, mode in ((directory / "state.json", 0o600),
+                       (Path("/var/lib/node-maintenance-cold-worker-status") / (state["contract"]["run_id"] + ".json"), 0o444)):
+        pending = path.with_suffix(".next")
+        if pending.exists():
+            meta = pending.lstat()
+            require(stat.S_ISREG(meta.st_mode) and meta.st_uid == 0, "Untrusted worker pending record")
+            pending.unlink()
+        with pending.open("x") as stream:
+            os.fchmod(stream.fileno(), mode)
+            stream.write(json.dumps(state, sort_keys=True))
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(pending, path)
+        fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+
+
+def worker_transaction(directory, callback):
+    import fcntl
+    with (directory / "mutex").open("a") as stream:
+        fcntl.flock(stream, fcntl.LOCK_EX)
+        state = json.loads((directory / "state.json").read_text())
+        result = callback(state)
+        worker_write(directory, state)
+        return result
+
+
+def worker_runtime(run_id):
+    require(os.geteuid() == 0 and platform.machine() == "x86_64" and socket.gethostname() == "rishik-worker2"
+            and re.fullmatch("[a-f0-9]{32}", run_id), "Exact root worker standby required")
+    directory = Path("/var/lib/node-maintenance-cold-worker") / run_id
+    for path in (directory.parent, directory, directory / "state.json", directory / "plan.json"):
+        meta = path.lstat()
+        require(meta.st_uid == 0 and not stat.S_ISLNK(meta.st_mode)
+                and stat.S_IMODE(meta.st_mode) in (0o700, 0o600), "Worker root artifact drift")
+    state = json.loads((directory / "state.json").read_text())
+    plan = json.loads((directory / "plan.json").read_text())
+    require(set(state["contract"]["source_bindings"]) == {
+        ".github/scripts/node-maintenance.py", ".github/scripts/node-maintenance-host.py",
+        ".github/scripts/node-maintenance-cold.py", "node-config/maintenance/policy.json",
+        "apps/_shared/http-addon-owned/source.json"}, "Worker bound source set drift")
+    for name, expected in state["contract"]["source_bindings"].items():
+        path = directory / name
+        meta = path.lstat()
+        require(stat.S_ISREG(meta.st_mode) and meta.st_uid == 0 and stat.S_IMODE(meta.st_mode) == 0o600
+                and digest(path) == expected, "Worker standby bound source drift")
+    if "__file__" in globals():
+        require(Path(__file__).resolve() == directory / ".github/scripts/node-maintenance-host.py",
+                "Standby must execute staged exact helper, not a caller command")
+    else:
+        require(hashlib.sha256(globals().get("__maintenance_host_source__", "").encode()).hexdigest()
+                == state["contract"]["source_bindings"][".github/scripts/node-maintenance-host.py"],
+                "Deferred reboot must execute the exact staged helper")
+    cold = load_cold(directory / ".github/scripts/node-maintenance-cold.py")
+    policy = json.loads((directory / "node-config/maintenance/policy.json").read_text())
+    contract = cold.worker_contract(plan, policy, run_id, state["contract"]["host_step_id"],
+                                    state["contract"]["started_epoch"], state["contract"]["deadline_epoch"])
+    cold.verify_worker(state, contract)
+    require(cold.source_bindings() == contract["source_bindings"], "Worker source bundle drift")
+    return directory, contract
+
+
+def worker_status(run_id):
+    require(re.fullmatch("[a-f0-9]{32}", run_id), "Invalid worker status identifier")
+    record = cold_public(Path("/var/lib/node-maintenance-cold-worker-status") / (run_id + ".json"))
+    unit = "node-maintenance-cold-worker-" + run_id + ".service"
+    value = command(["systemctl", "show", unit, "-p", "LoadState", "-p", "ActiveState",
+                     "-p", "MainPID", "-p", "Job", "-p", "User"])
+    path = Path("/run/systemd/system") / unit
+    unit_hash = None
+    if path.exists():
+        meta = path.lstat()
+        require(stat.S_ISREG(meta.st_mode) and meta.st_uid == 0 and stat.S_IMODE(meta.st_mode) == 0o644,
+                "Worker standby unit ownership drift")
+        unit_hash = digest(path)
+    return {"record": record, "unit": dict(v.split("=", 1) for v in value.splitlines()),
+            "unit_sha256": unit_hash}
+
+
+def standby_tick(directory, contract):
+    # Claim and cancellation acknowledgments share one durable local mutex.
+    # Recovery never equates an inactive/missing unit with this acknowledgment.
+    def tick(state):
+        require(state["phase"] in ("staged", "waiting"), "Standby is single-shot/terminal; no replay")
+        now = time.time()
+        require(now >= state["last_epoch"] >= contract["started_epoch"], "Standby local clock rollback")
+        require(Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+                == contract["bindings"]["rishik-worker2"]["boot_id"]
+                and platform.release() == contract["bindings"]["rishik-worker2"]["kernel"],
+                "Standby original worker boot/kernel drift")
+        peer = cold_peer_status(contract["run_id"])
+        decision = standby_peer(contract, peer, now)
+        if state["phase"] == "staged" or decision == "claim":
+            before = audit()
+            require(before["boot_id"] == contract["bindings"]["rishik-worker2"]["boot_id"]
+                    and before["kernel"] == contract["bindings"]["rishik-worker2"]["kernel"]
+                    and before["pending_packages"] == contract["os_payload"]["pending_packages"],
+                    "Worker standby package/boot/kernel binding drift")
+            state["original_host"] = {k: before[k] for k in ("boot_id", "kernel", "pending_packages")}
+        if decision == "claim":
+            # Recheck after the potentially slow read-only package simulation.
+            require(standby_peer(contract, cold_peer_status(contract["run_id"]), time.time(), launching=True) == "claim",
+                    "Standby slot revoked during claim")
+        state.update(phase="claimed" if decision == "claim" else decision, last_epoch=now,
+                     ready_epoch=now, peer_epoch=now, pid=os.getpid())
+        return decision
+    return worker_transaction(directory, tick)
+
+
+def cold_standby(run_id):
+    directory, contract = worker_runtime(run_id)
+    try:
+        while True:
+            # Revalidate exact source on every poll, including the final claim.
+            worker_runtime(run_id)
+            decision = standby_tick(directory, contract)
+            if decision == "cancelled":
+                return
+            if decision == "claim":
+                main({**contract["os_payload"], "contract_sha256": hashlib.sha256(
+                    json.dumps(contract, sort_keys=True, separators=(",", ":")).encode()).hexdigest()})
+                return
+            time.sleep(5)
+    except (RuntimeError, OSError, ValueError, subprocess.TimeoutExpired) as error:
+        def failed(state):
+            state.update(phase="failed" if state["phase"] in ("claimed", "packages-complete") else "cancelled",
+                         failure_type=type(error).__name__)
+        worker_transaction(directory, failed)
+        raise
+
+
+def cold_worker_register(payload):
+    transport, files = read_transport(payload)
+    run_id = payload["run_id"]
+    directory = Path("/var/lib/node-maintenance-cold-worker") / run_id
+    directory.parent.mkdir(mode=0o700, exist_ok=True)
+    require(not directory.parent.is_symlink() and directory.parent.stat().st_uid == 0
+            and stat.S_IMODE(directory.parent.stat().st_mode) == 0o700, "Worker standby parent is not trusted")
+    directory.mkdir(mode=0o700, exist_ok=False)
+    for name, encoded in files.items():
+        value = base64.b64decode(encoded)
+        require(hashlib.sha256(value).hexdigest() == transport["plan"]["source_bindings"][name],
+                "Worker source transport hash drift")
+        path = directory / name
+        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        with path.open("xb") as output:
+            os.fchmod(output.fileno(), 0o600)
+            output.write(value)
+            output.flush()
+            os.fsync(output.fileno())
+    with (directory / "plan.json").open("x") as output:
+        os.fchmod(output.fileno(), 0o600)
+        output.write(json.dumps(transport["plan"]))
+        output.flush()
+        os.fsync(output.fileno())
+    cold = load_cold(directory / ".github/scripts/node-maintenance-cold.py")
+    policy = json.loads((directory / "node-config/maintenance/policy.json").read_text())
+    contract = cold.worker_contract(transport["plan"], policy, run_id, transport["host_step_id"],
+                                    payload["started_epoch"], payload["deadline_epoch"])
+    require(contract["plan_sha256"] == transport["approval"], "Worker approval drift")
+    require(standby_peer(contract, cold_peer_status(run_id), time.time()) == "waiting",
+            "Controller must be registered/inert before worker setup")
+    status_directory = Path("/var/lib/node-maintenance-cold-worker-status")
+    status_directory.mkdir(mode=0o755, exist_ok=True)
+    require(not status_directory.is_symlink() and status_directory.stat().st_uid == 0
+            and stat.S_IMODE(status_directory.stat().st_mode) == 0o755, "Worker public record directory drift")
+    state = {"contract": contract, "contract_sha256": cold.sha(cold.canonical(contract)),
+             "phase": "staged", "last_epoch": time.time(), "pid": 0}
+    worker_write(directory, state)
+    start_worker_standby(directory, contract, cold)
+    print("Exact worker2 standby is live and inert; no package or application was changed.")
+
+
+def start_worker_standby(directory, contract, cold):
+    run_id = contract["run_id"]
+    unit = "node-maintenance-cold-worker-" + run_id + ".service"
+    try:
+        with (Path("/run/systemd/system") / unit).open("x") as output:
+            os.fchmod(output.fileno(), 0o644)
+            output.write(cold.worker_unit(contract))
+            output.flush()
+            os.fsync(output.fileno())
+        command(["systemctl", "daemon-reload"])
+        command(["systemctl", "start", "--no-block", unit])
+        end = time.monotonic() + 60
+        while True:
+            proof = worker_status(run_id)
+            if proof["record"]["phase"] == "waiting":
+                cold.worker_ready(proof, contract, time.time())
+                break
+            require(proof["record"]["phase"] == "staged" and time.monotonic() < end,
+                    "Worker standby did not publish actual live readiness")
+            time.sleep(1)
+    except (RuntimeError, OSError, ValueError, subprocess.TimeoutExpired):
+        # No stop/kill: a queued/live standby acknowledges the controller's
+        # irrevocable cancellation. If it never started, cancel under its mutex.
+        proof = worker_status(run_id)
+        if proof["unit"]["ActiveState"] in ("inactive", "failed") and proof["unit"]["Job"] == "0":
+            def cancel(s):
+                require(s["phase"] in ("staged", "waiting", "cancelled"), "Cannot cancel claimed host transaction")
+                s.update(phase="cancelled")
+            worker_transaction(directory, cancel)
+        raise
 
 
 def cold_register(payload):
@@ -287,6 +578,12 @@ def cold_register(payload):
         "host_step_id": payload["host_step_id"], "host_started": False, "host_complete": False,
         "host_packages_complete": False, "host_reboot_authorized": False,
     }
+    cold_module = load_cold(directory / ".github/scripts/node-maintenance-cold.py")
+    policy = json.loads((directory / "node-config/maintenance/policy.json").read_text())
+    contract = cold_module.worker_contract(payload["plan"], policy, payload["run_id"], payload["host_step_id"],
+                                          payload["started_epoch"], payload["deadline_epoch"])
+    state.update(worker_contract=contract, worker_contract_sha256=cold_module.sha(cold_module.canonical(contract)),
+                 worker_ready_verified=False)
     require(state["deadline_epoch"] == state["started_epoch"] + 43200
             and state["deadline_epoch"] - time.time() > 7200, "Invalid or spent guard deadline")
     with (directory / "state.json").open("x") as output:
@@ -340,67 +637,62 @@ def load_cold(script):
     return module
 
 
+def cold_start(c, cold, payload):
+    def ready(state):
+        c.gate(state)
+        require(state["mode"] == "registered" and time.time() < state["deadline_epoch"] - 7200,
+                "Cold execution already started or reserve reached")
+        timer = "node-maintenance-cold-" + payload["run_id"] + "-guard.timer"
+        require(command(["systemctl", "is-active", timer]) == "active"
+                and command(["systemctl", "is-enabled", timer]) == "enabled",
+                "Independent recovery guard disappeared before first app stop")
+        require(0 <= time.time() - state.get("guard_verified_epoch", 0) < 60,
+                "Actual native guard readiness expired before first pause")
+        cold.worker_ready(c.api.worker_status(c.policy, state["run_id"]), state["worker_contract"], time.time())
+    c.journal.transaction(ready)
+    # Read-only checks need not hold the mutation mutex and starve the
+    # independent guard heartbeat. Final ready() rejects concurrent recovery.
+    versions = json.loads(c.api.kube("version", "-o", "json"))
+    require(versions["serverVersion"]["gitVersion"] == c.plan["kubectl"]["server"], "API version drift")
+    require(versions["clientVersion"]["gitVersion"] == c.plan["controller_client"]["version"],
+            "Controller native kubectl version drift")
+    cold.require(cold.source_bindings() == c.plan["source_bindings"], "Guard source drift")
+    cold.m.check_client_skew(versions["clientVersion"]["gitVersion"], versions["serverVersion"]["gitVersion"])
+    cold.m.check_nodes(c.policy, c.api.items("nodes"))
+    for node in c.api.items("nodes"):
+        require(node["status"]["nodeInfo"]["kubeletVersion"]
+                == c.plan["bindings"][node["metadata"]["name"]]["source_version"], "RKE2 source drift")
+    for row in c.plan["controllers"] + c.plan["reconciliation"] + c.plan["schedules"]:
+        cold.assert_binding(c.api.get(cold.RESOURCES[row["kind"]], row["namespace"], row["name"]), row)
+    host = c.api.host_audit(c.policy, "rishik-worker2")
+    require(host["boot_id"] == c.plan["bindings"]["rishik-worker2"]["boot_id"]
+            and host["kernel"] == c.plan["bindings"]["rishik-worker2"]["kernel"]
+            and host["pending_packages"] == c.plan["bindings"]["rishik-worker2"]["pending_packages"],
+            "Host/package drift before first pause")
+    cold.cold_storage(c.plan, c.policy, c.api)
+    cold.native_gate(c.plan, c.policy, c.api)
+    c.autoscaling_restored()
+    def start(state):
+        ready(state)
+        state.update(mode="disrupting", worker_ready_verified=True)
+    c.journal.transaction(start)
+    print("Manual authentication complete; autonomous bound worker2 cold maintenance and protected recovery "
+          "are ready. No normal late sudo is required.", flush=True)
+    command(["systemctl", "start", "--no-block", "node-maintenance-cold-" + payload["run_id"] + ".service"])
+
+
 def cold_control(payload):
     directory = Path("/var/lib/node-maintenance-cold") / payload["run_id"]
     cold = load_cold(directory / ".github/scripts/node-maintenance-cold.py")
     c = cold.load_runtime(directory)
     operation = payload["operation"]
     if operation == "cold-start":
-        def start(state):
-            c.gate(state)
-            require(state["mode"] == "registered" and time.time() < state["deadline_epoch"] - 7200,
-                    "Cold execution already started or reserve reached")
-            timer = "node-maintenance-cold-" + payload["run_id"] + "-guard.timer"
-            require(command(["systemctl", "is-active", timer]) == "active"
-                    and command(["systemctl", "is-enabled", timer]) == "enabled",
-                    "Independent recovery guard disappeared before first app stop")
-            proof = payload["worker2_access"]
-            require(proof["name"] == "rishik-worker2" and proof["boot_id"] == c.plan["bindings"]["rishik-worker2"]["boot_id"]
-                    and proof["controller_status_verified"] is True and 0 <= time.time() - proof["created_epoch"] < 60,
-                    "Selected real worker2 sudo/recovery channel must be verified BEFORE first app stop")
-            # Rebind exact metadata/packages/client immediately before the executor's first pause.
-            versions = json.loads(c.api.kube("version", "-o", "json"))
-            require(versions["serverVersion"]["gitVersion"] == c.plan["kubectl"]["server"], "API version drift")
-            require(versions["clientVersion"]["gitVersion"] == c.plan["controller_client"]["version"],
-                    "Controller native kubectl version drift")
-            cold.require(cold.source_bindings() == c.plan["source_bindings"], "Guard source drift")
-            cold.m.check_client_skew(versions["clientVersion"]["gitVersion"], versions["serverVersion"]["gitVersion"])
-            cold.m.check_nodes(c.policy, c.api.items("nodes"))
-            for node in c.api.items("nodes"):
-                require(node["status"]["nodeInfo"]["kubeletVersion"]
-                        == c.plan["bindings"][node["metadata"]["name"]]["source_version"], "RKE2 source drift")
-            for row in c.plan["controllers"] + c.plan["reconciliation"] + c.plan["schedules"]:
-                cold.assert_binding(c.api.get(cold.RESOURCES[row["kind"]], row["namespace"], row["name"]), row)
-            host = c.api.host_audit(c.policy, "rishik-worker2")
-            require(host["boot_id"] == c.plan["bindings"]["rishik-worker2"]["boot_id"]
-                    and host["pending_packages"] == c.plan["bindings"]["rishik-worker2"]["pending_packages"],
-                    "Host/package drift before first pause")
-            cold.cold_storage(c.plan, c.policy, c.api)
-            cold.native_gate(c.plan, c.policy, c.api)
-            c.autoscaling_restored()
-            state["mode"] = "disrupting"
-        c.journal.transaction(start)
-        command(["systemctl", "start", "--no-block", "node-maintenance-cold-" + payload["run_id"] + ".service"])
-    elif operation == "cold-host-start":
-        c.infrastructure(drained=True)
-        cold.native_gate(c.plan, c.policy, c.api, released=True)
-        def mark(state):
-            c.gate(state, True)
-            require(state["phase"] == "awaiting-host" and not state["host_started"], "Host slot not available")
-            state.update(host_started=True, host_started_epoch=time.time(), host_reboot_authorized=True)
-        c.journal.transaction(mark)
-    elif operation == "cold-host-complete":
-        def finish(state):
-            c.gate(state)
-            require(state["host_started"] and payload["receipt"]["run_id"] == state["host_step_id"]
-                    and payload["receipt"]["name"] == "rishik-worker2"
-                    and payload["receipt"]["operation"] == "os"
-                    and payload["receipt"]["old_boot_id"] == c.plan["bindings"]["rishik-worker2"]["boot_id"]
-                    and payload["receipt"]["expected_kernel"] == c.policy["kernel"]
-                    and 0 <= time.time() - payload["receipt"]["completed_epoch"] < 1800,
-                    "Invalid worker2 host receipt")
-            state.update(host_packages_complete=True, host_packages_complete_epoch=payload["receipt"]["completed_epoch"])
-        c.journal.transaction(finish)
+        try:
+            cold_start(c, cold, payload)
+        except (RuntimeError, OSError, ValueError, subprocess.TimeoutExpired):
+            c.request_recovery("cold-start-preflight-or-executor-failed")
+            command(["systemctl", "start", "--no-block", "node-maintenance-cold-" + payload["run_id"] + "-guard.service"])
+            raise
     else:
         require(operation == "cold-recover", "Unsupported cold control")
         c.request_recovery("explicit-safe-recovery-command")
@@ -451,6 +743,13 @@ def rke2_upgrade(payload, work):
 
 def main(payload):
     operation = payload["operation"]
+    if operation == "cold-worker-status":
+        print(json.dumps(worker_status(payload["run_id"])))
+        return
+    if operation == "cold-standby":
+        require(set(payload) == {"operation", "run_id"}, "Standby accepts only its bound run, no command/payload")
+        cold_standby(payload["run_id"])
+        return
     if operation == "cold-status":
         require(re.fullmatch("[a-f0-9]{32}", payload["run_id"]), "Invalid cold status identifier")
         print(json.dumps(cold_public(Path("/var/lib/node-maintenance-cold-status") / (payload["run_id"] + ".json"))))
@@ -469,6 +768,13 @@ def main(payload):
         require(os.geteuid() == 0 and socket.gethostname() == payload["name"]
                 and Path("/proc/sys/kernel/random/boot_id").read_text().strip() == payload["boot_id"],
                 "Deferred reboot host/boot identity drift")
+        if payload.get("contract_sha256"):
+            directory, contract = worker_runtime(payload["cold_run_id"])
+            require(payload == {**contract["os_payload"], "operation": "reboot",
+                                "contract_sha256": hashlib.sha256(json.dumps(
+                                    contract, sort_keys=True, separators=(",", ":")).encode()).hexdigest()}
+                    and json.loads((directory / "state.json").read_text())["phase"] == "packages-complete",
+                    "Deferred reboot exact payload/terminal receipt drift")
         reserve(payload)
         command(["systemctl", "reboot"])
         return
@@ -506,6 +812,9 @@ def main(payload):
             return
         if operation == "cold-register":
             cold_register(payload)
+        elif operation == "cold-worker-register":
+            require(state["name"] == "rishik-worker2", "Standby belongs only on selected worker2")
+            cold_worker_register(payload)
         else:
             require(state["name"] == "rishik-controller", "Cold control belongs only on controller")
             cold_control(payload)
@@ -535,21 +844,39 @@ def main(payload):
     require(payload["deadline_epoch"] - time.time() > payload["recovery_reserve_seconds"],
             "Backup/preflight consumed the restoration reserve; do not change host services")
     if operation == "os":
+        if payload.get("contract_sha256"):
+            worker_directory, contract = worker_runtime(payload["cold_run_id"])
+            require(payload == {**contract["os_payload"], "contract_sha256": hashlib.sha256(json.dumps(
+                        contract, sort_keys=True, separators=(",", ":")).encode()).hexdigest()}
+                    and json.loads((worker_directory / "state.json").read_text())["phase"] == "claimed",
+                    "Standby only executes its exact claimed OS payload")
         result = os_upgrade(payload)
     else:
         require(operation == "rke2", "Unknown operation")
         result = rke2_upgrade(payload, directory)
     result.update({"run_id": payload["run_id"], "name": state["name"], "operation": operation,
                    "recovery": recovery, "completed_epoch": time.time()})
-    receipt = Path("/var/tmp") / ("node-maintenance-" + payload["run_id"] + ".json")
-    with receipt.open("x") as output:
-        output.write(json.dumps(result))
-        os.fchmod(output.fileno(), 0o444)
+    if payload.get("contract_sha256"):
+        require(operation == "os" and payload["name"] == "rishik-worker2", "Exact standby OS receipt required")
+        result["contract_sha256"] = payload["contract_sha256"]
+        directory = Path("/var/lib/node-maintenance-cold-worker") / payload["cold_run_id"]
+        def receipt(s):
+            require(s["phase"] == "claimed" and s["contract_sha256"] == payload["contract_sha256"]
+                    and not s.get("receipt"), "Worker package receipt is terminal/single-shot")
+            s.update(phase="packages-complete", receipt=result)
+        worker_transaction(directory, receipt)
+    else:
+        receipt = Path("/var/tmp") / ("node-maintenance-" + payload["run_id"] + ".json")
+        with receipt.open("x") as output:
+            output.write(json.dumps(result))
+            os.fchmod(output.fileno(), 0o444)
     if operation == "os":
         # APT may run longer than the disruption window. Check again both now and
         # in the deferred unit; never kill dpkg or reboot into the recovery reserve.
         schedule_reboot(payload)
-    print("Host step complete; workstation must verify recovery before continuing.")
+    print("Bound package step complete; controller must verify new boot and protected recovery."
+          if payload.get("contract_sha256") else
+          "Host step complete; workstation must verify recovery before continuing.")
 
 
 if __name__ == "__main__":
