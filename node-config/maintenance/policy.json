@@ -9,8 +9,8 @@
       "sha256": "4685cdac99b2288668b7f00b69e6848412949fbdc71ba065de7688b6b1647a70"
     },
     "1.36": {
-      "version": "v1.36.6+rke2r1",
-      "sha256": "e111ac6333ddb2b819d133a413914d4456dd2195a3d694865cb7acda5bf81ae4"
+      "version": "v1.36.6+rke2r2",
+      "sha256": "2cc5954832c92fde731e8a68311914fe313f2159352176f8c052659b18789bc3"
     },
     "1.37": {
       "version": "v1.37.2+rke2r1",
