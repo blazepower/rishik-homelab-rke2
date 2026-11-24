@@ -45,7 +45,7 @@ spec:
           env:
             {{- if .Values.runtimeCaHardening.enabled }}
             - name: TMPDIR
-              value: /rails/tmp
+              value: /rails/tmp/runtime
             {{- end }}
             - name: RAILS_ENV
               value: production

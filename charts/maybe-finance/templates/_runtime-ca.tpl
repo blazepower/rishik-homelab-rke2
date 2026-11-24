@@ -27,6 +27,36 @@
       readOnly: true
     - name: sure-ca-output
       mountPath: /ca-output
+- name: prepare-runtime-tmp
+  image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+  imagePullPolicy: {{ .Values.image.pullPolicy }}
+  command:
+    - ruby
+    - -e
+    - >-
+      path="/rails/tmp/runtime";
+      abort "temporary directory must not be a symlink" if File.symlink?(path);
+      Dir.mkdir(path,0700) unless Dir.exist?(path);
+      abort "temporary directory owner differs from application" unless File.stat(path).uid==Process.uid;
+      File.chmod(0700,path)
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    readOnlyRootFilesystem: true
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: ["ALL"]
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 128Mi
+  volumeMounts:
+    - name: sure-runtime-tmp
+      mountPath: /rails/tmp
 {{- end }}
 
 {{- define "maybe-finance.runtimeCaMounts" -}}

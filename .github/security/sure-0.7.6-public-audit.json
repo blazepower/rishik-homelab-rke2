@@ -1,0 +1,56 @@
+{
+  "captured_utc": "2026-11-23",
+  "scope": "PR479 Sure 0.7.6 public factory refresh only; historical audits remain unchanged",
+  "deployed": false,
+  "rollout_clearance": false,
+  "method": "Public registry crane digest/manifest/config plus streaming exact linux/amd64 image export. Only public CA files/aliases, original entrypoint and Gemfile.lock selected in memory; no full filesystem archive persisted, private stores or application/user data read.",
+  "image_index": "ghcr.io/we-promise/sure@sha256:61cd4c1fa9917200f8db4434b45d968235f375c52cdbdc81bf4a4df555a2f090",
+  "image_amd64": "ghcr.io/we-promise/sure@sha256:e830f1a91f9d57960427e0aebda2b48f299669e3744aa93da11e7d1b1cdbc987",
+  "image_config": "sha256:4c58b37fa7c51ef58dcfdb15c6c0e380e8665a5854ffd8e630647a217a7727e9",
+  "runtime": {
+    "user": "1000:1000",
+    "working_dir": "/rails",
+    "entrypoint": ["/rails/bin/docker-entrypoint"],
+    "cmd": ["./bin/rails", "server"],
+    "factory_gems": {"openssl": "4.0.1", "aws-sdk-core": "3.240.0", "skylight": "6.0.4", "redis": "5.4.0", "sidekiq": "8.0.5"}
+  },
+  "public_ca_evidence": {
+    "manifest": "apps/sure-finance/factory-ca.json",
+    "entries": 453,
+    "all_file_hashes_and_symlink_targets_unchanged_from_previous_factory": true,
+    "default_aliases_unchanged": true,
+    "vendor_bundle_paths_unchanged": true,
+    "system": {"before": 150, "after": 148},
+    "aws": {"before": 135, "after": 134},
+    "skylight": {"before": 128, "after": 126},
+    "policy_keys": 11,
+    "native_runtime_controls": "Required in existing Sure Runtime CA Acceptance; Python audit verifies public certificate/SPKI counts, not Ruby native verification"
+  },
+  "startup_evidence": {
+    "old_entrypoint_sha256": "09d75ebf4f8ebee5a4229e0eafac71aa4b8a9c994d011c44f4449445ca09b1d3",
+    "new_entrypoint_sha256": "4ed0dc6d095b249a9ddfe767c7e08703c46bd4045c215acfafb31ec3a7f23f71",
+    "observed_original_script": "Retains jemalloc selection, ./bin/rails db:prepare and exec; adds version/schema backup stamp under storage/.sure-runtime. Existing /rails/storage writable mount accommodates stamp.",
+    "source_modifications": "None: no vendor startup rewrite, wrapping, runtime install or native default trust override"
+  },
+  "failure_evidence": {
+    "initial_head": "37b271f3ffa78e5a2da4ddf8853fa49cbc9c49aa",
+    "run_id": 45093158648,
+    "job_id": 137427028119,
+    "observed": "18 tests, two failures: chart asserted obsolete 0.7.2-alpha.2 pin; full startup test reached NATIVE_PROBE after initializer, Rails HTTP/schema readiness and Sidekiq registration, but generic Docker exec diagnostic hid the failing assertion.",
+    "independent_reproduction": "New public image has identical complete CA inventory, aliases and vendor bundle paths, but a different original entrypoint hash; old factory metadata necessarily fails the native probe entrypoint equality assertion.",
+    "fix": "Refresh independently audited immutable factory binding and entrypoint hash; require selected index plus actual container platform-manifest/config binding in CI and entrypoint hash in initializer before app start. Keep all existing native-store and startup acceptance assertions.",
+    "containerd_compatibility": "Run45111059743 exposed the modern containerd image store's index-based local image ID, which is not a config digest. Require the actual container ImageManifestDescriptor to equal the audited amd64 digest; classic Docker without that descriptor must match the audited config digest. Index alone never proves platform binding."
+  },
+  "subsequent_linux_acceptance": {
+    "head": "2384525782ebee10e0f103e2544da6d7b7454062",
+    "run_id": 45111499787,
+    "job_id": 137484649786,
+    "conclusion": "success",
+    "tests": 20,
+    "skipped": 0,
+    "seconds": 60.635,
+    "all_ci_jobs_passed": 17,
+    "scope": "Exact runtime platform binding; original Rails migrations/HTTP readiness and Sidekiq registration; initializer policy, CA and entrypoint drift rejection; native defaults, all public bundle controls, preserved roots and read-only replacement barriers in loopback-only disposable fixtures"
+  },
+  "remaining_gates": ["Coordinator review of migrations and verified database/Redis backups", "Separately authorized serial storage activation and production rollout", "Explicit private/custom trust contexts remain outside certification"]
+}

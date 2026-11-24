@@ -19,8 +19,13 @@ VALUES = yaml.safe_load((APP / "helmrelease.yaml").read_text())["spec"]["values"
 DEFAULTS = yaml.safe_load((CHART / "values.yaml").read_text())
 FACTORY = json.loads((APP / "factory-ca.json").read_text())
 IMAGE = VALUES["image"]["repository"] + ":" + VALUES["image"]["tag"]
+UPGRADE_BASELINE = (
+    "ghcr.io/we-promise/sure:0.7.2-alpha.2@sha256:"
+    "b5d6d822fdef24c1af06ad455ce003139a2bd50cb6cf76a84a147dfd06b0e3dc"
+)
 POSTGRES = DEFAULTS["postgresql"]["image"]["repository"] + ":" + DEFAULTS["postgresql"]["image"]["tag"]
-REDIS = DEFAULTS["redis"]["image"]["repository"] + ":" + DEFAULTS["redis"]["image"]["tag"]
+REDIS_IMAGE = VALUES.get("redis", {}).get("image", DEFAULTS["redis"]["image"])
+REDIS = REDIS_IMAGE["repository"] + ":" + REDIS_IMAGE["tag"]
 
 
 def render(values):
@@ -36,6 +41,25 @@ def render(values):
 def sidekiq_probe_command(container):
     # Factory gems live in BUNDLE_PATH/ruby/3.4.0, not plain GEM_HOME/specifications.
     return ["exec", container, "bundle", "exec", "ruby", "-e", SIDEKIQ_REGISTRATION_PROBE]
+
+
+def factory_image_binding(image, factory, runtime_id=None, runtime_manifest=None):
+    repository, digest = image.split("@")
+    repository = repository.rsplit(":", 1)[0]
+    if factory["image_index"] != repository + "@" + digest:
+        raise AssertionError("selected image index differs from audited factory")
+    if runtime_id is None:
+        return
+    # Classic Docker identifies configs; containerd identifies indexes/manifests.
+    amd64 = factory["image_amd64"].split("@")[1]
+    if runtime_manifest is not None:
+        if runtime_manifest != amd64:
+            raise AssertionError("running platform manifest differs from audited factory")
+        if runtime_id in (digest, amd64, factory["image_config"]):
+            return
+    elif runtime_id == factory["image_config"]:
+        return
+    raise AssertionError("runtime image identity differs from audited factory: " + str(runtime_id))
 
 
 def probe_diagnostics(result):
@@ -62,6 +86,24 @@ def probe_diagnostics(result):
 
 
 class SureProbeTests(unittest.TestCase):
+    def test_factory_binding_rejects_renovated_index_and_runtime_config_drift(self):
+        factory_image_binding(IMAGE, FACTORY, FACTORY["image_config"])
+        with self.assertRaisesRegex(AssertionError, "image index"):
+            factory_image_binding(IMAGE.rsplit("@", 1)[0] + "@sha256:" + "0" * 64, FACTORY)
+        with self.assertRaisesRegex(AssertionError, "image identity"):
+            factory_image_binding(IMAGE, FACTORY, "sha256:" + "0" * 64)
+
+    def test_containerd_index_identity_requires_exact_running_amd64_manifest(self):
+        index = FACTORY["image_index"].split("@")[1]
+        amd64 = FACTORY["image_amd64"].split("@")[1]
+        factory_image_binding(IMAGE, FACTORY, index, amd64)
+        with self.assertRaisesRegex(AssertionError, "image identity"):
+            factory_image_binding(IMAGE, FACTORY, index)
+        with self.assertRaisesRegex(AssertionError, "platform manifest"):
+            factory_image_binding(IMAGE, FACTORY, index, "sha256:" + "0" * 64)
+        with self.assertRaisesRegex(AssertionError, "platform manifest"):
+            factory_image_binding(IMAGE, FACTORY, FACTORY["image_config"], "sha256:" + "0" * 64)
+
     def test_registration_probe_uses_factory_bundle_and_live_sidekiq_api(self):
         command = sidekiq_probe_command("fixture")
         self.assertEqual(command[:6], ["exec", "fixture", "bundle", "exec", "ruby", "-e"])
@@ -151,14 +193,11 @@ class SureChartTests(unittest.TestCase):
         self.assertEqual(("\r\n".join(keys) + "\r\n").splitlines(), keys)
 
     def test_same_vendor_version_is_pinned_and_factory_manifest_is_immutable(self):
-        self.assertEqual(VALUES["image"]["tag"],
-                         "0.7.2-alpha.2@sha256:b5d6d822fdef24c1af06ad455ce003139a2bd50cb6cf76a84a147dfd06b0e3dc")
-        self.assertEqual(FACTORY["image_amd64"],
-                         "ghcr.io/we-promise/sure@sha256:0b58098fc7f5c189f348abcc64be1858d7789f8f724b8465d0a2a2c48a4e4b55")
-        self.assertEqual(len(FACTORY["entries"]), 453)
-        self.assertEqual(FACTORY["counts"]["system"]["after"], 148)
-        self.assertEqual(FACTORY["counts"]["aws"]["after"], 134)
-        self.assertEqual(FACTORY["counts"]["skylight"]["after"], 126)
+        self.assertEqual(VALUES["image"]["repository"], DEFAULTS["image"]["repository"])
+        self.assertEqual(VALUES["image"]["tag"].split("@")[0], DEFAULTS["image"]["tag"])
+        factory_image_binding(IMAGE, FACTORY)
+        self.assertRegex(FACTORY["image_amd64"], r"^ghcr.io/we-promise/sure@sha256:[a-f0-9]{64}$")
+        self.assertRegex(FACTORY["image_config"], r"^sha256:[a-f0-9]{64}$")
 
     def test_both_pods_have_credential_free_same_image_initializers_and_readonly_barriers(self):
         pods = [doc["spec"]["template"]["spec"] for doc in render(VALUES)
@@ -179,7 +218,7 @@ class SureChartTests(unittest.TestCase):
             self.assertTrue(app["securityContext"]["readOnlyRootFilesystem"])
             self.assertEqual(app["securityContext"]["capabilities"]["drop"], ["ALL"])
             self.assertEqual(next(item["value"] for item in app["env"] if item["name"] == "TMPDIR"),
-                             "/rails/tmp")
+                             "/rails/tmp/runtime")
             mounts = {mount["mountPath"]: mount for mount in app["volumeMounts"]}
             for path in ("/etc/ssl/certs", "/usr/share/ca-certificates",
                          "/" + FACTORY["bundles"]["aws"], "/" + FACTORY["bundles"]["skylight"]):
@@ -188,6 +227,21 @@ class SureChartTests(unittest.TestCase):
                 self.assertIn(path, mounts)
             self.assertNotIn("/etc/ssl/private", mounts)
             self.assertNotIn("/usr/local/share/ca-certificates", mounts)
+
+    def test_owned_tmp_initializer_is_separate_from_trust_and_database_credentials(self):
+        pods = [doc["spec"]["template"]["spec"] for doc in render(VALUES)
+                if doc["kind"] == "Deployment" and not doc["metadata"]["name"].endswith("-redis")]
+        for pod in pods:
+            init = pod["initContainers"][1]
+            self.assertEqual(init["name"], "prepare-runtime-tmp")
+            self.assertEqual(init["image"], IMAGE)
+            self.assertNotIn("env", init)
+            self.assertNotIn("envFrom", init)
+            self.assertEqual(init["volumeMounts"], [
+                {"name": "sure-runtime-tmp", "mountPath": "/rails/tmp"}])
+            self.assertEqual(init["securityContext"]["runAsUser"], 1000)
+            self.assertTrue(init["securityContext"]["readOnlyRootFilesystem"])
+            self.assertEqual(init["securityContext"]["capabilities"]["drop"], ["ALL"])
 
     def test_rails_entrypoint_and_sidekiq_command_are_not_wrapped_or_replaced(self):
         apps = {doc["spec"]["template"]["spec"]["containers"][0]["name"]:
@@ -265,9 +319,15 @@ class SureLinuxAcceptance(unittest.TestCase):
     def setUpClass(cls):
         if not shutil.which("docker"):
             raise AssertionError("Linux acceptance requires the approved Docker runner")
-        for image in (IMAGE, POSTGRES, REDIS):
+        for image in (IMAGE, UPGRADE_BASELINE, POSTGRES, REDIS):
             subprocess.run(["docker", "pull", "--platform=linux/amd64", image],
                            check=True, capture_output=True, timeout=300)
+        labels = json.loads(subprocess.run(
+            ["docker", "image", "inspect", "--format={{json .Config.Labels}}", UPGRADE_BASELINE],
+            check=True, capture_output=True, timeout=30,
+        ).stdout)
+        if labels.get("org.opencontainers.image.revision") != "53e831039d4757a501dd1dd65d9f9c892d1be1a1":
+            raise AssertionError("upgrade fixture differs from the deployed immutable source")
 
     def setUp(self):
         self.base = ROOT / ("fleet-sure-test-" + uuid.uuid4().hex)
@@ -295,6 +355,10 @@ class SureLinuxAcceptance(unittest.TestCase):
         self.containers.append(name)
         self.docker("create", "--name", name, "--platform=linux/amd64", "--network=" + network,
                     "--cap-drop=ALL", "--security-opt=no-new-privileges", *options, image, *command)
+        if image == IMAGE:
+            inspected = json.loads(self.docker("inspect", name).stdout)[0]
+            descriptor = inspected.get("ImageManifestDescriptor") or {}
+            factory_image_binding(IMAGE, FACTORY, inspected["Image"], descriptor.get("digest"))
         return name
 
     def initialize(self, tools=None):
@@ -325,44 +389,12 @@ class SureLinuxAcceptance(unittest.TestCase):
             options += ["--volume", str(output / source) + ":" + target + ":ro"]
         for path in ("/rails/tmp", "/rails/log", "/rails/storage"):
             options += ["--tmpfs", path + ":rw,uid=1000,gid=1000,mode=0775"]
+        options += ["--tmpfs=/rails/tmp/runtime:rw,uid=1000,gid=1000,mode=0700"]
         options += ["--volume", str(self.tools) + ":/ca-test-tools:ro"]
         options += ["--volume", str(self.base / "fixtures") + ":/sure-public-fixtures:ro"]
         return options
 
-    def test_bad_policy_or_factory_drift_prevents_initializer_success_before_app_start(self):
-        tools = self.base / "tools"
-        shutil.copytree(self.tools, tools)
-        original_policy = (tools / "blocked-spkis.sha256").read_text()
-        for policy in ("", "bad\n", "\n".join(original_policy.splitlines()[:10]),
-                       (original_policy.splitlines()[0] + "\n") * 11):
-            (tools / "blocked-spkis.sha256").write_text(policy)
-            output, _, code = self.initialize(tools)
-            self.assertEqual(code, 78)
-            self.assertEqual(list(output.iterdir()), [])
-        (tools / "blocked-spkis.sha256").write_bytes(original_policy.replace("\n", "\r\n").encode())
-        _, _, code = self.initialize(tools)
-        self.assertEqual(code, 0)
-        drift = json.loads((tools / "factory-ca.json").read_text())
-        drift["entries"][drift["bundles"]["system"]]["sha256"] = "0" * 64
-        (tools / "factory-ca.json").write_text(json.dumps(drift))
-        output, _, code = self.initialize(tools)
-        self.assertEqual(code, 78)
-        self.assertEqual(list(output.iterdir()), [])
-
-    def test_original_rails_and_sidekiq_startup_native_defaults_and_mount_barriers(self):
-        self.assertEqual(json.loads(self.docker("image", "inspect", "--format={{json .Config.Entrypoint}}",
-                                                IMAGE).stdout), ["/rails/bin/docker-entrypoint"])
-        self.assertEqual(json.loads(self.docker("image", "inspect", "--format={{json .Config.Cmd}}",
-                                                IMAGE).stdout), ["./bin/rails", "server"])
-        output, _, code = self.initialize()
-        self.assertEqual(code, 0)
-        fixtures = self.base / "fixtures"
-        fixtures.mkdir()
-        baseline = self.create(options=["--entrypoint=ruby", "--volume", str(self.tools) + ":/ca-test-tools:ro"],
-                               command=["-e", FIXTURE_PROBE])
-        fixture_data = self.docker("start", "--attach", baseline).stdout
-        json.loads(fixture_data)
-        (fixtures / "public-negative-roots.json").write_bytes(fixture_data)
+    def database_fixture(self):
         owner = self.create(options=["--entrypoint=ruby"], command=["-e", "sleep 900"])
         self.docker("start", owner)
         self.assertEqual(self.docker("inspect", "--format={{.HostConfig.NetworkMode}}", owner).stdout.strip(), b"none")
@@ -383,11 +415,78 @@ class SureLinuxAcceptance(unittest.TestCase):
         environment = {
             "RAILS_ENV": "production", "SECRET_KEY_BASE": "1" * 128,
             "SELF_HOSTING_ENABLED": "true", "RAILS_FORCE_SSL": "false", "RAILS_ASSUME_SSL": "false",
-            "DB_HOST": "127.0.0.1", "POSTGRES_DB": "sure_fixture",
-            "TMPDIR": "/rails/tmp",
+            "DB_HOST": "127.0.0.1", "POSTGRES_DB": "sure_fixture", "TMPDIR": "/rails/tmp/runtime",
             "POSTGRES_USER": "fixture", "POSTGRES_PASSWORD": "public-test-fixture",  # gitleaks:allow
             "REDIS_URL": "redis://127.0.0.1:6379/1",
         }
+        return network, postgres, environment
+
+    def test_bad_policy_or_factory_drift_prevents_initializer_success_before_app_start(self):
+        tools = self.base / "tools"
+        shutil.copytree(self.tools, tools)
+        original_policy = (tools / "blocked-spkis.sha256").read_text()
+        for policy in ("", "bad\n", "\n".join(original_policy.splitlines()[:10]),
+                       (original_policy.splitlines()[0] + "\n") * 11):
+            (tools / "blocked-spkis.sha256").write_text(policy)
+            output, _, code = self.initialize(tools)
+            self.assertEqual(code, 78)
+            self.assertEqual(list(output.iterdir()), [])
+        (tools / "blocked-spkis.sha256").write_bytes(original_policy.replace("\n", "\r\n").encode())
+        _, _, code = self.initialize(tools)
+        self.assertEqual(code, 0)
+        for target in ("system_bundle", "entrypoint"):
+            drift = json.loads((self.tools / "factory-ca.json").read_text())
+            if target == "system_bundle":
+                drift["entries"][drift["bundles"]["system"]]["sha256"] = "0" * 64
+            else:
+                drift["entrypoint_sha256"] = "0" * 64
+            (tools / "factory-ca.json").write_text(json.dumps(drift))
+            output, _, code = self.initialize(tools)
+            self.assertEqual(code, 78)
+            self.assertEqual(list(output.iterdir()), [])
+
+    def test_authenticated_recovery_tool_rejects_wrong_keys_and_corrupt_archives(self):
+        name = self.create(options=[
+            "--entrypoint=ruby", "--read-only", "--user=1000:1000",
+            "--tmpfs=/tmp:rw,uid=1000,gid=1000,mode=0700",
+            "--volume", str(ROOT / ".github/scripts") + ":/scripts:ro",
+        ], command=["/scripts/sure-encrypted-recovery.rb", "self-test"])
+        result = self.docker("start", "--attach", name)
+        self.assertEqual(json.loads(result.stdout), {"recovery_crypto_self_test": True})
+
+    def test_new_ruby_uses_owned_tmp_below_foreign_owned_world_writable_parent(self):
+        options = ["--entrypoint=ruby", "--read-only", "--user=1000:1000",
+                   "--tmpfs=/rails/tmp:rw,uid=0,gid=1000,mode=0777"]
+        invalid = self.create(options=[*options, "--env=TMPDIR=/rails/tmp"],
+                              command=["-e", "require 'tmpdir';begin;Dir.tmpdir;exit 1;"
+                                       "rescue ArgumentError;exit 42;end"])
+        self.docker("start", "--attach", invalid, check=False)
+        self.assertEqual(json.loads(self.docker("inspect", "--format={{json .State}}", invalid).stdout)["ExitCode"],
+                         42)
+        deployment = next(doc for doc in render(VALUES) if doc["kind"] == "Deployment"
+                          and doc["metadata"]["name"].endswith("maybe-finance"))
+        command = deployment["spec"]["template"]["spec"]["initContainers"][1]["command"]
+        code = command[2] + (";require 'tmpdir';raise 'wrong temporary directory' unless "
+                             "Dir.tmpdir==ENV.fetch('TMPDIR');raise 'unsafe temporary permissions' unless "
+                             "File.stat(Dir.tmpdir).mode&0777==0700")
+        valid = self.create(options=[*options, "--env=TMPDIR=/rails/tmp/runtime"], command=["-e", code])
+        self.docker("start", "--attach", valid)
+
+    def test_original_rails_and_sidekiq_startup_native_defaults_and_mount_barriers(self):
+        self.assertEqual(json.loads(self.docker("image", "inspect", "--format={{json .Config.Entrypoint}}",
+                                                IMAGE).stdout), ["/rails/bin/docker-entrypoint"])
+        self.assertEqual(json.loads(self.docker("image", "inspect", "--format={{json .Config.Cmd}}",
+                                                IMAGE).stdout), ["./bin/rails", "server"])
+        output, _, code = self.initialize()
+        self.assertEqual(code, 0)
+        fixtures = self.base / "fixtures"
+        fixtures.mkdir()
+        baseline = self.create(options=["--entrypoint=ruby", "--volume", str(self.tools) + ":/ca-test-tools:ro"],
+                               command=["-e", FIXTURE_PROBE])
+        fixture_data = self.docker("start", "--attach", baseline).stdout
+        json.loads(fixture_data)
+        (fixtures / "public-negative-roots.json").write_bytes(fixture_data)
+        network, postgres, environment = self.database_fixture()
         options = self.app_options(output)
         for key, value in environment.items():
             options += ["--env=" + key + "=" + value]
@@ -414,6 +513,55 @@ class SureLinuxAcceptance(unittest.TestCase):
             self.docker("exec", container, "ruby", "-rsocket", "-e",
                         "abort 'non-loopback interface' unless Socket.getifaddrs.all?"
                         "{|a|!a.addr||!a.addr.ip?||['127.0.0.1','::1'].include?(a.addr.ip_address)}")
+
+    def test_upgrade_from_deployed_schema_restores_before_original_candidate_migrations(self):
+        (self.base / "fixtures").mkdir()
+        output, _, code = self.initialize()
+        self.assertEqual(code, 0)
+        network, postgres, environment = self.database_fixture()
+        options = self.app_options(output)
+        options += ["--env=" + key + "=" + value for key, value in environment.items()]
+        readiness = (
+            "require 'net/http';r=Net::HTTP.start('127.0.0.1',3000,open_timeout:1,read_timeout:2)"
+            "{|h|h.get('/')};exit((200..399).include?(r.code.to_i) ? 0 : 1)"
+        )
+        old = self.create(UPGRADE_BASELINE, options=options, network=network)
+        self.docker("start", old)
+        self.wait_ready(["exec", old, "ruby", "-e", readiness], 180, "actual deployed-image schema fixture")
+        query = ["exec", postgres, "psql", "-U", "fixture", "-d", "sure_fixture", "-At", "-v", "ON_ERROR_STOP=1"]
+        self.assertEqual(self.docker(*query, "-c", "SELECT max(version) FROM schema_migrations").stdout.strip(),
+                         b"20260531153000")
+        self.assertEqual(self.docker(*query, "-c",
+                         "SELECT to_regclass('public.trade_republic_items') IS NULL").stdout.strip(), b"t")
+        self.docker(*query, "-c",
+                    "INSERT INTO families(id,name,currency,created_at,updated_at) VALUES "
+                    "('00000000-0000-0000-0000-000000000001','Public upgrade fixture','USD',now(),now())")
+        self.docker("stop", "--time=30", old)
+        self.docker("exec", postgres, "pg_dump", "-U", "fixture", "-d", "sure_fixture",
+                    "--format=custom", "--file=/pgdata/upgrade-fixture.dump")
+        self.docker("exec", postgres, "createdb", "-U", "fixture", "sure_upgrade_restore")
+        self.docker("exec", postgres, "pg_restore", "-U", "fixture", "-d", "sure_upgrade_restore",
+                    "--exit-on-error", "/pgdata/upgrade-fixture.dump")
+        self.docker("exec", postgres, "rm", "/pgdata/upgrade-fixture.dump")
+        restored = [part.replace("POSTGRES_DB=sure_fixture", "POSTGRES_DB=sure_upgrade_restore")
+                    for part in options]
+        candidate = self.create(options=restored, network=network)
+        self.docker("start", candidate)
+        self.wait_ready(["exec", candidate, "ruby", "-e", readiness], 360,
+                        "restored deployed-schema upgrade through unchanged candidate entrypoint")
+        restored_query = [part.replace("sure_fixture", "sure_upgrade_restore") for part in query]
+        self.assertEqual(self.docker(*restored_query, "-c",
+                         "SELECT name||':'||currency FROM families WHERE "
+                         "id='00000000-0000-0000-0000-000000000001'").stdout.strip(),
+                         b"Public upgrade fixture:USD")
+        self.docker("exec", candidate, "./bin/rails", "runner",
+                    "abort 'pending migration' if ActiveRecord::Base.connection_pool.migration_context.needs_migration?",
+                    timeout=60)
+        self.assertEqual(self.docker(*restored_query, "-c",
+                         "SELECT count(*) FROM information_schema.columns WHERE table_schema='public' "
+                         "AND table_name='trade_republic_items' AND column_name='session_expires_at'").stdout.strip(),
+                         b"1")
+        self.docker("exec", candidate, "ruby", "-e", READONLY_PROBE)
 
     def wait_ready(self, command, seconds, description):
         deadline = time.monotonic() + seconds
@@ -458,7 +606,8 @@ end
 NATIVE_PROBE = r"""
 require "openssl"; require "json"
 require "tmpdir"
-raise "unwritable application temporary directory" unless Dir.tmpdir=="/rails/tmp" && File.writable?(Dir.tmpdir)
+raise "unsafe application temporary directory" unless Dir.tmpdir=="/rails/tmp/runtime" &&
+ File.writable?(Dir.tmpdir) && File.stat(Dir.tmpdir).uid==Process.uid && File.stat(Dir.tmpdir).mode&0777==0700
 load "/ca-test-tools/harden-ca.rb"
 m=JSON.parse(File.read("/ca-test-tools/factory-ca.json"))
 denied=SureTrust.policy(File.read("/ca-test-tools/blocked-spkis.sha256"))
