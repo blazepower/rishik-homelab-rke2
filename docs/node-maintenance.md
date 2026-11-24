@@ -24,7 +24,8 @@ Wall-clock and monotonic elapsed time are both checked; clock rollback cannot
 extend a running batch. A failed/interrupted run cannot reset the clock by
 starting another run because its lock remains held.
 
-Recovery waits and each host's pre-mutation gate honor this deadline. Reaching
+Ordinary serial `apply` recovery waits and each host's pre-mutation gate honor
+this deadline. Reaching
 the reserve stops new disruption; it does not kill an in-progress package
 manager, forcibly reboot a host, or perform an automatic restore. This is a
 fail-stop recovery budget, not an unconditional guarantee after hardware
@@ -105,11 +106,127 @@ credentials. Scale-down PVC deletion policies are rejected; unmatched HPA
 owners and active jobs remain explicit blockers.
 
 This command does not suspend, scale, change PDBs or create a disruption window.
-Its `cold-inventory` action is deliberately not accepted by `apply`. Cold-stop
-execution still needs reviewed autoscaler/operator ordering, complete
-infrastructure/native storage contracts, and durable recovery independent of
-the workstation. Keep two clean detached storage copies rather than treating
+Its `cold-inventory` action is deliberately not accepted by `apply`.
+Ordinary `apply` has no cold execution path. The held worker2 coordinator below
+provides separate ordering, native contracts and independent recovery; their
+real channel/drain/recovery acceptance remains unperformed. Keep two clean detached storage copies rather than treating
 this inventory as permission for temporary single-replica writes.
+
+### Held worker2 OS cold coordinator
+
+`cold-plan --output <new-file>` now builds a separate, hash-approved
+`worker2-os-cold` profile. `apply` still rejects inventories and cold plans;
+fleet and ordinary worker2-only behavior is unchanged. This is **held source
+only**. No merge, deployment, drain, sudo execution, reboot or native acceptance
+is implied by its local tests.
+
+The only application cohort is the 32 reviewed controllers in AdGuard, Homebox,
+Kaneo, media, monitoring, Paperless, Siloarr and Sure. Four exact KEDA/HTTP
+operator/scaler/interceptor Deployments are additionally bound. Claims,
+volume/engine/replica UIDs, data-directory and specification hashes, original
+zero counts, selected pause annotations, CronJob suspensions, 25 inventory
+reconcilers and the two KEDA HelmReleases are captured. Unknown writers,
+legacy HTTPScaledObject parents, full KEDA pauses that delete HPA identity,
+destructive StatefulSet retention, new controllers and drift fail closed.
+The encrypted Sure recovery claim and its encryption-reference hash are
+retained without reading the key, backup or Secret.
+
+The operator attests that **AdGuard is unused**. No router inspection or DNS
+change is performed or claimed.
+
+The source execution ordering is:
+
+1. Rebuild the exact plan and recheck host/packages, code/client and metadata.
+   Verify the existing real worker2 sudo channel and controller recovery mount.
+   Acquire a new non-expiring lock with its own immutable 12h deadline; never
+   overwrite/reuse the expired November 16 ledger.
+2. Install the approved source bundle and root-owned fsynced restoration journal
+   on the unchanged controller using existing SSH/interactive sudo. Enable a
+   persistent systemd guard timer, execute its native context/storage self-check,
+   and verify it actually ran. Verify existing controller-to-worker2 audit SSH
+   and worker2-to-controller read-only status SSH, and the real worker2 sudo
+   channel again **before the first pause**. Missing access is a blocker, never
+   a reason to create keys, sudoers rules or a privileged pod.
+3. Freeze exact Flux reconciliation and scheduled producers; require no
+   in-flight reconciliations or active Jobs. Use KEDA 2.21.1's supported
+   `paused-scale-in/out` annotations and observe both native HPA directions
+   `Disabled`, with unchanged HPA UIDs/owners. Then stop the exact KEDA/HTTP
+   controllers and Prometheus operator. Include the HTTP chart's **additional
+   interceptor ScaledObject/HPA pair**, outside the five application pairs.
+   Require the KEDA operator's Pods gone before stopping that interceptor;
+   otherwise its positive minimum can restart it. This matters: a full KEDA pause deletes
+   the HPA, and bilateral pause alone can still correct a positive minimum.
+   Stop consumers/producers before Deployment **and** StatefulSet backends.
+   Wait for observed zero generations and actual active Pod disappearance,
+   including terminating Pods.
+4. Require every regular volume detached, empty attachment tickets, stopped
+   engines and two clean stopped copies on distinct workers. Preserve both
+   sole-copy worker1 quarantines exactly. Cordon **only worker2**. Require its
+   used replicas' healthy worker1 peers to resolve to the native running IM and
+   unchanged minAvailable=1 peer PDB. Wait for **Longhorn itself** to release
+   worker2's PDB; never patch/delete/decrease native/storage/CSI/Kyverno budgets.
+   Run normal `drain --ignore-daemonsets --delete-emptydir-data --timeout=10m`;
+   verify actual eviction, not just command success.
+5. Only four exactly bound hard-hostname HA duplicate replacements may be
+   Pending: NFS controller, CoreDNS, Kyverno admission and background. Each must
+   retain its exact Ready worker1 peer, Deployment/ReplicaSet/Pod specification,
+   namespace/selector/topology binding. NFS chart 4.13.6's sole hostPath
+   `/var/lib/kubelet/pods` Directory/Bidirectional mount and emptyDir socket are
+   explicitly reviewed as a non-migration contract, not a generic waiver.
+   Cold apps and the node-bound native IM are excluded from migration capacity;
+   worker1's actual resident native IM and remaining workloads are counted.
+   Remaining selected migration Pods/controllers/PVCs are independently hash-bound;
+   unbound, local, hostPath or node-affinity-constrained PVs are not waived.
+6. At the host handoff, the selected real terminal performs worker2 OS only.
+   APT is never killed. Recheck the immutable reserve and controller guard
+   authority immediately before starting and before **scheduling and executing**
+   the deferred reboot. A long transaction cannot authorize a late reboot.
+7. Require clean two-copy storage and the native returned worker2 IM/PDB before
+   warming. Restore backend readiness first, then consumers, original autoscaler
+   annotations/HPA specs/UIDs and operators, then exact original schedules and
+   Flux states. Paperless's original zero is zero, never one. Full HTTPS
+   Plex/vault/Sure, VPN and application/controller/native storage health must
+   pass repeatedly before lock release.
+
+Only three exact Flux singleton PDBs have a reversible journaled availability
+change (`50%` -> `maxUnavailable: 1`): kustomize-controller, notification-controller
+and sealed-secrets. Their singleton controller/selector/UID/specs are bound and
+restored. Monitoring PDBs are not bypassed: their pods are cold. The held
+14-budget Git proposal is not assumed deployed. All other budgets are untouched.
+
+Future **authorized real terminal** commands, not commands performed here:
+
+```powershell
+python -B .github\scripts\node-maintenance.py cold-plan --output .\worker2-cold-plan.json
+python -B .github\scripts\node-maintenance.py cold-apply --plan .\worker2-cold-plan.json --approve <sha256> --recovery-directory <existing-private-mount> --token-backup-confirmed
+python -B .github\scripts\node-maintenance.py cold-recover --run-id <existing-run-id>
+```
+
+The controller owns the executor and recovery timer independently of the CLI
+turn. Records are under `/var/lib/node-maintenance-cold/<run-id>`; a root-owned
+0444 technical status receipt is separate. The guard requests original-state
+recovery on executor loss or when the final two-hour reserve begins. Fsynced
+write-ahead mutation intentions and a controller flock prevent competing
+recovery/scale actions. A late host launch reads a revoked handoff before APT;
+the guard does not warm while APT/reboot units or a normal drain remain active.
+`cold-recover` requests the same protected original-state recovery; it never
+restarts the outage clock or resumes upgrades. Reboot scheduling that is refused
+does not become a success receipt for the coordinator.
+
+Unsafe/degraded storage, identity drift, lost native peers, a busy package
+transaction or unavailable worker2 can block restoration. The timer retries and
+records a blocked phase; lock and data protection remain. Recovery can restore
+original state after the 12h deadline but cannot report success or release the
+lock as if it met the budget. Hardware failure, loss of the sole API/controller,
+broken existing SSH and controller disk failure cannot be guaranteed away.
+No force eviction, single-replica write, salvage, volume manipulation or
+controller/worker1 repair is a fallback.
+
+Remaining unperformed gates: real sudo/SSH and durable systemd registration;
+fresh runtime provenance/metadata/package bindings; native PDB release and
+normal eviction under strict cold protection; actual HA/capacity acceptance;
+worker2 kernel reboot and restored HTTPS/VPN/application health; and interruption
+recovery on those real channels. Local mocks are **not native live acceptance**.
 
 Resolve every blocker before approval. In particular:
 
@@ -165,8 +282,10 @@ Resolve every blocker before approval. In particular:
   healthy replica protected by another schedulable node's PDB under the
   retained `block-if-contains-last-replica` policy. Do not lower/delete these
   budgets, invent missing owner references, or treat a matching name/label
-  as permission to ignore them. The runner has no reviewed deferred-PDB or
-  stateful-quiescence path yet; these remain real maintenance blockers.
+  as permission to ignore them. Ordinary serial `apply` has no deferred-PDB or
+  stateful-quiescence path;
+  its blockers remain. The held worker2 cold path below waits for native release
+  without waiving this protection.
 - All active pods, native HTTPS/VPN probes, both Longhorn managers, and every
   active Longhorn volume must pass. Attached volumes need two running RW worker
   copies; detached volumes need two clean stopped worker copies. The two

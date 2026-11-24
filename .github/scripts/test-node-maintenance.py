@@ -708,7 +708,8 @@ class MaintenanceTests(unittest.TestCase):
                 patch.object(h.subprocess, "run") as process:
             process.return_value.stdout = "loaded"
             h.os_upgrade({"pending_packages": state["pending_packages"],
-                          "kernel_package": "linux-generic", "kernel": "test"})
+                          "kernel_package": "linux-generic", "kernel": "test",
+                          "deadline_epoch": h.time.time() + 43200, "recovery_reserve_seconds": 7200})
         apt = next(args for args in calls if args[:2] == ["apt-get", "-y"])
         self.assertIn("--no-remove", apt)
         masked = {args[-1] for args in calls if args[:3] == ["systemctl", "mask", "--now"]}
@@ -724,7 +725,8 @@ class MaintenanceTests(unittest.TestCase):
                   {"pending_packages": ["Inst changed (2.0)"]}]
         with patch.object(h, "audit", side_effect=states), patch.object(h, "command") as command:
             with self.assertRaises(RuntimeError):
-                h.os_upgrade({"pending_packages": ["Inst approved (1.0)"]})
+                h.os_upgrade({"pending_packages": ["Inst approved (1.0)"],
+                              "deadline_epoch": h.time.time() + 43200, "recovery_reserve_seconds": 7200})
             command.assert_called_once_with(["apt-get", "update"])
 
     def test_preferred_scheduling_is_not_a_hard_blocker(self):
@@ -927,6 +929,10 @@ class MaintenanceTests(unittest.TestCase):
                     self.assertRaises(RuntimeError):
                 m.discover(copy.deepcopy(policy))
             self.assertEqual(path.read_bytes(), original)
+
+
+cold_tests = load("cold_regressions", "test-node-maintenance-cold.py")
+ColdTests = cold_tests.ColdTests
 
 
 if __name__ == "__main__":

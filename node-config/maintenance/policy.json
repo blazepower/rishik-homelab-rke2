@@ -2,6 +2,16 @@
   "ubuntu_lts": "26.04",
   "kernel_package": "linux-generic",
   "kernel": "7.0.0-44-generic",
+  "worker2_cold": {
+    "status": "held-source-only-no-live-acceptance",
+    "adguard_operator_attestation": "Unused; no DNS change requested. Router configuration not independently inspected.",
+    "longhorn_native_source": {
+      "version": "v1.12.1",
+      "commit": "8320238242e8c804325d9588ec1db10feb9f36b8",
+      "instance_manager_controller_sha256": "1fee262c9f7eba35b0ced04ddf37e3b705e3f389fd0d9f184db13d80eb290653",
+      "datastore_longhorn_sha256": "f18a875f352eb0b25785d1d4ebac22901a2179c648d3b5ae36936c329934486b"
+    }
+  },
   "plex_downtime": {
     "template_sha256": "415d5743e2e5ea1d540c2c90a96c6f8f6a74c95ed4dba9f7424442739b948fc7",
     "pod_spec_sha256": "fce5fc18174beec4b05c3be300513aae721e2e642ec3cef6af5ff3f8efdb52cf"

@@ -14,6 +14,7 @@ import tempfile
 import time
 import urllib.request
 import uuid
+import zlib
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -108,13 +109,17 @@ def check_client_skew(client, current, target=None):
 
 def remote(node, payload, privileged=False):
     encoded = base64.b64encode(canonical(payload)).decode()
-    command = ["python3", "-c", HOST_SOURCE, encoded]
+    bootstrap = "import base64,zlib;__maintenance_host_source__=zlib.decompress(base64.b64decode(" + repr(
+        base64.b64encode(zlib.compress(HOST_SOURCE.encode())).decode()) + ")).decode();exec(__maintenance_host_source__)"
+    command = ["python3", "-c", bootstrap, encoded]
     if privileged:
         command = ["sudo", "systemd-run", "--unit=node-maintenance-" + payload["run_id"] + "-" + payload["operation"],
                    "--property=SendSIGKILL=no", "--property=KillMode=process",
                    "--wait", "--pipe", "--", *command]
     args = ["ssh", "-t" if privileged else "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
             "-o", "ConnectTimeout=10", node["ssh"], shlex.join(command)]
+    require(sys.platform != "win32" or len(subprocess.list2cmdline(args)) < 31000,
+            "Approved SSH payload exceeds Windows transport limit; no host step was started")
     if privileged:
         # Inherit the operator's terminal: never capture or pass a sudo password.
         # A lost terminal does not terminate the host's systemd-owned operation.
@@ -1061,6 +1066,15 @@ def main():
     cold_parser = commands.add_parser("cold-inventory",
                                      help="Read-only restoration bindings; cannot be applied as a maintenance plan")
     cold_parser.add_argument("--output", type=Path, required=True)
+    cold_plan_parser = commands.add_parser("cold-plan", help="Held worker2-only OS cold restoration profile")
+    cold_plan_parser.add_argument("--output", type=Path, required=True)
+    cold_apply_parser = commands.add_parser("cold-apply", help="Real terminal only; independent guard required")
+    cold_apply_parser.add_argument("--plan", type=Path, required=True)
+    cold_apply_parser.add_argument("--approve", required=True)
+    cold_apply_parser.add_argument("--recovery-directory", required=True)
+    cold_apply_parser.add_argument("--token-backup-confirmed", action="store_true")
+    cold_recover_parser = commands.add_parser("cold-recover", help="Request original-state-only guarded recovery")
+    cold_recover_parser.add_argument("--run-id", required=True)
     apply_parser = commands.add_parser("apply")
     apply_parser.add_argument("--plan", type=Path, required=True)
     apply_parser.add_argument("--approve", required=True, help="SHA256 printed by plan")
@@ -1069,7 +1083,23 @@ def main():
     apply_parser.add_argument("--compatibility-reviewed", action="store_true")
     args = parser.parse_args()
     policy = json.loads(POLICY.read_text(encoding="utf-8"))
-    if args.command == "discover":
+    if args.command in ("cold-plan", "cold-apply", "cold-recover"):
+        import importlib.util
+        module_spec = importlib.util.spec_from_file_location("cold_profile", Path(__file__).with_name("node-maintenance-cold.py"))
+        cold = importlib.util.module_from_spec(module_spec)
+        module_spec.loader.exec_module(cold)
+        if args.command == "cold-plan":
+            plan = cold.build_plan(policy)
+            with args.output.open("x", encoding="utf-8") as output:
+                output.write(json.dumps(plan, indent=2) + "\n")
+            print(json.dumps({"plan_sha256": sha(canonical(plan)), "blockers": plan["blockers"],
+                              "scope": "worker2 OS cold only; held source, no live acceptance"}, indent=2))
+        elif args.command == "cold-apply":
+            cold.apply(json.loads(args.plan.read_text(encoding="utf-8")), args.approve, policy,
+                       args.recovery_directory, args.token_backup_confirmed)
+        else:
+            cold.request_recovery(args.run_id, policy)
+    elif args.command == "discover":
         discover(policy)
     elif args.command == "apply":
         apply(json.loads(args.plan.read_text(encoding="utf-8")), args.approve, policy,
