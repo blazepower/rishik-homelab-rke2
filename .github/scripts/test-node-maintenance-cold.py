@@ -184,6 +184,14 @@ class FakeAPI:
         return ""
 
     def patch(self, row, value, operations):
+        previous_replicas = value["spec"].get("replicas", 1)
+        if row["kind"] in ("Deployment", "StatefulSet") and c.identity(value) not in c.OPERATORS:
+            desired = next((op["value"] for op in operations if op["path"] == "/spec/replicas" and op["op"] == "add"),
+                           value["spec"].get("replicas", 1))
+            if (value["spec"].get("replicas", 1) == 0) != (desired == 0):
+                handler = self.get("cronjobs", *c.CROSS_PRODUCER)
+                if handler["spec"].get("suspend") is not True:
+                    raise RuntimeError("Cross-namespace writer was not stopped before app pause/warmup")
         self.events.append(("patch", c.key(row), copy.deepcopy(operations)))
         for op in operations:
             segments = [s.replace("~1", "/").replace("~0", "~") for s in op["path"].split("/")[1:]]
@@ -215,7 +223,7 @@ class FakeAPI:
             hpa["status"].pop("observedGeneration", None)
         if row["kind"] in ("Deployment", "StatefulSet"):
             count = value["spec"].get("replicas", 1)
-            if count == 0 and (row["namespace"], row["name"]) not in c.OPERATORS:
+            if count == 0 and previous_replicas != 0 and (row["namespace"], row["name"]) not in c.OPERATORS:
                 operators = [d for d in self.items("deployments") if c.identity(d) in c.OPERATORS]
                 if any(d["spec"]["replicas"] != 0 for d in operators):
                     # Prometheus parent and KEDA min>0 correction cannot be wished away by the mock.
@@ -272,7 +280,7 @@ class FakeAPI:
         return self.host_boot == "old-worker2"
 
 
-def fixture(hpa_behavior=None):
+def fixture(hpa_behavior=None, handler_suspend=False):
     policy = json.loads(c.m.POLICY.read_text())
     api = FakeAPI(policy)
     sts = {"plex-plex-media-server", "alertmanager-kube-prometheus-stack-alertmanager", "loki",
@@ -329,6 +337,19 @@ def fixture(hpa_behavior=None):
                 api.add("replicasets", rs)
     schedules = [api.add("cronjobs", obj("CronJob", "media", name, {"suspend": False}))
                  for name in ("hardcover-sync", "radarr-codec-policy", "sonarr-codec-policy", "sonarr-queue-cleanup")]
+    handler = api.add("cronjobs", obj("CronJob", "kube-system", "media-mount-handler", {
+        "schedule": "*/5 * * * *", "concurrencyPolicy": "Forbid",
+        "successfulJobsHistoryLimit": 1, "failedJobsHistoryLimit": 3,
+        "jobTemplate": {"spec": {"ttlSecondsAfterFinished": 300, "template": {"spec": {
+            "serviceAccountName": "media-mount-handler", "restartPolicy": "OnFailure",
+            "containers": [{"name": "handler",
+                            "image": "docker.io/alpine/k8s:1.34.13@sha256:4011c68d73de6803987509ad1ab9520124a27e31484e3f0e45f95a74ecac7a45",
+                            "command": ["/bin/sh", "-c", "kubectl rollout restart deployment -n media radarr"]}]}}}}}))
+    if handler_suspend is not None:
+        handler["spec"]["suspend"] = handler_suspend
+    handler["metadata"]["labels"].update({"kustomize.toolkit.fluxcd.io/name": "flux-system",
+                                           "kustomize.toolkit.fluxcd.io/namespace": "flux-system"})
+    handler["status"] = {}
     # Exact production inventory identities; only fake metadata/specs are used.
     releases = {"adguard-home": ["adguard-home"], "homebox": ["homebox"], "kaneo": ["kaneo"],
                 "media": ["bazarr", "bookshelf", "calibre-web", "overseerr", "plex", "prowlarr", "qbittorrent", "radarr",
@@ -490,6 +511,39 @@ class ColdTests(unittest.TestCase):
         self.coordinator = c.Coordinator(self.plan, self.approval, self.policy, self.journal, self.api)
         self.coordinator.wait = lambda fn, **kwargs: fn()
 
+    def freeze_mount_handler(self):
+        root = next(r for r in self.plan["reconciliation"] if
+                    (r["kind"], r["namespace"], r["name"]) == ("Kustomization", "flux-system", "flux-system"))
+        row = next(r for r in self.plan["schedules"] if (r["namespace"], r["name"]) == c.CROSS_PRODUCER)
+        self.coordinator.mutate(root, "suspend", True)
+        self.coordinator.mutate(row, "suspend", True)
+        return row
+
+    def mount_handler_job(self):
+        cron = self.api.get("cronjobs", *c.CROSS_PRODUCER)
+        job = self.api.add("jobs", obj("Job", "kube-system", "media-mount-handler-29924965",
+                                       copy.deepcopy(cron["spec"]["jobTemplate"]["spec"]),
+                                       {"apiVersion": "batch/v1", "kind": "CronJob", "name": cron["metadata"]["name"],
+                                        "uid": cron["metadata"]["uid"]}))
+        job["status"] = {"active": 1}
+        pod = self.api.add("pods", obj("Pod", "kube-system", "media-mount-handler-29924965-h6gvf",
+                                      job["spec"]["template"]["spec"],
+                                      {"apiVersion": "batch/v1", "kind": "Job", "name": job["metadata"]["name"],
+                                       "uid": job["metadata"]["uid"]}))
+        pod["spec"]["nodeName"] = c.PEER
+        pod["status"] = {"phase": "Running", "conditions": [{"type": "Ready", "status": "True"}],
+                         "containerStatuses": [{"name": "handler", "ready": True, "restartCount": 0,
+                                                "state": {"running": {"startedAt": "2026-11-24T05:25:00Z"}}}]}
+        return job, pod
+
+    @staticmethod
+    def finish_mount_handler_job(job, pod):
+        job["status"] = {"active": 0, "succeeded": 1, "conditions": [{"type": "Complete", "status": "True"}]}
+        pod["status"] = {"phase": "Succeeded", "containerStatuses": [
+            {"name": "handler", "ready": False, "restartCount": 0,
+             "state": {"terminated": {"exitCode": 0, "reason": "Completed",
+                                       "finishedAt": "2026-11-24T05:26:00Z"}}}]}
+
     def test_hash_scope_code_clock_and_malformed_approval_fail_closed(self):
         c.check_plan(self.plan, self.approval, self.policy, self.api)
         for field, value in (("action", "rke2"), ("worker2_only", False), ("nodes", self.policy["nodes"]),
@@ -610,6 +664,159 @@ class ColdTests(unittest.TestCase):
         self.api.add("jobs", obj("Job", "media", "new-writer", {}))
         with self.assertRaisesRegex(RuntimeError, "Active/new Job"):
             self.coordinator.producers_gated()
+
+    def test_cross_namespace_writer_is_captured_without_expanding_the_application_cohort(self):
+        row = next(r for r in self.plan["schedules"] if (r["namespace"], r["name"]) == c.CROSS_PRODUCER)
+        cron = self.api.get("cronjobs", *c.CROSS_PRODUCER)
+        self.assertNotIn(row["namespace"], c.ALLOWED)
+        self.assertEqual(row["uid"], cron["metadata"]["uid"])
+        self.assertEqual(row["spec_sha256"], c.sha(c.canonical(cron["spec"])))
+        self.assertEqual(row["original"], {"suspend_present": True, "suspend": False})
+        self.assertEqual(len(self.plan["schedules"]), 5)
+        self.assertNotIn("rollout restart", c.canonical(self.plan).decode())
+        changed = copy.deepcopy(self.plan)
+        changed["schedules"][-1]["name"] = "foreign-producer"
+        with self.assertRaisesRegex(RuntimeError, "scheduled producer scope"):
+            c.check_plan(changed, c.sha(c.canonical(changed)), self.policy, self.api)
+
+    def test_active_cross_namespace_job_blocks_all_app_pauses_and_recovery_until_native_completion(self):
+        self.successful_hooks()
+        job, pod = self.mount_handler_job()
+        deadline = self.journal.read()["deadline_epoch"]
+        with patch.object(c.m, "health", return_value={}), patch.object(c.m.urllib.request, "urlopen") as url, \
+                patch.object(c.time, "sleep"):
+            url.return_value.__enter__.return_value.status = 200
+            with self.assertRaisesRegex(RuntimeError, "Job has not finished"):
+                self.coordinator.execute()
+            self.assertTrue(self.api.get("cronjobs", *c.CROSS_PRODUCER)["spec"]["suspend"])
+            self.assertTrue(self.api.items("configmap"))
+            self.assertFalse(any(e[0] == "patch" and any(o["path"] == "/spec/replicas" for o in e[2])
+                                 for e in self.api.events))
+            self.assertIn(job, self.api.items("jobs"))
+            self.assertIn(pod, self.api.items("pods"))
+            self.finish_mount_handler_job(job, pod)
+            self.coordinator.recover()
+        self.assertFalse(self.api.get("cronjobs", *c.CROSS_PRODUCER)["spec"]["suspend"])
+        self.assertEqual(self.journal.read()["deadline_epoch"], deadline)
+        self.assertEqual(self.journal.read()["phase"], "recovered-after-failure")
+        self.assertFalse(any(e[0] == "kube" and "delete" in e[1] and ("jobs" in e[1] or "pods" in e[1])
+                             for e in self.api.events))
+
+    def test_cross_namespace_job_conditions_do_not_hide_running_pods_or_stale_cron_active_references(self):
+        self.freeze_mount_handler()
+        job, pod = self.mount_handler_job()
+        job["status"] = {"active": 0, "conditions": [{"type": "FailureTarget", "status": "True"}]}
+        with self.assertRaisesRegex(RuntimeError, "Job has not finished"):
+            self.coordinator.mount_handler_gated()
+        job["status"] = {"active": 0, "conditions": [{"type": "Complete", "status": "True"}]}
+        with self.assertRaisesRegex(RuntimeError, "Pod has not finished"):
+            self.coordinator.mount_handler_gated()
+        self.finish_mount_handler_job(job, pod)
+        cron = self.api.get("cronjobs", *c.CROSS_PRODUCER)
+        cron["status"]["active"] = [{"apiVersion": "batch/v1", "kind": "Job", "namespace": "kube-system",
+                                     "name": job["metadata"]["name"], "uid": job["metadata"]["uid"]}]
+        with self.assertRaisesRegex(RuntimeError, "not suspended/idle"):
+            self.coordinator.mount_handler_gated()
+        cron["status"]["active"] = []
+        self.coordinator.mount_handler_gated()
+
+    def test_cross_namespace_foreign_jobs_and_pod_owner_uid_drift_are_not_exempt(self):
+        self.freeze_mount_handler()
+        job, pod = self.mount_handler_job()
+        self.finish_mount_handler_job(job, pod)
+        owner = job["metadata"]["ownerReferences"][0]
+        original = owner["uid"]
+        owner["uid"] = "replaced-cronjob"
+        with self.assertRaisesRegex(RuntimeError, "Foreign/unbound.*Job"):
+            self.coordinator.mount_handler_gated()
+        owner["uid"] = original
+        pod["metadata"]["ownerReferences"][0]["uid"] = "foreign-job"
+        with self.assertRaisesRegex(RuntimeError, "Pod/Job identity"):
+            self.coordinator.mount_handler_gated()
+        pod["metadata"]["ownerReferences"][0].update(uid=job["metadata"]["uid"], name="foreign-job")
+        pod["spec"]["serviceAccountName"] = "default"
+        with self.assertRaisesRegex(RuntimeError, "Pod/Job identity"):
+            self.coordinator.mount_handler_gated()
+
+    def test_cross_namespace_cron_identity_reconciler_and_foreign_producer_drift_fail_closed(self):
+        row = self.freeze_mount_handler()
+        cron = self.api.get("cronjobs", *c.CROSS_PRODUCER)
+        original = copy.deepcopy(cron)
+        for drift in ("uid", "service-account", "reconciler", "template"):
+            cron.clear()
+            cron.update(copy.deepcopy(original))
+            if drift == "uid":
+                cron["metadata"]["uid"] = "replaced-cronjob"
+            elif drift == "service-account":
+                cron["spec"]["jobTemplate"]["spec"]["template"]["spec"]["serviceAccountName"] = "foreign"
+            elif drift == "reconciler":
+                cron["metadata"]["labels"]["kustomize.toolkit.fluxcd.io/name"] = "foreign"
+            else:
+                cron["spec"]["jobTemplate"]["spec"]["template"]["spec"]["containers"][0]["command"] = ["foreign"]
+            count = len(self.api.events)
+            with self.subTest(drift=drift), self.assertRaises(RuntimeError):
+                self.coordinator.mutate(row, "suspend", row["original"]["suspend"], restoring=True)
+            self.assertEqual(len(self.api.events), count)
+        cron.clear()
+        cron.update(original)
+        foreign = copy.deepcopy(cron)
+        foreign["metadata"].update(name="foreign-producer", uid="foreign-producer")
+        self.api.add("cronjobs", foreign)
+        with self.assertRaisesRegex(RuntimeError, "Foreign CronJob"):
+            c.mount_handler_scope(self.api)
+        with self.assertRaisesRegex(RuntimeError, "Foreign CronJob"):
+            self.coordinator.mount_handler_gated()
+        count = len(self.api.events)
+        with self.assertRaisesRegex(RuntimeError, "Foreign CronJob"):
+            self.coordinator.mutate(row, "suspend", row["original"]["suspend"], restoring=True)
+        self.assertEqual(len(self.api.events), count)
+
+    def test_cross_namespace_original_suspend_presence_survives_ambiguous_restoration_and_retry(self):
+        for original in (False, True, None):
+            self.setUp_fixture_for_reboot_case(handler_suspend=original)
+            row = self.freeze_mount_handler()
+            deadline = self.journal.read()["deadline_epoch"]
+            self.api.fail = c.key(row)
+            with patch.object(c.m, "health", return_value={}), patch.object(c.m.urllib.request, "urlopen") as url, \
+                    patch.object(c.time, "sleep"):
+                url.return_value.__enter__.return_value.status = 200
+                with self.assertRaisesRegex(RuntimeError, "Ambiguous response"):
+                    self.coordinator.recover()
+                self.assertTrue(self.journal.read()["producer_warmup_complete"])
+                self.assertTrue(self.api.items("configmap"))
+                self.coordinator.recover()
+            restored = self.api.get("cronjobs", *c.CROSS_PRODUCER)
+            with self.subTest(original=original):
+                self.assertEqual("suspend" in restored["spec"], original is not None)
+                if original is not None:
+                    self.assertEqual(restored["spec"]["suspend"], original)
+                self.assertEqual(self.journal.read()["deadline_epoch"], deadline)
+                c.assert_binding(restored, row)
+
+    def test_failed_warmup_keeps_cross_namespace_producer_suspended_until_full_health(self):
+        self.successful_hooks()
+        deadline = self.journal.read()["deadline_epoch"]
+        with patch.object(self.coordinator, "full_health", side_effect=RuntimeError("Full HTTPS health failed")), \
+                self.assertRaisesRegex(RuntimeError, "HTTPS"):
+            self.coordinator.execute()
+        self.assertTrue(self.api.get("cronjobs", *c.CROSS_PRODUCER)["spec"]["suspend"])
+        self.assertFalse(self.journal.read().get("producer_warmup_complete", False))
+        self.assertTrue(self.api.items("configmap"))
+        with patch.object(c.m, "health", return_value={}), patch.object(c.m.urllib.request, "urlopen") as url, \
+                patch.object(c.time, "sleep"):
+            url.return_value.__enter__.return_value.status = 200
+            self.coordinator.recover()
+        self.assertFalse(self.api.get("cronjobs", *c.CROSS_PRODUCER)["spec"]["suspend"])
+        self.assertEqual(self.journal.read()["deadline_epoch"], deadline)
+        self.coordinator.original_state()
+
+    def test_unrelated_kube_system_job_is_not_a_migration_or_readiness_exception(self):
+        job, pod = self.mount_handler_job()
+        job["metadata"]["ownerReferences"][0].update(name="unrelated-cronjob", uid="unrelated-cronjob")
+        job["spec"]["template"]["spec"]["serviceAccountName"] = "default"
+        pod["spec"].update(serviceAccountName="default", nodeName=c.WORKER)
+        with self.assertRaisesRegex(RuntimeError, "non-migratable controller"):
+            c.migration_snapshot(self.plan, self.policy, self.api)
 
     def make_pending(self):
         for row in self.plan["ha"]:
@@ -781,6 +988,7 @@ class ColdTests(unittest.TestCase):
                     c.cold_storage(plan, policy, api, detached=True)
 
     def test_original_zero_suspend_and_annotation_presence_are_restored(self):
+        self.freeze_mount_handler()
         row = next(r for r in self.plan["controllers"] if r["name"] == "paperless-paperless-ngx")
         # Stop operators first; the API simulation refuses a naive scale-zero.
         for operator in [r for r in self.plan["controllers"] if (r["namespace"], r["name"]) in c.OPERATORS]:
@@ -993,8 +1201,8 @@ class ColdTests(unittest.TestCase):
             self.assertEqual(state["phase"], "recovered-after-failure")
             self.coordinator.original_state()
 
-    def setUp_fixture_for_reboot_case(self):
-        self.policy, self.api, self.plan, self.approval, self.journal = fixture()
+    def setUp_fixture_for_reboot_case(self, handler_suspend=False):
+        self.policy, self.api, self.plan, self.approval, self.journal = fixture(handler_suspend=handler_suspend)
         self.get_patch.stop()
         self.get_patch = patch.object(c.m, "get", side_effect=self.api.get)
         self.get_patch.start()
@@ -1094,6 +1302,7 @@ class ColdTests(unittest.TestCase):
             self.coordinator.hpas_paused()
 
     def test_observed_zero_is_insufficient_until_terminating_pods_disappear(self):
+        self.freeze_mount_handler()
         for operator in [r for r in self.plan["controllers"] if (r["namespace"], r["name"]) in c.OPERATORS]:
             self.coordinator.mutate(operator, "replicas", 0)
         row = next(r for r in self.plan["controllers"] if (r["namespace"], r["name"]) == ("homebox", "homebox"))

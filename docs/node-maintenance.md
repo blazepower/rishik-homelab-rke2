@@ -124,7 +124,7 @@ The only application cohort is the 32 reviewed controllers in AdGuard, Homebox,
 Kaneo, media, monitoring, Paperless, Siloarr and Sure. Four exact KEDA/HTTP
 operator/scaler/interceptor Deployments are additionally bound. Claims,
 volume/engine/replica UIDs, data-directory and specification hashes, original
-zero counts, selected pause annotations, CronJob suspensions, 25 inventory
+zero counts, selected pause annotations, five exact CronJob suspensions, 25 inventory
 reconcilers and the two KEDA HelmReleases are captured. Unknown writers,
 legacy HTTPScaledObject parents, full KEDA pauses that delete HPA identity,
 destructive StatefulSet retention, new controllers and drift fail closed.
@@ -148,7 +148,17 @@ The source execution ordering is:
    channel again **before the first pause**. Missing access is a blocker, never
    a reason to create keys, sudoers rules or a privileged pod.
 3. Freeze exact Flux reconciliation and scheduled producers; require no
-   in-flight reconciliations or active Jobs. Use KEDA 2.21.1's supported
+   in-flight reconciliations or active Jobs. In addition to the four media schedules,
+   explicitly bind `kube-system/media-mount-handler`: this five-minute,
+   PVC-less job can exec into media/siloarr Pods and patch workload templates
+   with rollout restarts. Its namespace is not part of the Longhorn application
+   cohort. Bind its UID/full spec hash, original suspend presence/value and exact
+   service account/root Flux ownership; suspend it after its captured `flux-system`
+   reconciler is frozen and before any application pause. Wait for every owned
+   Job and actual Pod to finish naturally, including stale active references
+   and terminating Pods; do not delete them. Same-service-account foreign
+   producers or owner/UID drift fail closed. No kube-system Job, migration or
+   readiness exemption is introduced. Use KEDA 2.21.1's supported
    `paused-scale-in/out` annotations and observe both native HPA directions
    `Disabled`, with unchanged HPA UIDs/owners. Compare the **entire** paused HPA
    specification against its hash-bound Kubernetes 1.35.10 API-defaulted shape;
@@ -207,6 +217,10 @@ The source execution ordering is:
    Flux states. Paperless's original zero is zero, never one. Full HTTPS
    Plex/vault/Sure, VPN and application/controller/native storage health must
    pass repeatedly before lock release.
+   Keep the mount handler suspended through protected warmup, including failed
+   recovery retries. Record successful full warmup before restoring schedules;
+   an ambiguous unsuspend response can then retry with fresh full health without
+   confusing the already-restored original suspend state with an unfinished pause.
    Regular replica health timestamps are native lifecycle state, not immutable
    replica policy: Longhorn refreshes `lastHealthyAt` on healthy RW reattachment.
    Continue checking **current** healthy/active, unfailed distinct-worker copies,

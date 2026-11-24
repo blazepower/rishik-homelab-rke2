@@ -74,6 +74,10 @@ TEMP_PDBS = {
     ("flux-system", "kustomize-controller-pdb"),
     ("flux-system", "notification-controller-pdb"), ("flux-system", "sealed-secrets-pdb"),
 }
+CROSS_PRODUCER = ("kube-system", "media-mount-handler")
+MEDIA_SCHEDULES = {("media", name) for name in
+                   ("hardcover-sync", "radarr-codec-policy", "sonarr-codec-policy", "sonarr-queue-cleanup")}
+SCHEDULES = MEDIA_SCHEDULES | {CROSS_PRODUCER}
 IM_NAMES = {WORKER: "instance-manager-450c2767cbf12dc65f11345105b360d4",
             PEER: "instance-manager-ecde826c8c6fccf5ad1dae442d1de064"}
 RELEASES = {
@@ -138,6 +142,27 @@ def replica_binding(obj):
 def suspend_binding(obj):
     return binding(obj, {"suspend_present": "suspend" in obj["spec"],
                          "suspend": obj["spec"].get("suspend", False)})
+
+
+def mount_handler_contract(obj):
+    labels = obj["metadata"].get("labels", {})
+    template = obj["spec"].get("jobTemplate", {}).get("spec", {}).get("template", {}).get("spec", {})
+    require(obj["kind"] == "CronJob" and identity(obj) == CROSS_PRODUCER and not owners(obj)
+            and obj["spec"].get("schedule") == "*/5 * * * *"
+            and obj["spec"].get("concurrencyPolicy") == "Forbid"
+            and template.get("serviceAccountName") == CROSS_PRODUCER[1]
+            and not any("persistentVolumeClaim" in volume for volume in template.get("volumes", []))
+            and labels.get("kustomize.toolkit.fluxcd.io/name") == "flux-system"
+            and labels.get("kustomize.toolkit.fluxcd.io/namespace") == "flux-system",
+            "Exact media-mount-handler identity/service-account/root reconciler contract drift")
+
+
+def mount_handler_scope(api):
+    require(not any(identity(job) != CROSS_PRODUCER
+                    and job["spec"].get("jobTemplate", {}).get("spec", {}).get("template", {})
+                    .get("spec", {}).get("serviceAccountName") == CROSS_PRODUCER[1]
+                    for job in api.items("cronjobs", CROSS_PRODUCER[0])),
+            "Foreign CronJob uses the cross-namespace producer service account")
 
 
 def pod_controller(pod, sets):
@@ -429,9 +454,12 @@ def build_plan(policy, api=None):
     require({(r["kind"], r["namespace"], r["name"]) for r in recon} == RECONCILIATION,
             "Unknown/missing reconciliation object; no arbitrary suspension")
     schedules = [suspend_binding(api.get("cronjobs", r["namespace"], r["name"])) for r in inventory["schedules"]]
-    require({(r["namespace"], r["name"]) for r in schedules}
-            == {("media", n) for n in ("hardcover-sync", "radarr-codec-policy", "sonarr-codec-policy",
-                                       "sonarr-queue-cleanup")}, "Unexpected scheduled producer")
+    require(len(schedules) == 4 and {(r["namespace"], r["name"]) for r in schedules} == MEDIA_SCHEDULES,
+            "Unexpected scheduled producer")
+    handler = api.get("cronjobs", *CROSS_PRODUCER)
+    mount_handler_contract(handler)
+    mount_handler_scope(api)
+    schedules.append(suspend_binding(handler))
     ha = [ha_binding(dmap[k], pods, set_map) for k in sorted(HA)]
     ns = policy["storage_namespace"]
     native = {}
@@ -530,6 +558,10 @@ def check_plan(plan, approval, policy, api=None, age=True):
             "Malformed cold controller scope")
     require({(r["kind"], r["namespace"], r["name"]) for r in plan["reconciliation"]} == RECONCILIATION,
             "Malformed cold reconciliation scope")
+    require(len(plan["schedules"]) == 5 and
+            {(r["kind"], r["namespace"], r["name"]) for r in plan["schedules"]}
+            == {("CronJob", ns, name) for ns, name in SCHEDULES},
+            "Malformed cold scheduled producer scope")
     require({(r["namespace"], r["name"]) for r in plan["ha"]} == HA
             and {(r["namespace"], r["name"]) for r in plan["temporary_pdbs"]} == TEMP_PDBS,
             "Malformed cold HA/PDB scope")
@@ -871,6 +903,16 @@ class Coordinator:
         def action(state):
             self.gate(state, not restoring)
             obj = self.api.get(RESOURCES[row["kind"]], row["namespace"], row["name"])
+            if (row["namespace"], row["name"]) == CROSS_PRODUCER:
+                mount_handler_contract(obj)
+                mount_handler_scope(self.api)
+            if field == "replicas":
+                if (not restoring and (row["namespace"], row["name"]) not in OPERATORS
+                        or restoring and not state.get("producer_warmup_complete")
+                        and any(entry["row"]["kind"] == "CronJob"
+                                and (entry["row"]["namespace"], entry["row"]["name"]) == CROSS_PRODUCER
+                                for entry in state["mutations"].values())):
+                    self.mount_handler_gated()
             mutable = ("replicas",) if field == "replicas" else ("suspend",) if field == "suspend" else ()
             if field == "budget":
                 mutable = ("minAvailable", "maxUnavailable")
@@ -953,6 +995,7 @@ class Coordinator:
                          c["type"] in ("Complete", "Failed") and c["status"] == "True"
                          for c in j.get("status", {}).get("conditions", [])))],
                 "Active/new Job prevents cold stop")
+        self.mount_handler_gated()
         for row in self.plan["reconciliation"]:
             obj = self.api.get(RESOURCES[row["kind"]], row["namespace"], row["name"])
             assert_binding(obj, row, ("suspend",))
@@ -961,6 +1004,53 @@ class Coordinator:
                             for c in obj.get("status", {}).get("conditions", [])), "In-flight GitOps reconciliation")
         for row in self.plan["parents"] + self.plan["http"]:
             assert_binding(self.api.get(RESOURCES[row["kind"]], row["namespace"], row["name"]), row)
+
+    def mount_handler_gated(self):
+        row = next(r for r in self.plan["schedules"] if (r["namespace"], r["name"]) == CROSS_PRODUCER)
+        cron = self.api.get("cronjobs", *CROSS_PRODUCER)
+        assert_binding(cron, row, ("suspend",))
+        mount_handler_contract(cron)
+        mount_handler_scope(self.api)
+        require(cron["spec"].get("suspend") is True and not cron.get("status", {}).get("active"),
+                "media-mount-handler is not suspended/idle")
+        root = next(r for r in self.plan["reconciliation"] if
+                    (r["kind"], r["namespace"], r["name"]) == ("Kustomization", "flux-system", "flux-system"))
+        reconciler = self.api.get(RESOURCES[root["kind"]], root["namespace"], root["name"])
+        assert_binding(reconciler, root, ("suspend",))
+        require(reconciler["spec"].get("suspend") is True and not any(
+            c["type"] == "Reconciling" and c["status"] == "True" for c in reconciler.get("status", {}).get("conditions", [])),
+            "media-mount-handler root reconciliation is not frozen/idle")
+        children = {}
+        for job in self.api.items("jobs", CROSS_PRODUCER[0]):
+            own = owners(job)
+            template = job["spec"].get("template", {}).get("spec", {})
+            if (template.get("serviceAccountName") != CROSS_PRODUCER[1]
+                    and not any(o["kind"] == "CronJob" and (o["name"] == row["name"] or o["uid"] == row["uid"])
+                                for o in own)):
+                continue
+            require(own == [{"kind": "CronJob", "name": row["name"], "uid": row["uid"]}]
+                    and template.get("serviceAccountName") == CROSS_PRODUCER[1],
+                    "Foreign/unbound media-mount-handler Job")
+            children[job["metadata"]["name"]] = job
+            status = job.get("status", {})
+            require(not status.get("active") and not status.get("terminating")
+                    and any(c["type"] in ("Complete", "Failed") and c["status"] == "True"
+                            for c in status.get("conditions", [])),
+                    "media-mount-handler Job has not finished; never delete it")
+        child_uids = {job["metadata"]["uid"] for job in children.values()}
+        for pod in self.api.items("pods", CROSS_PRODUCER[0]):
+            own = owners(pod)
+            if (pod["spec"].get("serviceAccountName") != CROSS_PRODUCER[1]
+                    and not any(o["kind"] == "Job" and (o["name"] in children or o["uid"] in child_uids) for o in own)):
+                continue
+            parent = children.get(own[0]["name"]) if len(own) == 1 and own[0]["kind"] == "Job" else None
+            require(parent and own[0]["uid"] == parent["metadata"]["uid"]
+                    and pod["spec"].get("serviceAccountName") == CROSS_PRODUCER[1],
+                    "Foreign/unbound media-mount-handler Pod/Job identity")
+            require(pod["status"].get("phase") in ("Succeeded", "Failed")
+                    and all("terminated" in s.get("state", {}) for s in
+                            pod["status"].get("containerStatuses", []) + pod["status"].get("initContainerStatuses", [])),
+                    "media-mount-handler Pod has not finished; never delete it")
 
     def hpas_paused(self):
         for row in self.plan["autoscalers"]:
@@ -1184,6 +1274,13 @@ class Coordinator:
         native_gate(self.plan, self.policy, self.api, returned=bool(state.get("cordon_intent")))
         entries = self.journal.read()["mutations"]
         changed = lambda r: key(r) in entries
+        handler = next(r for r in self.plan["schedules"] if (r["namespace"], r["name"]) == CROSS_PRODUCER)
+        if changed(handler):
+            if state.get("producer_warmup_complete"):
+                self.wait(self.full_health)
+            else:
+                self.phase("waiting-media-mount-handler")
+                self.wait(self.mount_handler_gated)
         backends = [r for r in self.plan["controllers"] if (r["namespace"], r["name"]) in BACKENDS and changed(r)]
         consumers = [r for r in self.plan["controllers"] if (r["namespace"], r["name"]) not in BACKENDS | OPERATORS and changed(r)]
         operators = [r for r in self.plan["controllers"] if (r["namespace"], r["name"]) in OPERATORS and changed(r)]
@@ -1208,6 +1305,11 @@ class Coordinator:
                 self.mutate(row, "budget", None, restoring=True)
         # Health while schedules/GitOps remain frozen; then exact original reconciliation states.
         self.wait(self.full_health)
+        if changed(handler) and not state.get("producer_warmup_complete"):
+            self.mount_handler_gated()
+        # A retry after an ambiguous unsuspend must not mistake our completed
+        # warmup for an unfinished cold phase and require a new outage.
+        self.journal.transaction(lambda s: s.update(producer_warmup_complete=True))
         for row in self.plan["schedules"] + list(reversed(self.plan["reconciliation"])):
             if changed(row):
                 self.mutate(row, "suspend", row["original"]["suspend"], restoring=True)
@@ -1241,6 +1343,9 @@ class Coordinator:
         for row in self.plan["schedules"] + self.plan["reconciliation"] + self.plan["temporary_pdbs"]:
             obj = self.api.get(RESOURCES[row["kind"]], row["namespace"], row["name"])
             assert_binding(obj, row)
+            if (row["namespace"], row["name"]) == CROSS_PRODUCER:
+                mount_handler_contract(obj)
+                mount_handler_scope(self.api)
             if row["kind"] == "PodDisruptionBudget":
                 require(obj["status"].get("observedGeneration", 0) >= obj["metadata"]["generation"],
                         "Original singleton PDB restoration is not observed")
