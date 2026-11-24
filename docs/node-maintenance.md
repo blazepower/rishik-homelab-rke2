@@ -150,7 +150,14 @@ The source execution ordering is:
 3. Freeze exact Flux reconciliation and scheduled producers; require no
    in-flight reconciliations or active Jobs. Use KEDA 2.21.1's supported
    `paused-scale-in/out` annotations and observe both native HPA directions
-   `Disabled`, with unchanged HPA UIDs/owners. Then stop the exact KEDA/HTTP
+   `Disabled`, with unchanged HPA UIDs/owners. Compare the **entire** paused HPA
+   specification against its hash-bound Kubernetes 1.35.10 API-defaulted shape;
+   do not strip arbitrary behavior fields. A previously behavior-less HPA gains
+   native scaling policies and scale-up stabilization, but no default scale-down
+   stabilization field. Preserve the original full specification hash for
+   restoration. HPA `status.observedGeneration` is not populated by the native
+   controller and is not an acknowledgment; require KEDA's native Paused condition
+   and the actual bilateral Disabled specification instead. Then stop the exact KEDA/HTTP
    controllers and Prometheus operator. Include the HTTP chart's **additional
    interceptor ScaledObject/HPA pair**, outside the five application pairs.
    Require the KEDA operator's Pods gone before stopping that interceptor;
@@ -163,7 +170,11 @@ The source execution ordering is:
    engines and two clean stopped copies on distinct workers. Preserve both
    sole-copy worker1 quarantines exactly. Cordon **only worker2**. Require its
    used replicas' healthy worker1 peers to resolve to the native running IM and
-   unchanged minAvailable=1 peer PDB. Wait for **Longhorn itself** to release
+   unchanged minAvailable=1 peer PDB. Native stopped replicas clear
+   `status.instanceManagerName`: resolve them using the same node/data-engine/aio
+   labels and default-image checksum selector as `GetInstanceManagerByInstanceRO`.
+   Bind the default IM image; missing/ambiguous selection or peer/source/PDB drift
+   is still a blocker. Wait for **Longhorn itself** to release
    worker2's PDB; never patch/delete/decrease native/storage/CSI/Kyverno budgets.
    Run normal `drain --ignore-daemonsets --delete-emptydir-data --timeout=10m`;
    verify actual eviction, not just command success.
@@ -181,12 +192,27 @@ The source execution ordering is:
    APT is never killed. Recheck the immutable reserve and controller guard
    authority immediately before starting and before **scheduling and executing**
    the deferred reboot. A long transaction cannot authorize a late reboot.
+   A package receipt is **not** reboot completion: keep only the existing host
+   slot authorized while its ten-second timer runs, then require idle host units
+   and a verified new boot/approved kernel before normal restoration. Use a
+   single-shot timer that does not remain active after elapse. Check native
+   `reboot.target`/`shutdown.target` jobs too; an idle reboot service alone does
+   not prove an already-requested shutdown finished.
+   Transient `systemd-run` units disappear at reboot. A verified new boot can
+   therefore complete with those units absent; their absence alone never
+   proves the reboot happened or waives the kernel/boot checks during recovery.
 7. Require clean two-copy storage and the native returned worker2 IM/PDB before
    warming. Restore backend readiness first, then consumers, original autoscaler
    annotations/HPA specs/UIDs and operators, then exact original schedules and
    Flux states. Paperless's original zero is zero, never one. Full HTTPS
    Plex/vault/Sure, VPN and application/controller/native storage health must
    pass repeatedly before lock release.
+   Regular replica health timestamps are native lifecycle state, not immutable
+   replica policy: Longhorn refreshes `lastHealthyAt` on healthy RW reattachment.
+   Continue checking **current** healthy/active, unfailed distinct-worker copies,
+   two running RW copies when attached, and two stopped copies when detached.
+   Volume/replica/engine UIDs, data directories, node/data-engine policy and
+   untouched quarantine specifications remain hash-bound.
 
 Only three exact Flux singleton PDBs have a reversible journaled availability
 change (`50%` -> `maxUnavailable: 1`): kustomize-controller, notification-controller
@@ -210,8 +236,12 @@ write-ahead mutation intentions and a controller flock prevent competing
 recovery/scale actions. A late host launch reads a revoked handoff before APT;
 the guard does not warm while APT/reboot units or a normal drain remain active.
 `cold-recover` requests the same protected original-state recovery; it never
-restarts the outage clock or resumes upgrades. Reboot scheduling that is refused
-does not become a success receipt for the coordinator.
+restarts the outage clock or resumes upgrades. Reserve entry, executor loss and
+explicit recovery revoke pending host/reboot launches. If reboot is refused and
+the old boot is still healthy with all units and shutdown jobs idle, restore the
+original applications under native two-copy protection rather than demand a boot
+that never occurred. Report `recovered-after-failure`, never maintenance acceptance.
+If a reboot did occur, its kernel/headless identity must still be verified.
 
 Unsafe/degraded storage, identity drift, lost native peers, a busy package
 transaction or unavailable worker2 can block restoration. The timer retries and

@@ -4,6 +4,7 @@
 import argparse
 import base64
 import copy
+import hashlib
 import importlib.util
 import json
 import os
@@ -322,14 +323,17 @@ class API:
         node = next(n for n in policy["nodes"] if n["name"] == WORKER)
         code = ("import subprocess,json; "
                 f"units=['node-maintenance-{step_id}-os.service','node-maintenance-reboot-{step_id}.timer',"
-                f"'node-maintenance-reboot-{step_id}.service']; "
-                "states=[subprocess.run(['systemctl','show',u,'-p','ActiveState','-p','LoadState'],capture_output=True,text=True) for u in units]; "
+                f"'node-maintenance-reboot-{step_id}.service','reboot.target','shutdown.target']; "
+                "states=[subprocess.run(['systemctl','show',u,'-p','ActiveState','-p','LoadState','-p','Job'],capture_output=True,text=True) for u in units]; "
                 "assert all(r.returncode==0 for r in states); "
                 "print(json.dumps([dict(v.split('=',1) for v in r.stdout.strip().splitlines()) for r in states]))")
         state = json.loads(m.run(["ssh", "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
                                  "-o", "ConnectTimeout=10", node["ssh"], shlex.join(["python3", "-c", code])]))
-        require(all(s["ActiveState"] in ("inactive", "failed") for s in state),
-                "Host APT/reboot service or timer is still active; warming is unsafe")
+        require(len(state) == 5 and all(s["ActiveState"] in ("inactive", "failed") and s["Job"] == "0"
+                                       for s in state[:3]),
+                "Host APT/reboot service or timer is active/queued; warming is unsafe")
+        require(all(s["LoadState"] == "loaded" and s["Job"] == "0" and s["ActiveState"] == "inactive"
+                    for s in state[3:]), "Host shutdown/reboot job is pending; warming is unsafe")
         return state[0]["LoadState"] != "not-found"
 
 
@@ -411,10 +415,8 @@ def build_plan(policy, api=None):
     for row in inventory["hpas"]:
         obj = api.get("horizontalpodautoscalers", row["namespace"], row["name"])
         assert_binding(obj, row)
-        row["non_pause_spec_sha256"] = sha(canonical(hpa_without_pause(obj["spec"])))
-        row["original"]["select_policies"] = {
-            d: obj["spec"].get("behavior", {}).get(d, {}).get("selectPolicy")
-            for d in ("scaleUp", "scaleDown")}
+        row["paused_spec_sha256"] = sha(canonical(hpa_paused_spec(obj["spec"])))
+        row["owner_references_sha256"] = sha(canonical(obj["metadata"].get("ownerReferences", [])))
     http = [binding(o) for resource in ("httpscaledobjects.http.keda.sh", "interceptorroutes.http.keda.sh")
             for o in api.items(resource)]
     require(not [o for o in http if o["kind"] == "HTTPScaledObject"],
@@ -437,6 +439,10 @@ def build_plan(policy, api=None):
         native[node] = im_binding(api.get("instancemanagers.longhorn.io", ns, name),
                                   api.get("pods", ns, name), api.get("poddisruptionbudgets", ns, name), node)
     native_manager = manager_binding(policy, api)
+    default_im_image = api.get("settings.longhorn.io", ns, "default-instance-manager-image")["value"]
+    require(default_im_image and all(api.get("instancemanagers.longhorn.io", ns, row["name"])["spec"].get("image")
+                                    == default_im_image for row in native.values()),
+            "Native default IM image must match both approved worker IMs")
     temp = []
     pdbs = api.items("poddisruptionbudgets")
     for pdb in pdbs:
@@ -491,6 +497,7 @@ def build_plan(policy, api=None):
         "storage_users": inventory["storage_users"],
         "http": http, "schedules": schedules, "reconciliation": sorted(recon, key=key),
         "ha": ha, "native": native, "temporary_pdbs": temp,
+        "native_default_image": default_im_image,
         "native_manager": native_manager,
         "reviewed_csi_sockets": m.reviewed_csi_sockets(pods, sets, deployments, ns),
         "operator_attestation": "AdGuard is unused; no DNS change requested or independently verified",
@@ -538,6 +545,11 @@ def storage_snapshot(policy, api):
         v_spec = {k: v for k, v in volume["spec"].items() if k not in ("nodeID", "lastAttachedBy")}
         copies = [r for r in replicas if r["spec"]["volumeName"] == name]
         engine_rows = [e for e in engines if e["spec"]["volumeName"] == name]
+        # Native RW transitions update these timestamps. Current health is checked
+        # separately, while untouched quarantine specifications remain exact.
+        replica_lifecycle = ("desireState", "instanceManagerName")
+        if name not in policy.get("quarantined_volumes", []):
+            replica_lifecycle += ("healthyAt", "lastHealthyAt", "failedAt", "lastFailedAt")
         attachment = api.get("volumeattachments.longhorn.io", ns, name)
         result.append({"name": name, "uid": volume["metadata"]["uid"], "spec_sha256": sha(canonical(v_spec)),
                        "attachment_uid": attachment["metadata"]["uid"],
@@ -546,7 +558,7 @@ def storage_snapshot(policy, api):
                        "replicas": sorted([{"name": r["metadata"]["name"], "uid": r["metadata"]["uid"],
                                            "node": r["spec"].get("nodeID"), "data_directory": r["spec"].get("dataDirectoryName"),
                                            "spec_sha256": sha(canonical({k: v for k, v in r["spec"].items()
-                                                                        if k not in ("desireState", "instanceManagerName")}))}
+                                                                        if k not in replica_lifecycle}))}
                                           for r in copies], key=lambda r: r["name"]),
                        "engines": sorted([{"name": e["metadata"]["name"], "uid": e["metadata"]["uid"],
                                           "spec_sha256": sha(canonical({k: v for k, v in e["spec"].items()
@@ -582,12 +594,51 @@ def cold_storage(plan, policy, api, detached=False):
     return counts
 
 
+def instance_manager_labels(node, image, data_engine):
+    labels = {"longhorn.io/managed-by": "longhorn-manager", "longhorn.io/component": "instance-manager",
+              "longhorn.io/instance-manager-type": "aio", "longhorn.io/node": node,
+              "longhorn.io/data-engine": data_engine}
+    if image:
+        canonical_image = image.replace(":", "-").replace("/", "-").strip()
+        labels["longhorn.io/instance-manager-image"] = "imi-" + hashlib.sha512(canonical_image.encode()).hexdigest()[:8]
+    return labels
+
+
+def replica_instance_manager(replica, policy, api):
+    ns, spec, status = policy["storage_namespace"], replica["spec"], replica["status"]
+    engine, node = spec.get("dataEngine"), spec.get("nodeID")
+    require(engine in ("v1", "v2") and node == PEER, "Unreviewed native peer data engine/node")
+    assigned = status.get("instanceManagerName")
+    if assigned:
+        im = api.get("instancemanagers.longhorn.io", ns, assigned)
+    else:
+        require(status.get("currentState") == spec.get("desireState") == "stopped"
+                and not status.get("starting"), "Native peer instance is not stably stopped")
+        # GetInstanceManagerByInstanceRO selects v1's default image, but v2's
+        # unique running aio manager. A stopped replica has no assigned IM.
+        image = api.get("settings.longhorn.io", ns, "default-instance-manager-image")["value"] if engine == "v1" else ""
+        labels = instance_manager_labels(node, image, engine)
+        candidates = [im for im in api.items("instancemanagers.longhorn.io", ns)
+                      if all(im["metadata"].get("labels", {}).get(k) == v for k, v in labels.items())]
+        if len(candidates) > 1 and engine == "v2":
+            candidates = [im for im in candidates if im["status"].get("currentState") == "running"]
+        require(len(candidates) == 1, "Missing/ambiguous native peer IM selector resolution")
+        im = candidates[0]
+    require(im["metadata"]["name"] == IM_NAMES[PEER] and not im["metadata"].get("deletionTimestamp")
+            and im["spec"].get("nodeID") == node and im["spec"].get("type") == "aio"
+            and im["spec"].get("dataEngine") == engine and im["status"].get("currentState") == "running",
+            "Native replica did not resolve to the exact running peer IM")
+    return im
+
+
 def native_gate(plan, policy, api, released=False, returned=False):
     ns = policy["storage_namespace"]
     require(api.get("settings.longhorn.io", ns, "node-drain-policy")["value"] == "block-if-contains-last-replica",
             "Native strict drain policy changed")
     require(api.get("settings.longhorn.io", ns, "kubernetes-cluster-autoscaler-enabled")["value"] == "false",
             "Native autoscaler policy is not reviewed")
+    require(api.get("settings.longhorn.io", ns, "default-instance-manager-image")["value"] == plan["native_default_image"],
+            "Native default IM image drift")
     current_manager = manager_binding(policy, api)
     require(current_manager["daemonset"] == plan["native_manager"]["daemonset"]
             and current_manager["chart"] == plan["native_manager"]["chart"], "Native manager/chart source drift")
@@ -632,8 +683,11 @@ def native_gate(plan, policy, api, released=False, returned=False):
             peers = [r for r in replicas if r["spec"]["volumeName"] == local["spec"]["volumeName"]
                      and r["spec"].get("nodeID") == PEER and r["spec"].get("healthyAt")
                      and not r["spec"].get("failedAt") and r["spec"].get("active")]
-            require(len(peers) == 1 and peers[0]["status"].get("instanceManagerName") == IM_NAMES[PEER],
+            require(len(peers) == 1,
                     local["metadata"]["name"] + ": missing native PDB-protected healthy peer")
+            im = replica_instance_manager(peers[0], policy, api)
+            require(im["metadata"]["uid"] == plan["native"][PEER]["uid"],
+                    "Native peer replica resolved to an unapproved IM identity")
         require(not [p for p in api.items("poddisruptionbudgets", ns) if p["metadata"]["name"] == IM_NAMES[WORKER]],
                 "Longhorn has NOT natively released worker2 IM PDB; never patch/delete it")
 
@@ -743,6 +797,8 @@ class Journal:
         status = {k: state[k] for k in ("run_id", "plan_sha256", "mode", "phase", "started_epoch", "deadline_epoch",
                                        "guard_registered", "host_step_id", "host_started", "host_complete", "completed")}
         status["host_slot_cancelled"] = state.get("host_slot_cancelled", False)
+        status["host_packages_complete"] = state.get("host_packages_complete", False)
+        status["host_reboot_authorized"] = state.get("host_reboot_authorized", False)
         status["failure_type"] = state.get("failure_type")
         status["failure_stage"] = state.get("failure_stage")
         status["failure_reason"] = state.get("failure_reason")
@@ -917,15 +973,14 @@ class Coordinator:
             obj = self.api.get("horizontalpodautoscalers", row["namespace"], row["name"])
             require(obj["metadata"]["uid"] == row["uid"] and owners(obj) == row["controllers"],
                     "HPA identity/ownership drift; full pause is not allowed")
-            require(obj.get("status", {}).get("observedGeneration", 0) >= obj["metadata"]["generation"],
-                    "Native HPA has not observed its paused generation")
             spec = copy.deepcopy(obj["spec"])
             behavior = spec.get("behavior", {})
             require(all(behavior.get(k, {}).get("selectPolicy") == "Disabled" for k in ("scaleUp", "scaleDown")),
                     "Both native HPA directions must actually be Disabled")
-            # Baseline spec is hashed separately; only the native bilateral policy may differ.
-            normalized = hpa_without_pause(spec)
-            require(sha(canonical(normalized)) == row["non_pause_spec_sha256"], "Unexpected HPA spec drift")
+            require(sha(canonical(obj["metadata"].get("ownerReferences", []))) == row["owner_references_sha256"],
+                    "HPA owner reference drift")
+            paused = {**row, "spec_sha256": row["paused_spec_sha256"]}
+            assert_binding(obj, paused)
 
     def infrastructure(self, drained=False):
         self.api.kube("get", "--raw=/readyz")
@@ -1039,7 +1094,21 @@ class Coordinator:
 
     def host_completed(self):
         state = self.journal.read()
-        require(state.get("host_complete"), "Awaiting selected real terminal worker2 OS operation")
+        require(state.get("host_packages_complete"), "Awaiting selected real terminal worker2 package receipt")
+        # Transient host units disappear across reboot. Their absence cannot
+        # replace the new boot proof, nor veto a genuinely verified new boot.
+        self.api.host_idle(self.policy, state["host_step_id"])
+        host = self.api.host_audit(self.policy, WORKER)
+        if host["boot_id"] == self.plan["bindings"][WORKER]["boot_id"]:
+            if self.now() - state["host_packages_complete_epoch"] > 120:
+                self.request_recovery("worker2-reboot-refused-or-failed")
+            raise RuntimeError("Package completion is not reboot completion; awaiting new worker2 boot")
+        require(host["kernel"] == self.policy["kernel"] and host["default_target"] == "multi-user.target",
+                "Worker2 did not boot approved OS/kernel")
+        def finish(s):
+            self.gate(s, True)
+            s.update(host_complete=True, host_reboot_authorized=False)
+        self.journal.transaction(finish)
         return True
 
     def request_recovery(self, reason):
@@ -1047,6 +1116,8 @@ class Coordinator:
             if not state.get("completed"):
                 state["mode"] = "recovering"
                 state["failure"] = reason
+                state["host_reboot_authorized"] = False
+                state["host_slot_cancelled"] = True
         self.journal.transaction(request)
 
     def replicas_ready(self, row):
@@ -1082,11 +1153,6 @@ class Coordinator:
         if state.get("host_started"):
             self.phase("waiting-host-package-and-reboot-units")
             observed = self.api.host_idle(self.policy, state["host_step_id"])
-            if not observed:
-                require(self.now() - state["host_started_epoch"] > 120,
-                        "Host launch handoff pending; guard will retry")
-                # A late host invocation must read this revoked slot before APT and reboot.
-                self.journal.transaction(lambda s: s.update(host_slot_cancelled=True))
         node = next(n for n in self.api.items("nodes") if n["metadata"]["name"] == WORKER)
         self.phase("waiting-worker2-ready")
         m.check_nodes(self.policy, self.api.items("nodes"), WORKER if node["spec"].get("unschedulable") else None)
@@ -1094,13 +1160,21 @@ class Coordinator:
                 "Kured must remain suspended during recovery")
         require(any(c["type"] == "Ready" and c["status"] == "True" for c in node["status"]["conditions"]),
                 "Worker2 host unavailable; two-copy protection retained, no unsafe warmup")
-        if state.get("host_complete"):
+        if state.get("host_started"):
             self.phase("validating-worker2-boot")
-            self.api.host_idle(self.policy, state["host_step_id"])
             host = self.api.host_audit(self.policy, WORKER)
-            require(host["boot_id"] != self.plan["bindings"][WORKER]["boot_id"]
-                    and host["kernel"] == self.policy["kernel"] and host["default_target"] == "multi-user.target",
-                    "Worker2 did not boot approved OS/kernel; retain recovery lock")
+            rebooted = host["boot_id"] != self.plan["bindings"][WORKER]["boot_id"]
+            if not observed and not rebooted and not state.get("host_packages_complete"):
+                require(self.now() - state["host_started_epoch"] > 120,
+                        "Host launch handoff pending; guard will retry")
+            if rebooted:
+                require(host["kernel"] == self.policy["kernel"] and host["default_target"] == "multi-user.target",
+                        "Worker2 did not boot approved OS/kernel; retain recovery lock")
+            require(not state.get("host_complete") or rebooted, "Verified worker2 boot identity regressed")
+            self.journal.transaction(lambda s: s.update(host_complete=rebooted,
+                                                       host_reboot_outcome="verified" if rebooted else "not-rebooted"))
+        require(not success or self.journal.read().get("host_complete"),
+                "Maintenance success requires actual approved worker2 reboot completion")
         # Re-enable only worker2, with all regular volumes still cold after an attempted drain/host step.
         if state.get("cordon_intent") and not state.get("uncordoned"):
             self.phase("waiting-native-return-protection")
@@ -1155,7 +1229,10 @@ class Coordinator:
             require({k: v for k, v in obj["metadata"].get("annotations", {}).items() if k in PAUSE}
                     == row["original"]["pause_annotations"], "Original KEDA annotations not restored")
         for row in self.plan["hpas"]:
-            assert_binding(self.api.get("horizontalpodautoscalers", row["namespace"], row["name"]), row)
+            obj = self.api.get("horizontalpodautoscalers", row["namespace"], row["name"])
+            assert_binding(obj, row)
+            require(sha(canonical(obj["metadata"].get("ownerReferences", []))) == row["owner_references_sha256"],
+                    "Original HPA owner references not restored")
 
     def original_state(self):
         for row in self.plan["controllers"]:
@@ -1221,15 +1298,22 @@ class Coordinator:
                      mode="complete", completed_epoch=self.now())
 
 
-def hpa_without_pause(spec):
+def hpa_paused_spec(spec):
     result = copy.deepcopy(spec)
+    behavior = result.get("behavior") or {}
+    result["behavior"] = behavior
     for direction in ("scaleUp", "scaleDown"):
-        value = result.get("behavior", {}).get(direction, {})
-        value.pop("selectPolicy", None)
-        if not value:
-            result.get("behavior", {}).pop(direction, None)
-    if not result.get("behavior"):
-        result.pop("behavior", None)
+        value = behavior.get(direction) or {}
+        behavior[direction] = value
+        value["selectPolicy"] = "Disabled"
+        # Kubernetes v1.35.10 autoscaling/v2 defaults, not a normalization of
+        # arbitrary live policies. The original FULL spec hash is never changed.
+        if direction == "scaleUp" and value.get("stabilizationWindowSeconds") is None:
+            value["stabilizationWindowSeconds"] = 0
+        if value.get("policies") is None:
+            value["policies"] = ([{"type": "Pods", "value": 4, "periodSeconds": 15},
+                                 {"type": "Percent", "value": 100, "periodSeconds": 15}] if direction == "scaleUp" else
+                                [{"type": "Percent", "value": 100, "periodSeconds": 15}])
     return result
 
 

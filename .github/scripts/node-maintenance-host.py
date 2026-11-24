@@ -196,10 +196,13 @@ def reserve(payload):
     require(payload["deadline_epoch"] - time.time() > payload["recovery_reserve_seconds"],
             "Host reached restoration reserve; no new disruption/reboot")
     if payload.get("cold_run_id"):
+        require(payload["name"] == "rishik-worker2" and payload["operation"] in ("os", "reboot"),
+                "Cold host authorization is worker2 OS/reboot ONLY")
         status = cold_peer_status(payload["cold_run_id"])
         require(status["mode"] == "disrupting" and status["phase"] == "awaiting-host"
                 and status["host_started"] is True and status["host_step_id"] == payload["run_id"]
                 and status["deadline_epoch"] == payload["deadline_epoch"]
+                and status.get("host_reboot_authorized") is True
                 and not status.get("host_slot_cancelled"), "Independent guard revoked worker2 host disruption")
 
 
@@ -208,6 +211,20 @@ def cold_public(path):
     require(stat.S_ISREG(meta.st_mode) and meta.st_uid == 0 and stat.S_IMODE(meta.st_mode) == 0o444,
             "Cold receipt ownership/mode mismatch")
     return json.loads(path.read_text())
+
+
+def schedule_reboot(payload):
+    reserve(payload)
+    reboot = {**payload, "operation": "reboot"}
+    source = Path(__file__).read_text() if "__file__" in globals() else globals().get("__maintenance_host_source__")
+    require(source, "Deferred reboot requires the exact bound host helper source")
+    command(["systemd-run", "--unit=node-maintenance-reboot-" + payload["run_id"],
+             "--on-active=10s", "--timer-property=RemainAfterElapse=no", "--property=SendSIGKILL=no",
+             "/usr/bin/python3", "-c",
+             "import base64,zlib;__maintenance_host_source__=zlib.decompress(base64.b64decode(" +
+             repr(base64.b64encode(zlib.compress(source.encode())).decode()) +
+             ")).decode();exec(__maintenance_host_source__)",
+             base64.b64encode(json.dumps(reboot).encode()).decode()])
 
 
 def cold_peer_status(run_id):
@@ -268,6 +285,7 @@ def cold_register(payload):
         "started_epoch": payload["started_epoch"], "deadline_epoch": payload["deadline_epoch"],
         "last_epoch": time.time(), "guard_registered": False, "mutations": {}, "completed": False,
         "host_step_id": payload["host_step_id"], "host_started": False, "host_complete": False,
+        "host_packages_complete": False, "host_reboot_authorized": False,
     }
     require(state["deadline_epoch"] == state["started_epoch"] + 43200
             and state["deadline_epoch"] - time.time() > 7200, "Invalid or spent guard deadline")
@@ -369,7 +387,7 @@ def cold_control(payload):
         def mark(state):
             c.gate(state, True)
             require(state["phase"] == "awaiting-host" and not state["host_started"], "Host slot not available")
-            state.update(host_started=True, host_started_epoch=time.time())
+            state.update(host_started=True, host_started_epoch=time.time(), host_reboot_authorized=True)
         c.journal.transaction(mark)
     elif operation == "cold-host-complete":
         def finish(state):
@@ -381,7 +399,7 @@ def cold_control(payload):
                     and payload["receipt"]["expected_kernel"] == c.policy["kernel"]
                     and 0 <= time.time() - payload["receipt"]["completed_epoch"] < 1800,
                     "Invalid worker2 host receipt")
-            state["host_complete"] = True
+            state.update(host_packages_complete=True, host_packages_complete_epoch=payload["receipt"]["completed_epoch"])
         c.journal.transaction(finish)
     else:
         require(operation == "cold-recover", "Unsupported cold control")
@@ -530,17 +548,7 @@ def main(payload):
     if operation == "os":
         # APT may run longer than the disruption window. Check again both now and
         # in the deferred unit; never kill dpkg or reboot into the recovery reserve.
-        reserve(payload)
-        reboot = {**payload, "operation": "reboot"}
-        source = Path(__file__).read_text() if "__file__" in globals() else globals().get("__maintenance_host_source__")
-        require(source, "Deferred reboot requires the exact bound host helper source")
-        command(["systemd-run", "--unit=node-maintenance-reboot-" + payload["run_id"],
-                 "--on-active=10s", "--property=SendSIGKILL=no",
-                 "/usr/bin/python3", "-c",
-                 "import base64,zlib;__maintenance_host_source__=zlib.decompress(base64.b64decode(" +
-                 repr(base64.b64encode(zlib.compress(source.encode())).decode()) +
-                 ")).decode();exec(__maintenance_host_source__)",
-                 base64.b64encode(json.dumps(reboot).encode()).decode()])
+        schedule_reboot(payload)
     print("Host step complete; workstation must verify recovery before continuing.")
 
 

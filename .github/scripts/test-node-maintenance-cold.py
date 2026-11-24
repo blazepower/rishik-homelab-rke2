@@ -3,6 +3,7 @@
 
 import base64
 import copy
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -25,6 +26,50 @@ def load(name, filename):
 
 c = load("cold_test_source", "node-maintenance-cold.py")
 h = load("cold_test_host", "node-maintenance-host.py")
+
+IM_IMAGE = "longhornio/longhorn-instance-manager:v1.12.1"
+PAUSED_DEFAULT_RULES = {
+    "scaleUp": {"selectPolicy": "Disabled", "stabilizationWindowSeconds": 0,
+                "policies": [{"type": "Pods", "value": 4, "periodSeconds": 15},
+                             {"type": "Percent", "value": 100, "periodSeconds": 15}]},
+    "scaleDown": {"selectPolicy": "Disabled",
+                  "policies": [{"type": "Percent", "value": 100, "periodSeconds": 15}]},
+}
+
+
+def default_hpa_behavior(spec):
+    """API v2 defaulting fills rules only when behavior is non-nil."""
+    if spec.get("behavior") is None:
+        return
+    for direction, defaults in PAUSED_DEFAULT_RULES.items():
+        rules = spec["behavior"].setdefault(direction, {})
+        for name, value in defaults.items():
+            rules.setdefault(name, copy.deepcopy(value) if name != "selectPolicy" else "Max")
+
+
+def native_im_labels(node):
+    image_checksum = hashlib.sha512(b"longhornio-longhorn-instance-manager-v1.12.1").hexdigest()[:8]
+    return {"longhorn.io/managed-by": "longhorn-manager", "longhorn.io/component": "instance-manager",
+            "longhorn.io/instance-manager-type": "aio", "longhorn.io/node": node,
+            "longhorn.io/data-engine": "v1", "longhorn.io/instance-manager-image": "imi-" + image_checksum}
+
+
+def native_hpa(ns, name, target, scaled, behavior, replicas=1):
+    spec = {"scaleTargetRef": {"apiVersion": "apps/v1", "kind": "Deployment", "name": target},
+            "minReplicas": 1, "maxReplicas": 2,
+            "metrics": [{"type": "External", "external": {
+                "metric": {"name": "s0-http-pending-requests",
+                           "selector": {"matchLabels": {"scaledobject.keda.sh/name": scaled["metadata"]["name"]}}},
+                "target": {"type": "AverageValue", "averageValue": "100"}}}]}
+    if behavior is not None:
+        spec["behavior"] = copy.deepcopy(behavior)
+        default_hpa_behavior(spec)
+    value = obj("HorizontalPodAutoscaler", ns, name, spec,
+                {"kind": "ScaledObject", "name": scaled["metadata"]["name"], "uid": scaled["metadata"]["uid"]})
+    value["metadata"]["ownerReferences"][0].update(apiVersion="keda.sh/v1alpha1", blockOwnerDeletion=True)
+    value["status"] = {"currentReplicas": replicas, "desiredReplicas": replicas, "currentMetrics": [],
+                       "conditions": [{"type": "AbleToScale", "status": "True", "reason": "SucceededGetScale"}]}
+    return value
 
 
 def obj(kind, ns, name, spec, owner=None):
@@ -164,6 +209,10 @@ class FakeAPI:
             for name, direction in zip(c.PAUSE, ("scaleDown", "scaleUp")):
                 if annotations.get(name) == "true":
                     hpa["spec"].setdefault("behavior", {}).setdefault(direction, {})["selectPolicy"] = "Disabled"
+            default_hpa_behavior(hpa["spec"])
+            hpa["metadata"]["generation"] += 1
+            # horizontal.go setStatus does not populate observedGeneration.
+            hpa["status"].pop("observedGeneration", None)
         if row["kind"] in ("Deployment", "StatefulSet"):
             count = value["spec"].get("replicas", 1)
             if count == 0 and (row["namespace"], row["name"]) not in c.OPERATORS:
@@ -191,6 +240,7 @@ class FakeAPI:
                     v["status"].update(state="detached", currentNodeID="")
                 for r in self.items("replicas.longhorn.io"):
                     r["spec"]["desireState"] = r["status"]["currentState"] = "stopped"
+                    r["status"]["instanceManagerName"] = ""
                 for e in self.items("engines.longhorn.io"):
                     e["status"]["currentState"] = "stopped"
             elif count and c.identity(value) in c.BACKENDS:
@@ -202,6 +252,8 @@ class FakeAPI:
                 for r in self.items("replicas.longhorn.io"):
                     if r["spec"]["volumeName"] not in self.policy["quarantined_volumes"]:
                         r["spec"]["desireState"] = r["status"]["currentState"] = "running"
+                        r["spec"]["lastHealthyAt"] = "2026-11-24T04:55:00Z"
+                        r["status"]["instanceManagerName"] = c.IM_NAMES[r["spec"]["nodeID"]]
                 for e in self.items("engines.longhorn.io"):
                     if e["spec"]["volumeName"] not in self.policy["quarantined_volumes"]:
                         e["status"]["currentState"] = "running"
@@ -216,10 +268,11 @@ class FakeAPI:
         return {"boot_id": self.host_boot, "kernel": policy["kernel"], "default_target": "multi-user.target"}
 
     def host_idle(self, policy, step_id):
-        return True
+        # systemd-run's transient units live under /run and vanish at reboot.
+        return self.host_boot == "old-worker2"
 
 
-def fixture():
+def fixture(hpa_behavior=None):
     policy = json.loads(c.m.POLICY.read_text())
     api = FakeAPI(policy)
     sts = {"plex-plex-media-server", "alertmanager-kube-prometheus-stack-alertmanager", "loki",
@@ -298,9 +351,10 @@ def fixture():
         target = api.get("deployments", ns, name)
         scaled = api.add(c.RESOURCES["ScaledObject"], obj("ScaledObject", ns, name + "-scaler",
                          {"scaleTargetRef": {"name": name}, "minReplicaCount": 1 if name == "calibre-web" else 0}))
-        hpa = api.add("horizontalpodautoscalers", obj("HorizontalPodAutoscaler", ns, name + "-hpa",
-                      {"scaleTargetRef": {"kind": "Deployment", "name": name}, "minReplicas": 1},
-                      {"kind": "ScaledObject", "name": scaled["metadata"]["name"], "uid": scaled["metadata"]["uid"]}))
+        if hpa_behavior is not None:
+            scaled["spec"]["advanced"] = {"horizontalPodAutoscalerConfig": {"behavior": copy.deepcopy(hpa_behavior)}}
+        hpa = api.add("horizontalpodautoscalers", native_hpa(
+            ns, name + "-hpa", name, scaled, hpa_behavior, replicas=target["spec"]["replicas"]))
         sr, hr = c.binding(scaled, {"pause_annotations": {}}), c.binding(hpa)
         for row in (sr, hr):
             row["target"] = {"kind": "Deployment", "name": name, "uid": target["metadata"]["uid"]}
@@ -310,9 +364,10 @@ def fixture():
     interceptor = api.get("deployments", "keda", "keda-add-ons-http-interceptor")
     scaled = api.add(c.RESOURCES["ScaledObject"], obj("ScaledObject", "keda", "keda-add-ons-http-interceptor",
                     {"scaleTargetRef": {"name": interceptor["metadata"]["name"]}, "minReplicaCount": 1}))
-    hpa = api.add("horizontalpodautoscalers", obj("HorizontalPodAutoscaler", "keda", "keda-hpa-keda-add-ons-http-interceptor",
-                  {"scaleTargetRef": {"kind": "Deployment", "name": interceptor["metadata"]["name"]}, "minReplicas": 1},
-                  {"kind": "ScaledObject", "name": scaled["metadata"]["name"], "uid": scaled["metadata"]["uid"]}))
+    if hpa_behavior is not None:
+        scaled["spec"]["advanced"] = {"horizontalPodAutoscalerConfig": {"behavior": copy.deepcopy(hpa_behavior)}}
+    hpa = api.add("horizontalpodautoscalers", native_hpa(
+        "keda", "keda-hpa-keda-add-ons-http-interceptor", interceptor["metadata"]["name"], scaled, hpa_behavior))
     api.original_hpa_specs[hpa["metadata"]["uid"]] = copy.deepcopy(hpa["spec"])
     for node in policy["nodes"]:
         n = obj("Node", "", node["name"], {"unschedulable": node["name"] == c.SERVER})
@@ -323,20 +378,23 @@ def fixture():
     native = {}
     for node, name in c.IM_NAMES.items():
         im = api.add("instancemanagers.longhorn.io", obj("InstanceManager", "storage", name,
-                     {"nodeID": node, "type": "aio", "image": "example.invalid/longhorn-im:v1.12.1"}))
-        im["status"] = {"currentState": "running", "instanceEngines": {}, "instanceReplicaEngines": {}}
+                     {"nodeID": node, "type": "aio", "image": IM_IMAGE, "dataEngine": "v1"}))
+        im["metadata"]["labels"] = native_im_labels(node)
+        im["status"] = {"currentState": "running", "instanceEngines": {}, "instanceReplicas": {}, "instanceEngineFrontends": {}}
         pod = api.add("pods", obj("Pod", "storage", name,
                       {"nodeName": node, "containers": [{"name": "instance-manager", "image": im["spec"]["image"],
                                                        "resources": {"requests": {"cpu": "300m"}}}],
                        "volumes": [{"name": k, "hostPath": v} for k, v in c.IM_PATHS.items()]},
                       {"kind": "InstanceManager", "name": name, "uid": im["metadata"]["uid"]}))
         pod["status"] = {"phase": "Running", "conditions": [{"type": "Ready", "status": "True"}]}
+        pod["metadata"]["labels"].update(native_im_labels(node))
         pdb = api.add("poddisruptionbudgets", obj("PodDisruptionBudget", "storage", name,
-                      {"minAvailable": 1, "selector": {"matchLabels": {"app": name}}}))
+                      {"minAvailable": 1, "selector": {"matchLabels": native_im_labels(node)}}))
         native[node] = c.im_binding(im, pod, pdb, node)
         if node == c.WORKER:
             api.original_im_pod, api.original_im_pdb = copy.deepcopy(pod), copy.deepcopy(pdb)
-    for setting, value in (("node-drain-policy", "block-if-contains-last-replica"), ("kubernetes-cluster-autoscaler-enabled", "false")):
+    for setting, value in (("node-drain-policy", "block-if-contains-last-replica"),
+                           ("kubernetes-cluster-autoscaler-enabled", "false"), ("default-instance-manager-image", IM_IMAGE)):
         api.add("settings.longhorn.io", {**obj("Setting", "storage", setting, {}), "value": value})
     manager = api.add("daemonsets", controller("storage", "longhorn-manager", kind="DaemonSet"))
     manager["spec"]["template"]["spec"]["containers"][0].update(
@@ -365,14 +423,16 @@ def fixture():
     names = ["pvc-c200e7ff-e182-45e6-9523-c2fac869df7c", "regular-fixture", *policy["quarantined_volumes"]]
     for index, name in enumerate(names):
         quarantine = name in policy["quarantined_volumes"]
-        volume = api.add("volumes.longhorn.io", obj("Volume", "storage", name, {"numberOfReplicas": 2, "nodeID": ""}))
+        volume = api.add("volumes.longhorn.io", obj("Volume", "storage", name,
+                         {"numberOfReplicas": 2, "nodeID": "", "dataEngine": "v1"}))
         volume["status"] = {"state": "detached", "currentNodeID": "", "robustness": "healthy"}
         mode_map = {}
         for node in ([c.PEER] if quarantine else [c.PEER, c.WORKER]):
             replica = api.add("replicas.longhorn.io", obj("Replica", "storage", name + "-" + node, {
-                "volumeName": name, "nodeID": node, "active": True, "healthyAt": "2026-11-20",
-                "failedAt": "", "dataDirectoryName": "fixture-directory-" + name, "desireState": "stopped"}))
-            replica["status"] = {"currentState": "stopped", "instanceManagerName": c.IM_NAMES[node]}
+                "volumeName": name, "nodeID": node, "active": True, "healthyAt": "2026-11-20T00:00:00Z",
+                "lastHealthyAt": "2026-11-20T00:00:00Z", "failedAt": "", "lastFailedAt": "",
+                "dataDirectoryName": "fixture-directory-" + name, "desireState": "stopped", "dataEngine": "v1"}))
+            replica["status"] = {"currentState": "stopped", "instanceManagerName": "", "starting": False}
             mode_map[replica["metadata"]["name"]] = "RW"
         engine = api.add("engines.longhorn.io", obj("Engine", "storage", name + "-engine",
                         {"volumeName": name, "salvageRequested": quarantine, "desireState": "stopped"}))
@@ -466,6 +526,81 @@ class ColdTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "identity/ownership"):
             self.coordinator.hpas_paused()
 
+    def test_native_hpa_status_without_observed_generation_is_supported(self):
+        for row in self.plan["autoscalers"]:
+            self.coordinator.mutate(row, "pause", True)
+        for hpa in self.api.items("horizontalpodautoscalers"):
+            self.assertNotIn("observedGeneration", hpa["status"])
+            self.assertGreater(hpa["metadata"]["generation"], 1)
+        self.coordinator.hpas_paused()
+        row = self.plan["autoscalers"][0]
+        self.api.get("scaledobjects.keda.sh", row["namespace"], row["name"])["status"]["conditions"] = []
+        with self.assertRaisesRegex(RuntimeError, "native pause not observed"):
+            self.coordinator.hpas_paused()
+
+    def test_behaviorless_hpa_defaults_and_original_full_spec_restore_exactly(self):
+        for row in self.plan["autoscalers"]:
+            self.coordinator.mutate(row, "pause", True)
+        self.coordinator.hpas_paused()
+        for hpa in self.api.items("horizontalpodautoscalers"):
+            original = self.api.original_hpa_specs[hpa["metadata"]["uid"]]
+            self.assertNotIn("behavior", original)
+            self.assertEqual(hpa["spec"]["behavior"], PAUSED_DEFAULT_RULES)
+            self.assertEqual(hpa["spec"]["metrics"], original["metrics"])
+            self.assertNotIn("stabilizationWindowSeconds", hpa["spec"]["behavior"]["scaleDown"])
+        for row in self.plan["autoscalers"]:
+            self.coordinator.mutate(row, "pause", False, restoring=True)
+        self.coordinator.autoscaling_restored()
+        for hpa in self.api.items("horizontalpodautoscalers"):
+            self.assertEqual(hpa["spec"], self.api.original_hpa_specs[hpa["metadata"]["uid"]])
+            self.assertNotIn("behavior", hpa["spec"])
+
+    def test_native_paused_defaults_never_hide_metrics_policies_or_owner_drift(self):
+        for row in self.plan["autoscalers"]:
+            self.coordinator.mutate(row, "pause", True)
+        row = self.plan["hpas"][0]
+        hpa = self.api.get("horizontalpodautoscalers", row["namespace"], row["name"])
+        original = copy.deepcopy(hpa)
+        for drift in ("metric", "policy", "stabilization", "tolerance", "target", "owner"):
+            hpa.clear()
+            hpa.update(copy.deepcopy(original))
+            if drift == "metric":
+                hpa["spec"]["metrics"][0]["external"]["target"]["averageValue"] = "200"
+            elif drift == "policy":
+                hpa["spec"]["behavior"]["scaleUp"]["policies"][0]["value"] = 50
+            elif drift == "stabilization":
+                hpa["spec"]["behavior"]["scaleDown"]["stabilizationWindowSeconds"] = 300
+            elif drift == "tolerance":
+                hpa["spec"]["behavior"]["scaleUp"]["tolerance"] = "0.2"
+            elif drift == "target":
+                hpa["spec"]["scaleTargetRef"]["name"] = "foreign"
+            else:
+                hpa["metadata"]["ownerReferences"].append(
+                    {"apiVersion": "apps/v1", "kind": "Deployment", "name": "foreign", "uid": "foreign"})
+            with self.subTest(drift=drift), self.assertRaises(RuntimeError):
+                self.coordinator.hpas_paused()
+
+    def test_custom_native_hpa_behavior_is_preserved_without_broad_normalization(self):
+        behavior = {"scaleUp": {"selectPolicy": "Min", "stabilizationWindowSeconds": 42, "tolerance": "0.2",
+                                "policies": [{"type": "Percent", "value": 50, "periodSeconds": 60}]},
+                    "scaleDown": {"selectPolicy": "Max", "stabilizationWindowSeconds": 300,
+                                  "policies": [{"type": "Pods", "value": 1, "periodSeconds": 300}]}}
+        policy, api, plan, approval, journal = fixture(hpa_behavior=behavior)
+        coordinator = c.Coordinator(plan, approval, policy, journal, api)
+        for row in plan["autoscalers"]:
+            coordinator.mutate(row, "pause", True)
+        coordinator.hpas_paused()
+        expected = copy.deepcopy(behavior)
+        for direction in expected.values():
+            direction["selectPolicy"] = "Disabled"
+        for hpa in api.items("horizontalpodautoscalers"):
+            self.assertEqual(hpa["spec"]["behavior"], expected)
+        for row in plan["autoscalers"]:
+            coordinator.mutate(row, "pause", False, restoring=True)
+        coordinator.autoscaling_restored()
+        for hpa in api.items("horizontalpodautoscalers"):
+            self.assertEqual(hpa["spec"], api.original_hpa_specs[hpa["metadata"]["uid"]])
+
     def test_schedules_jobs_and_gitops_are_actually_gated(self):
         with self.assertRaises(RuntimeError):
             self.coordinator.producers_gated()
@@ -529,14 +664,106 @@ class ColdTests(unittest.TestCase):
         self.api.kube("cordon", c.WORKER)
         replica = next(r for r in self.api.items("replicas.longhorn.io") if r["spec"].get("nodeID") == c.PEER
                        and r["spec"]["volumeName"] == "regular-fixture")
-        replica["status"]["instanceManagerName"] = ""
+        replica["spec"]["healthyAt"] = ""
         with self.assertRaisesRegex(RuntimeError, "missing native"):
             c.native_gate(self.plan, self.policy, self.api, released=True)
-        replica["status"]["instanceManagerName"] = c.IM_NAMES[c.PEER]
+        replica["spec"]["healthyAt"] = "2026-11-20T00:00:00Z"
         im = self.api.get("instancemanagers.longhorn.io", "storage", c.IM_NAMES[c.PEER])
         im["status"]["currentState"] = "stopped"
         with self.assertRaisesRegex(RuntimeError, "running peer"):
             c.native_gate(self.plan, self.policy, self.api, released=True)
+
+    def test_native_stopped_peer_uses_default_image_selector_not_cleared_status(self):
+        self.api.kube("cordon", c.WORKER)
+        for replica in self.api.items("replicas.longhorn.io"):
+            self.assertEqual(replica["status"]["instanceManagerName"], "")
+        c.native_gate(self.plan, self.policy, self.api, released=True)
+        im = self.api.get("instancemanagers.longhorn.io", "storage", c.IM_NAMES[c.PEER])
+        im["metadata"]["labels"]["longhorn.io/instance-manager-image"] = "imi-foreign"
+        with self.assertRaisesRegex(RuntimeError, "selector resolution"):
+            c.native_gate(self.plan, self.policy, self.api, released=True)
+
+    def test_native_stopped_peer_ambiguity_source_policy_and_transition_fail_closed(self):
+        self.api.kube("cordon", c.WORKER)
+        peer = self.api.get("instancemanagers.longhorn.io", "storage", c.IM_NAMES[c.PEER])
+        replica = next(r for r in self.api.items("replicas.longhorn.io")
+                       if r["spec"].get("nodeID") == c.PEER and r["spec"]["volumeName"] == "regular-fixture")
+        other = copy.deepcopy(peer)
+        other["metadata"].update(name="other-native-im", uid="other-native-im")
+        self.api.add("instancemanagers.longhorn.io", other)
+        with self.assertRaisesRegex(RuntimeError, "ambiguous"):
+            c.native_gate(self.plan, self.policy, self.api, released=True)
+        self.api.resources["instancemanagers.longhorn.io"].remove(other)
+        replica["status"]["starting"] = True
+        with self.assertRaisesRegex(RuntimeError, "stably stopped"):
+            c.native_gate(self.plan, self.policy, self.api, released=True)
+        replica["status"]["starting"] = False
+        setting = self.api.get("settings.longhorn.io", "storage", "default-instance-manager-image")
+        setting["value"] += "-foreign"
+        with self.assertRaisesRegex(RuntimeError, "default IM image drift"):
+            c.native_gate(self.plan, self.policy, self.api, released=True)
+        setting["value"] = IM_IMAGE
+        peer["spec"]["image"] += "-foreign"
+        with self.assertRaisesRegex(RuntimeError, "CR/image/node binding drift"):
+            c.native_gate(self.plan, self.policy, self.api, released=True)
+
+    def warm_regular_fixture(self):
+        volume = self.api.get("volumes.longhorn.io", "storage", "regular-fixture")
+        volume["spec"]["nodeID"] = c.PEER
+        volume["status"].update(state="attached", robustness="healthy", currentNodeID=c.PEER)
+        engine = self.api.get("engines.longhorn.io", "storage", "regular-fixture-engine")
+        engine["spec"]["desireState"] = engine["status"]["currentState"] = "running"
+        for replica in self.api.items("replicas.longhorn.io"):
+            if replica["spec"]["volumeName"] == "regular-fixture":
+                replica["spec"].update(lastHealthyAt="2026-11-24T04:55:00Z", desireState="running")
+                replica["status"].update(currentState="running", instanceManagerName=c.IM_NAMES[replica["spec"]["nodeID"]])
+        return volume, engine
+
+    def test_native_rw_transition_timestamp_allows_warmup_and_guard_retry(self):
+        identities = copy.deepcopy(self.plan["storage"])
+        self.warm_regular_fixture()
+        self.assertEqual(c.storage_snapshot(self.policy, self.api), identities)
+        self.assertEqual(c.cold_storage(self.plan, self.policy, self.api)["attached_two_rw"], 1)
+        self.coordinator.request_recovery("interrupted-after-healthy-backend-reattachment")
+        with patch.object(c.m, "health", return_value={}), patch.object(c.m.urllib.request, "urlopen") as url, \
+                patch.object(c.time, "sleep"):
+            url.return_value.__enter__.return_value.status = 200
+            self.coordinator.recover()
+            self.coordinator.recover()
+        self.assertEqual(c.storage_snapshot(self.policy, self.api), identities)
+        self.assertEqual(self.journal.read()["phase"], "recovered-after-failure")
+
+    def test_native_rw_timestamp_exclusion_preserves_volume_replica_and_directory_identity(self):
+        volume, _ = self.warm_regular_fixture()
+        replica = next(r for r in self.api.items("replicas.longhorn.io") if r["spec"]["volumeName"] == "regular-fixture")
+        for target, field, changed in ((volume["metadata"], "uid", "other-volume"),
+                                       (replica["metadata"], "uid", "other-replica"),
+                                       (replica["spec"], "nodeID", c.SERVER),
+                                       (replica["spec"], "volumeName", "other-volume"),
+                                       (replica["spec"], "dataDirectoryName", "other-directory"),
+                                       (volume["spec"], "numberOfReplicas", 1)):
+            original = target[field]
+            target[field] = changed
+            with self.subTest(field=field), self.assertRaisesRegex(RuntimeError, "policy drift"):
+                c.cold_storage(self.plan, self.policy, self.api)
+            target[field] = original
+
+    def test_native_rw_warmup_still_rejects_current_failed_degraded_and_non_rw_copies(self):
+        volume, engine = self.warm_regular_fixture()
+        replica = next(r for r in self.api.items("replicas.longhorn.io") if r["spec"]["volumeName"] == "regular-fixture")
+        for target, field, changed in ((replica["spec"], "failedAt", "2026-11-24T04:56:00Z"),
+                                       (replica["spec"], "healthyAt", ""),
+                                       (volume["status"], "robustness", "degraded"),
+                                       (engine["status"]["replicaModeMap"], replica["metadata"]["name"], "WO"),
+                                       (replica["status"], "currentState", "error")):
+            original = target[field]
+            target[field] = changed
+            self.assertEqual(c.storage_snapshot(self.policy, self.api), self.plan["storage"])
+            with self.subTest(field=field), self.assertRaisesRegex(RuntimeError, "two clean copies|healthy engine"):
+                self.coordinator.recover()
+            self.assertTrue(self.api.items("configmap"))
+            self.assertFalse(any(e[0] == "patch" for e in self.api.events))
+            target[field] = original
 
     def test_tickets_degraded_copies_and_data_directory_drift_block_warmup(self):
         for case in ("ticket", "copy", "directory"):
@@ -591,15 +818,21 @@ class ColdTests(unittest.TestCase):
             self.coordinator.mutate(self.plan["schedules"][0], "suspend", True)
         self.assertEqual(self.journal.read()["deadline_epoch"], original["deadline_epoch"])
 
-    def successful_hooks(self):
+    def successful_hooks(self, reboot=True):
         original_phase = self.coordinator.phase
         def phase(value):
             original_phase(value)
             if value == "awaiting-host":
-                self.api.host_boot = "rebooted-worker2"
-                self.journal.transaction(lambda s: s.update(host_complete=True, host_started=True,
-                                                           host_started_epoch=time.time()))
+                self.journal.transaction(lambda s: s.update(host_packages_complete=True, host_started=True,
+                                                           host_packages_complete_epoch=time.time() - (0 if reboot else 121),
+                                                           host_reboot_authorized=True, host_started_epoch=time.time()))
         self.coordinator.phase = phase
+        original_host_completed = self.coordinator.host_completed
+        def host_completed():
+            if reboot:
+                self.api.host_boot = "rebooted-worker2"
+            return original_host_completed()
+        self.coordinator.host_completed = host_completed
         def drain():
             self.api.resources["pods"] = [p for p in self.api.items("pods")
                                          if p["metadata"]["name"] != c.IM_NAMES[c.WORKER]]
@@ -681,6 +914,144 @@ class ColdTests(unittest.TestCase):
             "mode": "recovering", "phase": "awaiting-host", "host_started": True,
             "host_step_id": "2" * 32, "deadline_epoch": 50000}), self.assertRaisesRegex(RuntimeError, "revoked"):
             h.reserve(payload)
+
+    def authorize_host_slot(self):
+        self.journal.transaction(lambda s: s.update(phase="awaiting-host", host_started=True,
+                                                   host_started_epoch=time.time(), host_reboot_authorized=True))
+        state = self.journal.read()
+        return {"operation": "os", "run_id": state["host_step_id"], "cold_run_id": state["run_id"],
+                "name": c.WORKER, "boot_id": "old-worker2", "deadline_epoch": state["deadline_epoch"],
+                "recovery_reserve_seconds": 7200}
+
+    def record_package_receipt(self, payload=None):
+        payload = payload or self.authorize_host_slot()
+        state = self.journal.read()
+        receipt = {"run_id": state["host_step_id"], "name": c.WORKER, "operation": "os",
+                   "old_boot_id": "old-worker2", "expected_kernel": self.policy["kernel"], "completed_epoch": time.time(),
+                   "headless": True, "package_removals": False}
+        with patch.object(h, "load_cold", return_value=c), patch.object(c, "load_runtime", return_value=self.coordinator):
+            h.cold_control({"operation": "cold-host-complete", "run_id": state["run_id"], "receipt": receipt})
+        return payload
+
+    def test_real_package_receipt_before_timer_keeps_authorization_until_verified_new_boot(self):
+        payload = self.authorize_host_slot()
+        deadline = self.journal.read()["deadline_epoch"]
+        with patch.object(h, "cold_peer_status", side_effect=lambda _: self.journal.read()), patch.object(h, "command") as command:
+            h.schedule_reboot(payload)
+            scheduled = command.call_args.args[0]
+            self.assertIn("--on-active=10s", scheduled)
+            self.assertIn("--timer-property=RemainAfterElapse=no", scheduled)
+            deferred = json.loads(base64.b64decode(scheduled[-1]))
+            self.record_package_receipt(payload)
+            self.assertTrue(self.journal.read()["host_packages_complete"])
+            self.assertFalse(self.journal.read()["host_complete"])
+            with patch.object(self.api, "host_idle", side_effect=RuntimeError("Reboot timer active")), \
+                    self.assertRaisesRegex(RuntimeError, "timer active"):
+                self.coordinator.host_completed()
+            self.assertEqual(self.journal.read()["mode"], "disrupting")
+            for wrong in ({"name": c.PEER}, {"operation": "rke2"}):
+                with self.subTest(wrong=wrong), self.assertRaisesRegex(RuntimeError, "worker2 OS/reboot ONLY"):
+                    h.reserve({**deferred, **wrong})
+            command.reset_mock()
+            with patch.object(h.os, "geteuid", return_value=0, create=True), \
+                    patch.object(h.socket, "gethostname", return_value=c.WORKER), \
+                    patch.object(h.Path, "read_text", return_value="old-worker2"), \
+                    patch.object(h.time, "time", return_value=self.journal.read()["host_packages_complete_epoch"] + 10):
+                h.main(deferred)
+            command.assert_called_once_with(["systemctl", "reboot"])
+        self.api.host_boot = "rebooted-worker2"
+        self.coordinator.host_completed()
+        self.assertTrue(self.journal.read()["host_complete"])
+        self.assertFalse(self.journal.read()["host_reboot_authorized"])
+        self.assertEqual(self.journal.read()["deadline_epoch"], deadline)
+
+    def test_pending_reboot_is_revoked_on_reserve_or_executor_loss_with_original_state_recovery(self):
+        for cause in ("reserve", "executor-loss"):
+            self.setUp_fixture_for_reboot_case()
+            row = self.plan["schedules"][0]
+            self.coordinator.mutate(row, "suspend", True)
+            payload = self.record_package_receipt()
+            deadline = self.journal.read()["deadline_epoch"]
+            now = deadline - 7200 if cause == "reserve" else time.time()
+            self.coordinator.now = lambda: now
+            with patch.object(c, "load_runtime", return_value=self.coordinator), \
+                    patch.object(c.m, "run", return_value="active" if cause == "reserve" else "failed"), \
+                    patch.object(c.time, "time", return_value=now), patch.object(c.time, "sleep"), \
+                    patch.object(c.m, "health", return_value={}), patch.object(c.m.urllib.request, "urlopen") as url:
+                url.return_value.__enter__.return_value.status = 200
+                c.guard("not-a-host-directory")
+                with patch.object(h, "cold_peer_status", side_effect=lambda _: self.journal.read()), \
+                        patch.object(h, "command") as command, self.assertRaises(RuntimeError):
+                    h.schedule_reboot(payload)
+                command.assert_not_called()
+            state = self.journal.read()
+            self.assertEqual(state["deadline_epoch"], deadline)
+            self.assertTrue(state["host_slot_cancelled"])
+            self.assertFalse(state["host_reboot_authorized"])
+            self.assertFalse(state["host_complete"])
+            self.assertEqual(state["host_reboot_outcome"], "not-rebooted")
+            self.assertEqual(state["phase"], "recovered-after-failure")
+            self.coordinator.original_state()
+
+    def setUp_fixture_for_reboot_case(self):
+        self.policy, self.api, self.plan, self.approval, self.journal = fixture()
+        self.get_patch.stop()
+        self.get_patch = patch.object(c.m, "get", side_effect=self.api.get)
+        self.get_patch.start()
+        self.addCleanup(self.get_patch.stop)
+        self.coordinator = c.Coordinator(self.plan, self.approval, self.policy, self.journal, self.api)
+        self.coordinator.wait = lambda fn, **kwargs: fn()
+
+    def test_idle_refused_reboot_is_recovery_not_success_and_does_not_strand_apps(self):
+        self.successful_hooks(reboot=False)
+        deadline = self.journal.read()["deadline_epoch"]
+        with patch.object(c.m, "health", return_value={}), patch.object(c.m.urllib.request, "urlopen") as url, \
+                patch.object(c.time, "sleep"), self.assertRaisesRegex(RuntimeError, "not reboot completion"):
+            url.return_value.__enter__.return_value.status = 200
+            self.coordinator.execute()
+        self.assertEqual(self.journal.read()["phase"], "recovered-after-failure")
+        self.assertEqual(self.journal.read()["deadline_epoch"], deadline)
+        self.assertFalse(self.journal.read()["host_reboot_authorized"])
+        self.assertFalse(self.journal.read()["host_complete"])
+        self.assertEqual(self.api.host_boot, "old-worker2")
+        self.coordinator.original_state()
+        self.assertTrue(any(e[0] == "patch" and any(o.get("path") == "/spec/replicas" and o.get("value") == 0
+                                                  for o in e[2]) for e in self.api.events))
+
+    def test_host_package_receipt_cannot_be_promoted_to_maintenance_success_without_reboot(self):
+        self.record_package_receipt()
+        with self.assertRaisesRegex(RuntimeError, "success requires actual"):
+            self.coordinator.recover(success=True)
+        self.assertTrue(self.api.items("configmap"))
+        self.assertFalse(self.journal.read()["completed"])
+
+    def test_native_shutdown_job_blocks_warmup_even_after_reboot_service_becomes_idle(self):
+        states = [{"ActiveState": "inactive", "LoadState": "loaded", "Job": "0"} for _ in range(5)]
+        with patch.object(c.m, "run", return_value=json.dumps(states)):
+            self.assertTrue(c.API().host_idle(self.policy, self.journal.read()["host_step_id"]))
+        for index in range(5):
+            states[index]["Job"] = "178"
+            with self.subTest(unit=index), patch.object(c.m, "run", return_value=json.dumps(states)), \
+                    self.assertRaisesRegex(RuntimeError, "active/queued|shutdown/reboot job is pending"):
+                c.API().host_idle(self.policy, self.journal.read()["host_step_id"])
+            states[index]["Job"] = "0"
+
+    def test_native_transient_units_disappear_at_reboot_but_boot_proof_remains_mandatory(self):
+        self.record_package_receipt()
+        states = [{"ActiveState": "inactive", "LoadState": "not-found", "Job": "0"} for _ in range(3)]
+        states += [{"ActiveState": "inactive", "LoadState": "loaded", "Job": "0"} for _ in range(2)]
+        with patch.object(c.m, "run", return_value=json.dumps(states)):
+            self.assertFalse(c.API().host_idle(self.policy, self.journal.read()["host_step_id"]))
+        self.api.host_boot = "rebooted-worker2"
+        self.assertFalse(self.api.host_idle(self.policy, self.journal.read()["host_step_id"]))
+        self.coordinator.host_completed()
+        self.assertTrue(self.journal.read()["host_complete"])
+        with patch.object(self.api, "host_audit", return_value={
+                "boot_id": "rebooted-worker2", "kernel": "unapproved", "default_target": "multi-user.target"}), \
+                self.assertRaisesRegex(RuntimeError, "approved OS/kernel"):
+            self.coordinator.recover()
+        self.assertTrue(self.api.items("configmap"))
+        self.assertFalse(any(e[0] == "patch" for e in self.api.events))
 
     def test_guard_recovers_partial_pause_on_executor_loss_or_reserve_without_resetting_clock(self):
         for cause in ("executor-loss", "reserve"):
