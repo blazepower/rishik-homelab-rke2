@@ -111,6 +111,15 @@ infrastructure/native storage contracts, and durable recovery independent of
 the workstation. Keep two clean detached storage copies rather than treating
 this inventory as permission for temporary single-replica writes.
 
+The held KEDA core HelmRelease pins chart 2.21.1 and all three core images to
+the same platform manifests used by the accepted native HTTP add-on fixture
+in `apps\_shared\http-addon-owned\source.json`. A running multi-platform image
+index may differ from its pinned `linux/amd64` child digest; verify the hashed
+index-to-manifest relationship instead of treating that difference as a foreign
+image. Keep chart/image pins synchronized with native acceptance. These source
+pins do not imply that production's current tag-only image references have
+already been reconciled.
+
 Resolve every blocker before approval. In particular:
 
 - The workstation's `kubectl` must be within one minor of both the current API

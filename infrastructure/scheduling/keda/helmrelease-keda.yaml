@@ -9,7 +9,7 @@ spec:
   chart:
     spec:
       chart: keda
-      version: "2.21.*"
+      version: "2.21.1"
       sourceRef:
         kind: HelmRepository
         name: kedacore
@@ -22,6 +22,14 @@ spec:
     remediation:
       retries: 3
   values:
+    image:
+      keda:
+        tag: "2.21.1@sha256:3cf67fd9662888224a2b60e1d6629eb4dc11821aa621a920132aa664d595a8f4"
+      metricsApiServer:
+        tag: "2.21.1@sha256:24df19f4bf5e8368c79dddf74011971ef9fd566180cdbe93f92ed628584146f2"
+      webhooks:
+        tag: "2.21.1@sha256:afbaf9407657824b9a9697a59a4647f9c6fabe14951cc265f7419c0ba39168fd"
+
     # Minimal resource footprint for homelab
     resources:
       operator:
