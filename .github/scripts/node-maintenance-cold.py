@@ -346,8 +346,39 @@ def worker_unit(contract):
     payload = base64.b64encode(canonical({"operation": "cold-standby", "run_id": contract["run_id"]})).decode()
     return ("[Unit]\nDescription=Single approved worker2 cold OS standby\n[Service]\nType=exec\nUser=root\n"
             f"ExecStart=/usr/bin/python3 -B {directory}/.github/scripts/node-maintenance-host.py {payload}\n"
-            "UMask=0077\nRestart=no\nTimeoutStartSec=infinity\nTimeoutStopSec=infinity\n"
+            "UMask=0077\nSlice=system.slice\nRestart=no\nTimeoutStartSec=infinity\nTimeoutStopSec=infinity\n"
             "SendSIGKILL=no\nKillMode=process\n")
+
+
+def worker_finalizer_units(contract):
+    unit = "node-maintenance-cold-worker-" + contract["run_id"] + "-finalize"
+    directory = "/var/lib/node-maintenance-cold-worker/" + contract["run_id"]
+    payload = base64.b64encode(canonical({"operation": "cold-worker-finalize", "run_id": contract["run_id"]})).decode()
+    return {
+        unit + ".service": (
+            "[Unit]\nDescription=Exact worker2 revoked dead-job finalizer\n[Service]\nType=oneshot\nUser=root\n"
+            f"ExecStart=/usr/bin/python3 -B {directory}/.github/scripts/node-maintenance-host.py {payload}\n"
+            "UMask=0077\nRestart=no\nTimeoutStartSec=60s\nTimeoutStopSec=30s\nSendSIGKILL=no\nKillMode=process\n"),
+        unit + ".timer": ("[Unit]\nDescription=Run-scoped worker2 revocation acknowledgment\n[Timer]\n"
+                         f"OnActiveSec=10s\nOnUnitInactiveSec=10s\nUnit={unit}.service\n"),
+    }
+
+
+def worker_finalizer_ready(proof, contract, now):
+    finalizer = proof["finalizer"]
+    units = worker_finalizer_units(contract)
+    name = "node-maintenance-cold-worker-" + contract["run_id"] + "-finalize"
+    service, timer = finalizer["service"], finalizer["timer"]
+    require(finalizer["service_sha256"] == sha(units[name + ".service"].encode())
+            and finalizer["timer_sha256"] == sha(units[name + ".timer"].encode())
+            and service["LoadState"] == "loaded" and service["User"] == "root"
+            and service["ActiveState"] in ("inactive", "activating", "active")
+            and service["FragmentPath"] == "/run/systemd/system/" + name + ".service"
+            and timer["LoadState"] == "loaded" and timer["ActiveState"] == "active" and timer["Job"] == "0"
+            and timer["Unit"] == name + ".service"
+            and timer["FragmentPath"] == "/run/systemd/system/" + name + ".timer"
+            and 0 <= now - proof["record"].get("finalizer_verified_epoch", 0) < 30,
+            "Actual exact independent worker revocation finalizer required BEFORE first pause")
 
 
 def verify_worker(record, contract):
@@ -358,6 +389,7 @@ def verify_worker(record, contract):
 def worker_ready(proof, contract, now):
     record, unit = proof["record"], proof["unit"]
     verify_worker(record, contract)
+    worker_finalizer_ready(proof, contract, now)
     original = contract["bindings"][WORKER]
     require(record["original_host"] == {k: original[k] for k in ("boot_id", "kernel", "pending_packages")},
             "Standby did not verify original worker boot/kernel/package bindings")
@@ -1290,6 +1322,10 @@ class Coordinator:
         verify_worker(record, state["worker_contract"])
         require(proof["unit_sha256"] in (sha(worker_unit(state["worker_contract"]).encode()), None),
                 "Worker standby unit source drift")
+        if record["phase"] in ("staged", "waiting", "claimed") and (
+                proof["unit"]["LoadState"] != "loaded"
+                or proof["unit"]["ActiveState"] in ("inactive", "failed")):
+            self.request_recovery("worker-standby-native-exit-without-terminal-ack")
         if record.get("receipt"):
             self.ingest_worker_receipt(record["receipt"])
         return record

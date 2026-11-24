@@ -265,7 +265,7 @@ def cold_peer_status(run_id):
                                shlex.join(["python3", "-c", source])]))
 
 
-def standby_peer(contract, peer, now, launching=False):
+def standby_peer_binding(contract, peer):
     require(peer["run_id"] == contract["run_id"] and peer["host_step_id"] == contract["host_step_id"]
             and peer["plan_sha256"] == contract["plan_sha256"]
             and peer["worker_contract"] == contract
@@ -279,6 +279,10 @@ def standby_peer(contract, peer, now, launching=False):
             and peer["controller_kernel"] == contract["bindings"]["rishik-controller"]["kernel"]
             and peer["live_source_bindings"] == contract["source_bindings"],
             "Standby original controller boot/kernel/source drift")
+
+
+def standby_peer(contract, peer, now, launching=False):
+    standby_peer_binding(contract, peer)
     require(now >= contract["started_epoch"] and now < contract["deadline_epoch"] - 7200,
             "Standby clock/reserve/expiry revoked")
     if peer.get("host_slot_cancelled") or peer["mode"] == "recovering" or peer["completed"]:
@@ -388,21 +392,128 @@ def worker_runtime(run_id):
     return directory, contract
 
 
-def worker_status(run_id):
-    require(re.fullmatch("[a-f0-9]{32}", run_id), "Invalid worker status identifier")
-    record = cold_public(Path("/var/lib/node-maintenance-cold-worker-status") / (run_id + ".json"))
-    unit = "node-maintenance-cold-worker-" + run_id + ".service"
+def worker_unit_status(unit):
     value = command(["systemctl", "show", unit, "-p", "LoadState", "-p", "ActiveState",
-                     "-p", "MainPID", "-p", "Job", "-p", "User"])
+                     "-p", "MainPID", "-p", "ControlPID", "-p", "Job", "-p", "User",
+                     "-p", "FragmentPath", "-p", "ControlGroup", "-p", "Unit"])
+    return dict(v.split("=", 1) for v in value.splitlines())
+
+
+def worker_unit_digest(unit):
     path = Path("/run/systemd/system") / unit
-    unit_hash = None
     if path.exists():
         meta = path.lstat()
         require(stat.S_ISREG(meta.st_mode) and meta.st_uid == 0 and stat.S_IMODE(meta.st_mode) == 0o644,
                 "Worker standby unit ownership drift")
-        unit_hash = digest(path)
-    return {"record": record, "unit": dict(v.split("=", 1) for v in value.splitlines()),
-            "unit_sha256": unit_hash}
+        return digest(path)
+    return None
+
+
+def worker_status(run_id):
+    require(re.fullmatch("[a-f0-9]{32}", run_id), "Invalid worker status identifier")
+    record = cold_public(Path("/var/lib/node-maintenance-cold-worker-status") / (run_id + ".json"))
+    unit = "node-maintenance-cold-worker-" + run_id
+    return {"record": record, "unit": worker_unit_status(unit + ".service"),
+            "unit_sha256": worker_unit_digest(unit + ".service"),
+            "finalizer": {
+                "service": worker_unit_status(unit + "-finalize.service"),
+                "timer": worker_unit_status(unit + "-finalize.timer"),
+                "service_sha256": worker_unit_digest(unit + "-finalize.service"),
+                "timer_sha256": worker_unit_digest(unit + "-finalize.timer"),
+            }}
+
+
+def worker_cgroup_empty(unit, native):
+    group = "/system.slice/" + unit
+    require(native["ControlGroup"] in ("", group), "Finalizer worker cgroup identity drift")
+    # Never infer emptiness from an empty systemctl ControlGroup property.
+    # Linux cannot remove a cgroup containing tasks; populated covers descendants.
+    path = Path("/sys/fs/cgroup") / group.lstrip("/")
+    try:
+        meta = path.lstat()
+    except FileNotFoundError:
+        require(not native["ControlGroup"], "Finalizer referenced worker cgroup is missing")
+        return group
+    require(stat.S_ISDIR(meta.st_mode) and meta.st_uid == 0,
+            "Finalizer worker cgroup ownership drift")
+    events = dict(line.split() for line in (path / "cgroup.events").read_text().splitlines())
+    require(events.get("populated") == "0", "Finalizer worker/package descendants still active; no acknowledgment")
+    return group
+
+
+def worker_quiescent(contract, cold):
+    unit = "node-maintenance-cold-worker-" + contract["run_id"] + ".service"
+    native = worker_unit_status(unit)
+    require(worker_unit_digest(unit) == cold.sha(cold.worker_unit(contract).encode())
+            and native["LoadState"] == "loaded" and native["ActiveState"] in ("inactive", "failed")
+            and native["MainPID"] == "0" and native["ControlPID"] == "0" and native["Job"] == "0"
+            and native["User"] == "root" and native["FragmentPath"] == "/run/systemd/system/" + unit,
+            "Finalizer requires exact loaded dead worker unit with no queued claim")
+    group = worker_cgroup_empty(unit, native)
+    # A claimed process could die after scheduling its separately scoped reboot.
+    for suffix in (".timer", ".service"):
+        name = "node-maintenance-reboot-" + contract["host_step_id"] + suffix
+        reboot = worker_unit_status(name)
+        require(reboot["LoadState"] in ("loaded", "not-found")
+                and reboot["ActiveState"] in ("inactive", "failed") and reboot["Job"] == "0"
+                and reboot["MainPID"] == "0" and reboot["ControlPID"] == "0",
+                "Finalizer reboot unit/children still active or unknown")
+        worker_cgroup_empty(name, reboot)
+    for unit in ("reboot.target", "shutdown.target"):
+        shutdown = worker_unit_status(unit)
+        require(shutdown["LoadState"] == "loaded" and shutdown["ActiveState"] == "inactive"
+                and shutdown["Job"] == "0", "Finalizer native shutdown job pending or unknown")
+    return group
+
+
+def cold_worker_finalize(run_id):
+    directory, contract = worker_runtime(run_id)
+    cold = load_cold(directory / ".github/scripts/node-maintenance-cold.py")
+    unit = "node-maintenance-cold-worker-" + run_id + "-finalize"
+    def finalize(state):
+        cold.verify_worker(state, contract)
+        requested = time.time()
+        require(requested >= state["last_epoch"] >= contract["started_epoch"], "Finalizer local clock rollback")
+        peer = cold_peer_status(run_id)
+        now = time.time()
+        require(now >= requested, "Finalizer response clock rollback")
+        standby_peer_binding(contract, peer)
+        proof = worker_status(run_id)
+        # This proof is written only by a real invocation of the separately
+        # registered root finalizer, never by observing a failed standby.
+        proof["record"]["finalizer_verified_epoch"] = now
+        cold.worker_finalizer_ready(proof, contract, now)
+        require(proof["finalizer"]["service"]["MainPID"] == str(os.getpid()),
+                "Finalizer must execute in its exact independent root unit")
+        if state["phase"] in ("staged", "waiting", "claimed"):
+            if not (peer.get("host_slot_cancelled") is True
+                    and peer["mode"] == "recovering" and peer.get("host_reboot_authorized") is False):
+                state.update(finalizer_verified_epoch=now, last_epoch=now)
+                return False
+            require(contract["started_epoch"] <= peer["last_epoch"] <= now, "Finalizer controller clock drift")
+            require(Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+                    == contract["bindings"]["rishik-worker2"]["boot_id"]
+                    and platform.release() == contract["bindings"]["rishik-worker2"]["kernel"],
+                    "Finalizer original worker boot/kernel drift")
+            group = worker_quiescent(contract, cold)
+            # The worker mutex remains held across proof and acknowledgment.
+            # A late claimant cannot change phase after these native checks.
+            state.update(phase="failed" if state["phase"] == "claimed" else "cancelled",
+                         finalizer_ack={"contract_sha256": state["contract_sha256"],
+                                        "worker_cgroup": group, "revoked_epoch": now})
+        require(state["phase"] in ("cancelled", "failed", "packages-complete"), "Unknown finalizer worker phase")
+        state.update(finalizer_verified_epoch=now, last_epoch=now)
+        return True
+    terminal = worker_transaction(directory, finalize)
+    if terminal:
+        command(["systemctl", "stop", unit + ".timer"])
+
+
+def standby_clock(state, contract, previous):
+    now = time.time()
+    require(now >= previous >= state["last_epoch"] >= contract["started_epoch"], "Standby local clock rollback")
+    require(now < contract["deadline_epoch"] - 7200, "Standby clock/reserve/expiry revoked")
+    return now
 
 
 def standby_tick(directory, contract):
@@ -410,14 +521,15 @@ def standby_tick(directory, contract):
     # Recovery never equates an inactive/missing unit with this acknowledgment.
     def tick(state):
         require(state["phase"] in ("staged", "waiting"), "Standby is single-shot/terminal; no replay")
-        now = time.time()
-        require(now >= state["last_epoch"] >= contract["started_epoch"], "Standby local clock rollback")
+        requested = standby_clock(state, contract, state["last_epoch"])
         require(Path("/proc/sys/kernel/random/boot_id").read_text().strip()
                 == contract["bindings"]["rishik-worker2"]["boot_id"]
                 and platform.release() == contract["bindings"]["rishik-worker2"]["kernel"],
                 "Standby original worker boot/kernel drift")
         peer = cold_peer_status(contract["run_id"])
+        now = standby_clock(state, contract, requested)
         decision = standby_peer(contract, peer, now)
+        peer_epoch = now
         if state["phase"] == "staged" or decision == "claim":
             before = audit()
             require(before["boot_id"] == contract["bindings"]["rishik-worker2"]["boot_id"]
@@ -427,10 +539,15 @@ def standby_tick(directory, contract):
             state["original_host"] = {k: before[k] for k in ("boot_id", "kernel", "pending_packages")}
         if decision == "claim":
             # Recheck after the potentially slow read-only package simulation.
-            require(standby_peer(contract, cold_peer_status(contract["run_id"]), time.time(), launching=True) == "claim",
+            requested = standby_clock(state, contract, now)
+            peer = cold_peer_status(contract["run_id"])
+            now = standby_clock(state, contract, requested)
+            require(standby_peer(contract, peer, now, launching=True) == "claim",
                     "Standby slot revoked during claim")
+            peer_epoch = now
+        now = standby_clock(state, contract, now)
         state.update(phase="claimed" if decision == "claim" else decision, last_epoch=now,
-                     ready_epoch=now, peer_epoch=now, pid=os.getpid())
+                     ready_epoch=now, peer_epoch=peer_epoch, pid=os.getpid())
         return decision
     return worker_transaction(directory, tick)
 
@@ -502,33 +619,27 @@ def cold_worker_register(payload):
 def start_worker_standby(directory, contract, cold):
     run_id = contract["run_id"]
     unit = "node-maintenance-cold-worker-" + run_id + ".service"
-    try:
-        with (Path("/run/systemd/system") / unit).open("x") as output:
+    units = {unit: cold.worker_unit(contract), **cold.worker_finalizer_units(contract)}
+    for name, value in units.items():
+        with (Path("/run/systemd/system") / name).open("x") as output:
             os.fchmod(output.fileno(), 0o644)
-            output.write(cold.worker_unit(contract))
+            output.write(value)
             output.flush()
             os.fsync(output.fileno())
-        command(["systemctl", "daemon-reload"])
-        command(["systemctl", "start", "--no-block", unit])
-        end = time.monotonic() + 60
-        while True:
-            proof = worker_status(run_id)
-            if proof["record"]["phase"] == "waiting":
-                cold.worker_ready(proof, contract, time.time())
-                break
-            require(proof["record"]["phase"] == "staged" and time.monotonic() < end,
-                    "Worker standby did not publish actual live readiness")
-            time.sleep(1)
-    except (RuntimeError, OSError, ValueError, subprocess.TimeoutExpired):
-        # No stop/kill: a queued/live standby acknowledges the controller's
-        # irrevocable cancellation. If it never started, cancel under its mutex.
+    command(["systemctl", "daemon-reload"])
+    command(["systemctl", "start", unit.removesuffix(".service") + "-finalize.timer"])
+    command(["systemctl", "start", unit.removesuffix(".service") + "-finalize.service"])
+    cold.worker_finalizer_ready(worker_status(run_id), contract, time.time())
+    command(["systemctl", "start", "--no-block", unit])
+    end = time.monotonic() + 60
+    while True:
         proof = worker_status(run_id)
-        if proof["unit"]["ActiveState"] in ("inactive", "failed") and proof["unit"]["Job"] == "0":
-            def cancel(s):
-                require(s["phase"] in ("staged", "waiting", "cancelled"), "Cannot cancel claimed host transaction")
-                s.update(phase="cancelled")
-            worker_transaction(directory, cancel)
-        raise
+        if proof["record"]["phase"] == "waiting":
+            cold.worker_ready(proof, contract, time.time())
+            break
+        require(proof["record"]["phase"] == "staged" and time.monotonic() < end,
+                "Worker standby did not publish actual live readiness")
+        time.sleep(1)
 
 
 def cold_register(payload):
@@ -749,6 +860,10 @@ def main(payload):
     if operation == "cold-standby":
         require(set(payload) == {"operation", "run_id"}, "Standby accepts only its bound run, no command/payload")
         cold_standby(payload["run_id"])
+        return
+    if operation == "cold-worker-finalize":
+        require(set(payload) == {"operation", "run_id"}, "Finalizer accepts only its bound run, no command/payload")
+        cold_worker_finalize(payload["run_id"])
         return
     if operation == "cold-status":
         require(re.fullmatch("[a-f0-9]{32}", payload["run_id"]), "Invalid cold status identifier")

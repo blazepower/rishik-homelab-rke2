@@ -3,12 +3,15 @@
 
 import base64
 import copy
+from contextlib import contextmanager, ExitStack
 import hashlib
 import importlib.util
 import json
 from pathlib import Path
 import shlex
+import stat
 import sys
+import threading
 import time
 from types import SimpleNamespace
 import unittest
@@ -283,17 +286,9 @@ class FakeAPI:
         return self.host_boot == "old-worker2"
 
     def worker_status(self, policy, run_id):
-        state = self.journal.read()
-        contract = state["worker_contract"]
-        record = {"contract": contract, "contract_sha256": state["worker_contract_sha256"],
-                  "phase": "cancelled" if state.get("host_slot_cancelled") else "waiting",
-                  "ready_epoch": time.time(), "peer_epoch": time.time(), "pid": 1234,
-                  "original_host": {k: contract["bindings"][c.WORKER][k] for k in ("boot_id", "kernel", "pending_packages")}}
-        if state.get("host_receipt"):
-            record.update(phase="packages-complete", receipt=state["host_receipt"])
-        return {"record": record, "unit": {"LoadState": "loaded", "ActiveState": "active",
-                                         "Job": "0", "MainPID": "1234", "User": "root"},
-                "unit_sha256": c.sha(c.worker_unit(contract).encode())}
+        # Reads never invent an acknowledgment from controller revocation.
+        return {"record": self.worker.read(), "unit": copy.deepcopy(self.worker_native),
+                "unit_sha256": self.worker_unit_sha256, "finalizer": copy.deepcopy(self.finalizer)}
 
 
 def fixture(hpa_behavior=None, handler_suspend=False):
@@ -519,6 +514,26 @@ def fixture(hpa_behavior=None, handler_suspend=False):
         "run_id": state["run_id"], "plan_sha256": approval, "started_epoch": str(start), "deadline_epoch": str(start + 43200)}})
     api.get("configmap", "kube-system", c.m.LOCK)["data"]["host_step_id"] = state["host_step_id"]
     api.journal = MemoryJournal(state)
+    api.worker = MemoryJournal({
+        "contract": contract, "contract_sha256": state["worker_contract_sha256"], "phase": "waiting",
+        "last_epoch": start, "ready_epoch": start, "peer_epoch": start, "pid": 1234,
+        "original_host": {k: contract["bindings"][c.WORKER][k] for k in ("boot_id", "kernel", "pending_packages")},
+        "finalizer_verified_epoch": start,
+    })
+    unit = "node-maintenance-cold-worker-" + state["run_id"]
+    api.worker_native = {"LoadState": "loaded", "ActiveState": "active", "Job": "0", "MainPID": "1234",
+                         "ControlPID": "0", "User": "root", "ControlGroup": "/system.slice/" + unit + ".service",
+                         "FragmentPath": "/run/systemd/system/" + unit + ".service"}
+    api.worker_unit_sha256 = c.sha(c.worker_unit(contract).encode())
+    finalizer_units = c.worker_finalizer_units(contract)
+    api.finalizer = {
+        "service": {"LoadState": "loaded", "ActiveState": "inactive", "User": "root", "MainPID": "0",
+                    "FragmentPath": "/run/systemd/system/" + unit + "-finalize.service"},
+        "timer": {"LoadState": "loaded", "ActiveState": "active", "Job": "0", "Unit": unit + "-finalize.service",
+                  "FragmentPath": "/run/systemd/system/" + unit + "-finalize.timer"},
+        "service_sha256": c.sha(finalizer_units[unit + "-finalize.service"].encode()),
+        "timer_sha256": c.sha(finalizer_units[unit + "-finalize.timer"].encode()),
+    }
     return policy, api, plan, approval, api.journal
 
 
@@ -604,6 +619,357 @@ class ColdTests(unittest.TestCase):
         contract = self.journal.read()["worker_contract"]
         return MemoryJournal({"contract": contract, "contract_sha256": c.sha(c.canonical(contract)),
                               "phase": phase, "last_epoch": contract["started_epoch"], "pid": 0})
+
+    def recover_with_live_worker(self, success=False, coordinator=None, api=None):
+        coordinator, api = coordinator or self.coordinator, api or self.api
+        coordinator.request_recovery("explicit-test-recovery")
+        # Schedule the actual live standby code. A dead worker is deliberately
+        # NOT scheduled: only the independent finalizer can acknowledge its exit.
+        if api.worker_native["ActiveState"] == "active" and api.worker.read()["phase"] in ("staged", "waiting"):
+            contract = api.worker.read()["contract"]
+            peer = api.journal.read() | {
+                "controller_name": c.SERVER, "controller_boot_id": contract["bindings"][c.SERVER]["boot_id"],
+                "controller_kernel": contract["bindings"][c.SERVER]["kernel"],
+                "live_source_bindings": contract["source_bindings"],
+            }
+            with patch.object(h, "worker_runtime", return_value=(Path("."), contract)), \
+                    patch.object(h, "worker_transaction", side_effect=lambda _, fn: api.worker.transaction(fn)), \
+                    patch.object(h, "cold_peer_status", return_value=peer), \
+                    patch.object(h.Path, "read_text", return_value="old-worker2"), \
+                    patch.object(h.platform, "release", return_value=contract["bindings"][c.WORKER]["kernel"]), \
+                    patch.object(h, "main") as main:
+                try:
+                    h.cold_standby(contract["run_id"])
+                except RuntimeError:
+                    self.assertEqual(api.worker.read()["phase"], "cancelled")
+                main.assert_not_called()
+            api.worker_native.update(ActiveState="inactive", MainPID="0", ControlGroup="")
+        return c.Coordinator.recover(coordinator, success)
+
+    @contextmanager
+    def finalizer_environment(self, groups=None, peer_changes=None, transaction=None):
+        contract = self.api.worker.read()["contract"]
+        worker_unit = "node-maintenance-cold-worker-" + contract["run_id"] + ".service"
+        self.api.finalizer["service"].update(ActiveState="activating", MainPID=str(h.os.getpid()))
+        groups = groups or {}
+        def native(unit):
+            if unit == worker_unit:
+                return copy.deepcopy(self.api.worker_native)
+            for suffix, section in (("-finalize.service", "service"), ("-finalize.timer", "timer")):
+                if unit == worker_unit.removesuffix(".service") + suffix:
+                    return copy.deepcopy(self.api.finalizer[section])
+            if unit in ("reboot.target", "shutdown.target"):
+                return {"LoadState": "loaded", "ActiveState": "inactive", "Job": "0"}
+            self.assertIn(unit, {"node-maintenance-reboot-" + contract["host_step_id"] + suffix
+                                 for suffix in (".timer", ".service")})
+            return {"LoadState": "not-found", "ActiveState": "inactive", "MainPID": "0",
+                    "ControlPID": "0", "Job": "0", "ControlGroup": ""}
+        def peer(_):
+            return self.journal.read() | {
+                "controller_name": c.SERVER, "controller_boot_id": contract["bindings"][c.SERVER]["boot_id"],
+                "controller_kernel": contract["bindings"][c.SERVER]["kernel"],
+                "live_source_bindings": contract["source_bindings"],
+            } | (peer_changes or {})
+        def read(path, *args, **kwargs):
+            if path == Path("/proc/sys/kernel/random/boot_id"):
+                return self.api.host_boot
+            for group, events in groups.items():
+                if path == Path(group) / "cgroup.events":
+                    return events
+            raise AssertionError("Unexpected finalizer file read: " + str(path))
+        def metadata(path):
+            if str(path) in groups:
+                return SimpleNamespace(st_uid=0, st_mode=stat.S_IFDIR | 0o755)
+            raise FileNotFoundError(str(path))
+        actions = MagicMock()
+        def execute(args):
+            if args[:2] == ["systemctl", "show"]:
+                return "\n".join(k + "=" + str(v) for k, v in native(args[2]).items())
+            self.assertEqual(args, ["systemctl", "stop", worker_unit.removesuffix(".service") + "-finalize.timer"])
+            return actions(args)
+        def unit_hash(name):
+            if name == worker_unit:
+                return self.api.worker_unit_sha256
+            return self.api.finalizer["service_sha256" if name.endswith(".service") else "timer_sha256"]
+        with ExitStack() as stack:
+            for patcher in (
+                patch.object(h, "worker_runtime", return_value=(Path("."), contract)),
+                patch.object(h, "load_cold", return_value=c),
+                patch.object(h, "worker_transaction",
+                             side_effect=transaction or (lambda _, fn: self.api.worker.transaction(fn))),
+                patch.object(h, "cold_peer_status", side_effect=peer),
+                patch.object(h, "cold_public", side_effect=lambda _: self.api.worker.read()),
+                patch.object(h, "worker_unit_digest", side_effect=unit_hash),
+                patch.object(h.platform, "release", return_value=contract["bindings"][c.WORKER]["kernel"]),
+                patch.object(h.Path, "lstat", autospec=True, side_effect=metadata),
+                patch.object(h.Path, "read_text", autospec=True, side_effect=read),
+            ):
+                stack.enter_context(patcher)
+            stack.enter_context(patch.object(h, "command", side_effect=execute))
+            yield contract, actions
+
+    def test_controller_heartbeat_between_request_and_response_uses_receive_time_for_wait_and_claim(self):
+        worker = self.worker_journal()
+        contract = worker.read()["contract"]
+        clock = {"now": contract["started_epoch"] + 1}
+        peer = self.standby_peer()
+        exchanges = []
+        def ssh(_):
+            sent = clock["now"]
+            clock["now"] += 0.1
+            peer["last_epoch"] = peer["guard_verified_epoch"] = peer["host_native_gate_epoch"] = clock["now"]
+            heartbeat = clock["now"]
+            clock["now"] += 0.1
+            exchanges.append((sent, heartbeat, clock["now"]))
+            return copy.deepcopy(peer)
+        with patch.object(h, "worker_transaction", side_effect=lambda _, fn: worker.transaction(fn)), \
+                patch.object(h, "cold_peer_status", side_effect=ssh), patch.object(h.time, "time", side_effect=lambda: clock["now"]), \
+                patch.object(h.Path, "read_text", return_value="old-worker2"), \
+                patch.object(h.platform, "release", return_value=contract["bindings"][c.WORKER]["kernel"]), \
+                patch.object(h, "audit", return_value=contract["bindings"][c.WORKER]):
+            self.assertEqual(h.standby_tick(Path("."), contract), "waiting")
+            peer.update(mode="disrupting", phase="awaiting-host", host_started=True, host_reboot_authorized=True)
+            self.assertEqual(h.standby_tick(Path("."), contract), "claim")
+        self.assertEqual(len(exchanges), 3)  # Waiting response, claim response, post-audit claim recheck.
+        self.assertTrue(all(sent < heartbeat < received for sent, heartbeat, received in exchanges))
+        self.assertEqual(worker.read()["last_epoch"], exchanges[-1][2])
+        self.assertEqual(worker.read()["peer_epoch"], exchanges[-1][2])
+
+    def test_ssh_response_clock_rollback_or_reserve_crossing_never_claims(self):
+        for boundary in ("rollback", "reserve"):
+            worker = self.worker_journal("waiting")
+            contract = worker.read()["contract"]
+            clock = {"now": contract["started_epoch"] + 1 if boundary == "rollback" else contract["deadline_epoch"] - 7200 - 0.1}
+            peer = self.standby_peer(authorized=True)
+            def ssh(_):
+                requested = clock["now"]
+                clock["now"] += -0.2 if boundary == "rollback" else 0.2
+                peer["last_epoch"] = peer["host_native_gate_epoch"] = requested + 0.05
+                return copy.deepcopy(peer)
+            with self.subTest(boundary=boundary), \
+                    patch.object(h, "worker_transaction", side_effect=lambda _, fn: worker.transaction(fn)), \
+                    patch.object(h, "cold_peer_status", side_effect=ssh), patch.object(h.time, "time", side_effect=lambda: clock["now"]), \
+                    patch.object(h.Path, "read_text", return_value="old-worker2"), \
+                    patch.object(h.platform, "release", return_value=contract["bindings"][c.WORKER]["kernel"]), \
+                    patch.object(h, "audit") as audit, self.assertRaisesRegex(RuntimeError, "rollback|reserve"):
+                h.standby_tick(Path("."), contract)
+            audit.assert_not_called()
+            self.assertEqual(worker.read()["phase"], "waiting")
+
+    def test_post_audit_claim_response_rechecks_clock_and_reserve_before_durable_claim(self):
+        for boundary in ("rollback", "reserve"):
+            worker = self.worker_journal("waiting")
+            contract = worker.read()["contract"]
+            clock = {"now": contract["started_epoch"] + 1, "calls": 0}
+            peer = self.standby_peer(authorized=True)
+            def ssh(_):
+                requested = clock["now"]
+                clock["calls"] += 1
+                peer["last_epoch"] = peer["host_native_gate_epoch"] = requested + 0.05
+                clock["now"] += -0.2 if clock["calls"] == 2 and boundary == "rollback" else 0.2
+                return copy.deepcopy(peer)
+            def audit():
+                if boundary == "reserve":
+                    clock["now"] = contract["deadline_epoch"] - 7200 - 0.1
+                return contract["bindings"][c.WORKER]
+            with self.subTest(boundary=boundary), \
+                    patch.object(h, "worker_transaction", side_effect=lambda _, fn: worker.transaction(fn)), \
+                    patch.object(h, "cold_peer_status", side_effect=ssh), patch.object(h.time, "time", side_effect=lambda: clock["now"]), \
+                    patch.object(h.Path, "read_text", return_value="old-worker2"), \
+                    patch.object(h.platform, "release", return_value=contract["bindings"][c.WORKER]["kernel"]), \
+                    patch.object(h, "audit", side_effect=audit), self.assertRaisesRegex(RuntimeError, "rollback|reserve"):
+                h.standby_tick(Path("."), contract)
+            self.assertEqual(clock["calls"], 2)
+            self.assertEqual(worker.read()["phase"], "waiting")
+
+    def test_dead_standby_after_first_app_pause_needs_real_finalizer_ack_before_guard_can_restore(self):
+        for row in self.plan["reconciliation"] + self.plan["schedules"]:
+            self.coordinator.mutate(row, "suspend", True)
+        for row in self.plan["autoscalers"]:
+            self.coordinator.mutate(row, "pause", True)
+        for row in sorted([r for r in self.plan["controllers"] if (r["namespace"], r["name"]) in c.OPERATORS],
+                          key=lambda r: (r["name"] != "keda-operator", c.key(r))):
+            self.coordinator.mutate(row, "replicas", 0)
+        app = next(r for r in self.plan["controllers"] if (r["namespace"], r["name"]) == ("homebox", "homebox"))
+        self.coordinator.mutate(app, "replicas", 0)
+        self.api.worker_native.update(ActiveState="failed", MainPID="0", ControlGroup="")
+        deadline = self.journal.read()["deadline_epoch"]
+        with patch.object(c, "load_runtime", return_value=self.coordinator), patch.object(c.m, "run", return_value="failed"), \
+                patch.object(c.m, "health", return_value={}), patch.object(c.m.urllib.request, "urlopen") as url, \
+                patch.object(c.time, "sleep"):
+            url.return_value.__enter__.return_value.status = 200
+            with self.assertRaisesRegex(RuntimeError, "not acknowledged"):
+                c.guard("bound-controller-run")
+            self.assertTrue(self.journal.read()["host_slot_cancelled"])
+            self.assertEqual(self.api.worker_status(self.policy, "1" * 32)["record"]["phase"], "waiting")
+            self.assertEqual(self.api.get("deployments", "homebox", "homebox")["spec"]["replicas"], 0)
+            self.assertTrue(self.api.items("configmap"))
+            with self.finalizer_environment() as (contract, command):
+                h.cold_worker_finalize(contract["run_id"])
+                command.assert_called_once_with(["systemctl", "stop",
+                                                "node-maintenance-cold-worker-" + contract["run_id"] + "-finalize.timer"])
+            self.assertEqual(self.api.worker.read()["phase"], "cancelled")
+            self.assertEqual(self.api.worker.read()["finalizer_ack"]["contract_sha256"], c.sha(c.canonical(contract)))
+            c.guard("bound-controller-run")
+        self.assertEqual(self.journal.read()["deadline_epoch"], deadline)
+        self.assertEqual(self.journal.read()["phase"], "recovered-after-failure")
+        self.assertEqual(self.api.get("deployments", "homebox", "homebox")["spec"]["replicas"], 1)
+        self.coordinator.original_state()
+
+    def test_finalizer_refuses_unknown_queued_active_child_or_drifted_unit_without_ack(self):
+        self.coordinator.request_recovery("test-revocation")
+        original = self.api.worker_native.copy()
+        contract = self.api.worker.read()["contract"]
+        group = str(Path("/sys/fs/cgroup") / ("system.slice/node-maintenance-cold-worker-" + contract["run_id"] + ".service"))
+        changes = [
+            {"LoadState": "not-found"}, {"ActiveState": "active"}, {"Job": "37"},
+            {"MainPID": "1234"}, {"ControlPID": "1235"}, {"User": "rishik"},
+            {"FragmentPath": "/unbound/unit.service"}, {"ControlGroup": "/unbound/cgroup"},
+            {"child": True}, {"unit_source": True},
+        ]
+        for change in changes:
+            self.api.worker_native = original | {"ActiveState": "failed", "MainPID": "0", "ControlGroup": ""} | change
+            with self.subTest(change=change), \
+                    self.finalizer_environment(groups={group: "populated 1\nfrozen 0\n"} if change.get("child") else {}) as (contract, command):
+                if change.get("unit_source"):
+                    with patch.object(h, "worker_unit_digest", return_value="0" * 64), self.assertRaises(RuntimeError):
+                        h.cold_worker_finalize(contract["run_id"])
+                else:
+                    with self.assertRaises(RuntimeError):
+                        h.cold_worker_finalize(contract["run_id"])
+                command.assert_not_called()
+            self.assertEqual(self.api.worker.read()["phase"], "waiting")
+            self.assertNotIn("finalizer_ack", self.api.worker.read())
+        self.assertTrue(self.api.items("configmap"))
+
+    def test_finalizer_requires_exact_revocation_and_can_ack_after_deadline_without_renewal(self):
+        self.api.worker_native.update(ActiveState="failed", MainPID="0", ControlGroup="")
+        # A dead job is not itself controller revocation.
+        with self.finalizer_environment() as (contract, command):
+            h.cold_worker_finalize(contract["run_id"])
+            command.assert_not_called()
+        self.assertEqual(self.api.worker.read()["phase"], "waiting")
+        self.coordinator.request_recovery("test-revocation")
+        for change in ({"deadline_epoch": contract["deadline_epoch"] + 1}, {"host_step_id": "3" * 32},
+                       {"live_source_bindings": {}}, {"controller_boot_id": "new-boot"}):
+            with self.subTest(change=change), self.finalizer_environment(peer_changes=change), self.assertRaises(RuntimeError):
+                h.cold_worker_finalize(contract["run_id"])
+            self.assertEqual(self.api.worker.read()["phase"], "waiting")
+        with self.finalizer_environment(), patch.object(h, "worker_runtime", side_effect=RuntimeError("root source drift")), \
+                self.assertRaisesRegex(RuntimeError, "source drift"):
+            h.cold_worker_finalize(contract["run_id"])
+        deadline = contract["deadline_epoch"]
+        with self.finalizer_environment(), patch.object(h.time, "time", return_value=deadline + 1):
+            h.cold_worker_finalize(contract["run_id"])
+        self.assertEqual(self.api.worker.read()["contract"]["deadline_epoch"], deadline)
+        self.assertEqual(self.api.worker.read()["phase"], "cancelled")
+
+    def test_dead_claimed_job_with_package_children_or_deferred_reboot_never_gets_ack(self):
+        self.authorize_host_slot()
+        self.coordinator.request_recovery("test-revocation")
+        self.api.worker.transaction(lambda s: s.update(phase="claimed"))
+        self.api.worker_native.update(ActiveState="failed", MainPID="0", ControlGroup="")
+        contract = self.api.worker.read()["contract"]
+        group = str(Path("/sys/fs/cgroup") / ("system.slice/node-maintenance-cold-worker-" + contract["run_id"] + ".service"))
+        with self.finalizer_environment(groups={group: "populated 1\nfrozen 0\n"}) as (_, command), \
+                self.assertRaisesRegex(RuntimeError, "descendants still active"):
+            h.cold_worker_finalize(contract["run_id"])
+        command.assert_not_called()
+        self.assertEqual(self.api.worker.read()["phase"], "claimed")
+        with self.finalizer_environment() as (_, command):
+            native = h.worker_unit_status
+            timer = "node-maintenance-reboot-" + contract["host_step_id"] + ".timer"
+            with patch.object(h, "worker_unit_status", side_effect=lambda u: (
+                    {"LoadState": "loaded", "ActiveState": "active", "Job": "42", "MainPID": "0",
+                     "ControlPID": "0", "ControlGroup": ""} if u == timer else native(u))), \
+                    self.assertRaisesRegex(RuntimeError, "reboot unit"):
+                h.cold_worker_finalize(contract["run_id"])
+            command.assert_not_called()
+        self.assertEqual(self.api.worker.read()["phase"], "claimed")
+        with self.finalizer_environment(groups={group: "populated 0\nfrozen 0\n"}):
+            h.cold_worker_finalize(contract["run_id"])
+        self.assertEqual(self.api.worker.read()["phase"], "failed")
+        self.assertNotIn("receipt", self.api.worker.read())
+        self.assertFalse(self.journal.read()["host_complete"])
+
+    def test_finalizer_ack_and_late_claim_are_serialized_by_same_worker_mutex(self):
+        self.coordinator.request_recovery("test-revocation")
+        self.api.worker_native.update(ActiveState="failed", MainPID="0", ControlGroup="")
+        mutex, inspecting, release, attempting = threading.Lock(), threading.Event(), threading.Event(), threading.Event()
+        errors, outcomes = [], []
+        def transaction(_, callback):
+            with mutex:
+                return self.api.worker.transaction(callback)
+        original = h.worker_quiescent
+        def inspect(contract, cold):
+            inspecting.set()
+            if not release.wait(5):
+                raise RuntimeError("Test did not release finalizer")
+            return original(contract, cold)
+        def finalize(run):
+            try:
+                h.cold_worker_finalize(run)
+            except Exception as error:
+                errors.append(error)
+        def late_claim(contract):
+            attempting.set()
+            try:
+                outcomes.append(h.standby_tick(Path("."), contract))
+            except RuntimeError as error:
+                outcomes.append(str(error))
+        with self.finalizer_environment(transaction=transaction) as (contract, _), \
+                patch.object(h, "worker_quiescent", side_effect=inspect):
+            finalizer = threading.Thread(target=finalize, args=(contract["run_id"],))
+            claimant = threading.Thread(target=late_claim, args=(contract,))
+            finalizer.start()
+            try:
+                self.assertTrue(inspecting.wait(5))
+                claimant.start()
+                self.assertTrue(attempting.wait(5))
+            finally:
+                release.set()
+                finalizer.join(5)
+                if claimant.ident is not None:
+                    claimant.join(5)
+        self.assertFalse(finalizer.is_alive())
+        self.assertFalse(claimant.is_alive())
+        self.assertEqual(errors, [])
+        self.assertEqual(len(outcomes), 1)
+        self.assertIn("single-shot/terminal", outcomes[0])
+        self.assertEqual(self.api.worker.read()["phase"], "cancelled")
+
+    def test_finalizer_is_registered_and_actually_executed_before_standby_start(self):
+        contract = self.api.worker.read()["contract"]
+        stream = MagicMock()
+        stream.__enter__.return_value = stream
+        with patch.object(h.Path, "open", return_value=stream), patch.object(h.os, "fchmod", create=True), \
+                patch.object(h.os, "fsync"), patch.object(h, "worker_status", side_effect=lambda _: self.api.worker_status(self.policy, contract["run_id"])), \
+                patch.object(h, "command") as command:
+            h.start_worker_standby(Path("."), contract, c)
+        base = "node-maintenance-cold-worker-" + contract["run_id"]
+        self.assertEqual([call.args[0] for call in command.call_args_list], [
+            ["systemctl", "daemon-reload"], ["systemctl", "start", base + "-finalize.timer"],
+            ["systemctl", "start", base + "-finalize.service"], ["systemctl", "start", "--no-block", base + ".service"],
+        ])
+        for section, field, value in (("timer", "LoadState", "not-found"), ("timer", "ActiveState", "inactive"),
+                                      ("timer", "Unit", "unbound.service"), ("service", "User", "rishik")):
+            proof = self.api.worker_status(self.policy, contract["run_id"])
+            proof["finalizer"][section][field] = value
+            with self.subTest(field=field), self.assertRaisesRegex(RuntimeError, "finalizer required"):
+                c.worker_ready(proof, contract, time.time())
+        proof = self.api.worker_status(self.policy, contract["run_id"])
+        proof["record"]["finalizer_verified_epoch"] = 0
+        with patch.object(h.Path, "open", return_value=stream), patch.object(h.os, "fchmod", create=True), \
+                patch.object(h.os, "fsync"), patch.object(h, "worker_status", return_value=proof), \
+                patch.object(h, "command") as command, self.assertRaisesRegex(RuntimeError, "finalizer required"):
+            h.start_worker_standby(Path("."), contract, c)
+        self.assertNotIn(["systemctl", "start", "--no-block", base + ".service"],
+                         [call.args[0] for call in command.call_args_list])
+        with patch.object(h, "cold_worker_finalize") as finalize:
+            h.main({"operation": "cold-worker-finalize", "run_id": contract["run_id"]})
+            finalize.assert_called_once_with(contract["run_id"])
+            with self.assertRaisesRegex(RuntimeError, "no command/payload"):
+                h.main({"operation": "cold-worker-finalize", "run_id": contract["run_id"], "command": "unbound"})
 
     def test_apply_frontloads_all_privileged_auth_and_only_observes_after_first_pause(self):
         start = self.journal.read()["started_epoch"]
@@ -831,7 +1197,7 @@ class ColdTests(unittest.TestCase):
         self.assertFalse(any("delete" in args.args for args in kube.call_args_list))
         self.assertEqual(self.journal.read()["deadline_epoch"], start + 43200)
 
-    def test_standby_start_failure_cancels_only_unclaimed_idle_job_never_stops_or_kills(self):
+    def test_standby_stage_failure_never_invents_ack_from_idle_or_unknown_unit(self):
         for queued in (False, True):
             worker = self.worker_journal("waiting")
             contract = worker.read()["contract"]
@@ -846,7 +1212,7 @@ class ColdTests(unittest.TestCase):
                     patch.object(h, "command", side_effect=RuntimeError("start failed")) as command, \
                     self.assertRaisesRegex(RuntimeError, "start failed"):
                 h.start_worker_standby(Path("."), contract, c)
-            self.assertEqual(worker.read()["phase"], "waiting" if queued else "cancelled")
+            self.assertEqual(worker.read()["phase"], "waiting")
             self.assertEqual(worker.read()["contract"]["deadline_epoch"], contract["deadline_epoch"])
             self.assertEqual(command.call_args.args[0], ["systemctl", "daemon-reload"])
 
@@ -1265,10 +1631,10 @@ class ColdTests(unittest.TestCase):
                     patch.object(c.time, "sleep"):
                 url.return_value.__enter__.return_value.status = 200
                 with self.assertRaisesRegex(RuntimeError, "Ambiguous response"):
-                    self.coordinator.recover()
+                    self.recover_with_live_worker()
                 self.assertTrue(self.journal.read()["producer_warmup_complete"])
                 self.assertTrue(self.api.items("configmap"))
-                self.coordinator.recover()
+                self.recover_with_live_worker()
             restored = self.api.get("cronjobs", *c.CROSS_PRODUCER)
             with self.subTest(original=original):
                 self.assertEqual("suspend" in restored["spec"], original is not None)
@@ -1419,8 +1785,8 @@ class ColdTests(unittest.TestCase):
         with patch.object(c.m, "health", return_value={}), patch.object(c.m.urllib.request, "urlopen") as url, \
                 patch.object(c.time, "sleep"):
             url.return_value.__enter__.return_value.status = 200
-            self.coordinator.recover()
-            self.coordinator.recover()
+            self.recover_with_live_worker()
+            self.recover_with_live_worker()
         self.assertEqual(c.storage_snapshot(self.policy, self.api), identities)
         self.assertEqual(self.journal.read()["phase"], "recovered-after-failure")
 
@@ -1495,7 +1861,7 @@ class ColdTests(unittest.TestCase):
         old_deadline = self.journal.read()["deadline_epoch"]
         with patch.object(c.m, "health", return_value={}), patch.object(c.m.urllib.request, "urlopen") as url, patch.object(c.time, "sleep"):
             url.return_value.__enter__.return_value.status = 200
-            self.coordinator.recover()
+            self.recover_with_live_worker()
         self.assertEqual(self.journal.read()["deadline_epoch"], old_deadline)
         self.assertEqual(self.journal.read()["phase"], "recovered-after-failure")
         c.assert_binding(self.api.get(c.RESOURCES[row["kind"]], row["namespace"], row["name"]), row)
@@ -1511,6 +1877,7 @@ class ColdTests(unittest.TestCase):
         self.assertEqual(self.journal.read()["deadline_epoch"], original["deadline_epoch"])
 
     def successful_hooks(self, reboot=True):
+        self.coordinator.recover = self.recover_with_live_worker
         original_authorize = self.coordinator.authorize_host
         def authorize():
             original_authorize()
@@ -1555,6 +1922,7 @@ class ColdTests(unittest.TestCase):
             policy, api, plan, approval, journal = fixture()
             coordinator = c.Coordinator(plan, approval, policy, journal, api)
             coordinator.wait = lambda fn, **kwargs: fn()
+            coordinator.recover = lambda success=False: self.recover_with_live_worker(success, coordinator, api)
             coordinator.drain = lambda: (_ for _ in ()).throw(error)
             deadline = journal.read()["deadline_epoch"]
             with patch.object(c.m, "get", side_effect=api.get), patch.object(c.m, "health", return_value={}), \
@@ -1577,7 +1945,7 @@ class ColdTests(unittest.TestCase):
     def test_host_failure_and_busy_package_transaction_do_not_force_reboot_or_warm(self):
         self.journal.state.update(host_started=True, host_started_epoch=time.time())
         with patch.object(self.api, "host_idle", side_effect=RuntimeError("APT still busy")), self.assertRaises(RuntimeError):
-            self.coordinator.recover()
+            self.recover_with_live_worker()
         self.assertTrue(self.api.items("configmap"))
         self.assertFalse(self.journal.read()["completed"])
         self.assertFalse(any(e[0] == "patch" for e in self.api.events))
@@ -1588,7 +1956,7 @@ class ColdTests(unittest.TestCase):
         with patch.object(c.m, "health", return_value={}), patch.object(c.m.urllib.request, "urlopen") as url, \
                 patch.object(c.time, "sleep"), self.assertRaisesRegex(RuntimeError, "exceeded 12h"):
             url.return_value.__enter__.return_value.status = 200
-            self.coordinator.recover()
+            self.recover_with_live_worker()
         self.assertEqual(self.journal.read()["deadline_epoch"], original["deadline_epoch"])
         self.assertTrue(self.api.items("configmap"))
 
@@ -1622,6 +1990,8 @@ class ColdTests(unittest.TestCase):
                    "headless": True, "package_removals": False,
                    "contract_sha256": state["worker_contract_sha256"]}
         self.coordinator.ingest_worker_receipt(receipt)
+        self.api.worker.transaction(lambda s: s.update(phase="packages-complete", receipt=receipt))
+        self.api.worker_native.update(ActiveState="inactive", MainPID="0", ControlGroup="")
         return payload
 
     def test_real_package_receipt_before_timer_keeps_authorization_until_verified_new_boot(self):
@@ -1749,6 +2119,7 @@ class ColdTests(unittest.TestCase):
             policy, api, plan, approval, journal = fixture()
             coordinator = c.Coordinator(plan, approval, policy, journal, api)
             coordinator.wait = lambda fn, **kwargs: fn()
+            coordinator.recover = lambda success=False: self.recover_with_live_worker(success, coordinator, api)
             deadline = journal.read()["deadline_epoch"]
             with patch.object(c.m, "get", side_effect=api.get):
                 coordinator.mutate(plan["reconciliation"][0], "suspend", True)

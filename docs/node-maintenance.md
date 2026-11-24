@@ -154,6 +154,10 @@ The source execution ordering is:
    unit hash, fresh worker/peer readiness and original bindings; creating a unit
    or finding no unit is not readiness. The controller rechecks that proof,
    its native guard, source and all pre-pause gates before starting.
+   The same setup first registers a separate run-scoped root revocation
+   finalizer and ten-second timer, executes its self-check, and proves its
+   actual root PID, exact unit hashes and active timer. A missing/unverified
+   finalizer blocks standby readiness and therefore the first pause.
    There are three privileged setup calls: controller registration, worker
    standby registration, controller start. **All manual authentication is before
    the first pause.** Only after these proofs does the root start helper print
@@ -228,6 +232,10 @@ The source execution ordering is:
    or runs packages and irrevocably revokes on native peer drift; a stale native
    host-slot heartbeat cannot authorize a launch/reboot. A long normal drain is
    still inert, not mistaken for an authorized but stale slot.
+   Sample local time **after** each read-only SSH response: a controller heartbeat
+   produced between request and response is not a future timestamp. Recheck
+   local rollback and immutable reserve bounds after each response and the
+   final claim recheck, rather than compare it with a pre-request timestamp.
    The single-shot unit accepts only its run ID, never a caller
    command or replacement OS payload; terminal claim/receipt records cannot be
    replayed. APT is never killed. Recheck the immutable reserve and controller guard
@@ -289,10 +297,28 @@ recovery waits for its acknowledgment/receipt and genuinely idle standby,
 APT/reboot units, empty package cgroups and native shutdown jobs. No stop/kill
 is used to manufacture idleness. A revoked launch rechecks before APT and reboot;
 the guard also waits for any normal drain to finish.
+If the standby dies abruptly with its durable phase still `waiting` or
+`claimed`, reading a failed unit never fabricates an acknowledgment. The
+controller requests recovery; the independently pre-registered worker finalizer
+can acknowledge only after reading exact controller revocation. Under the
+worker claim mutex it revalidates root-owned source/run/step/deadline bindings,
+the original worker boot/kernel, the exact **loaded** unit/hash/fragment,
+`MainPID=0`, `ControlPID=0`, `Job=0`, and the bound native cgroup. It checks the
+canonical cgroup path even when systemd's `ControlGroup` property is empty;
+`populated=0` must cover all surviving package descendants. Referenced missing
+cgroups, unknown units, live/queued claims, pending reboot/shutdown units or
+active children fail closed without stop/kill. Only then does it fsync a terminal
+root-owned acknowledgment (`failed`, never success, for a claimed job).
+The controller's next guard retry can restore original state after that real
+acknowledgment and its existing idle/storage checks. A late claim serializes on
+the same mutex and cannot pass a terminal record. Acknowledgment after the
+original deadline grants no launch authority, clock extension or success.
 Worker records are root-owned under `/var/lib/node-maintenance-cold-worker/<run-id>`;
 only the technical 0444 status/receipt is exposed under
-`/var/lib/node-maintenance-cold-worker-status`. The standby unit is run-scoped
-under `/run/systemd/system`, not enabled at boot and not a permanent host agent.
+`/var/lib/node-maintenance-cold-worker-status`. Standby and finalizer units are
+run-scoped under `/run/systemd/system`, not enabled at boot or permanent host
+agents. The finalizer stops only its own timer after terminal completion; it
+never stops the standby, APT, a drain or a reboot job.
 `cold-recover` requests the same protected original-state recovery; it never
 restarts the outage clock or resumes upgrades. Reserve entry, executor loss and
 explicit recovery revoke pending host/reboot launches. If reboot is refused and
@@ -301,13 +327,14 @@ original applications under native two-copy protection rather than demand a boot
 that never occurred. Report `recovered-after-failure`, never maintenance acceptance.
 If a reboot did occur, its kernel/headless identity must still be verified.
 
-Stage/start failures occur before any pause. An unclaimed unqueued idle standby
-is terminally cancelled under its worker mutex; a live/queued standby receives
-the same irrevocable controller revocation and acknowledges it naturally.
+Stage/start failures occur before any pause. They never infer an acknowledgment
+from an idle/unknown unit. A live standby receives irrevocable controller
+revocation and acknowledges it naturally; a proven dead loaded job is finalized
+by the already registered independent authority under the same worker mutex.
 The setup error requests the original controller recovery channel while still
 before `cold-start`; the workstation never deletes the lock or resets the clock.
-If staging failed too early to establish a root-owned acknowledgment, a worker
-crashed before acknowledging, or an original channel is missing, cancellation
+If staging failed before registering/verifying the finalizer, its exact native
+unit/cgroup/source proof is unavailable, or an original channel is missing, cancellation
 cannot be safely inferred. Fail closed loudly, retain the original lock/deadline,
 and treat this as a runtime blocker requiring the existing explicit operator
 channel, not an absence-of-unit waiver or an automatic privilege/trust change.
