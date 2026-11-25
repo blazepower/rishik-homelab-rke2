@@ -483,6 +483,13 @@ canonical cgroup path even when systemd's `ControlGroup` property is empty;
 cgroups, unknown units, live/queued claims, pending reboot/shutdown units or
 active children fail closed without stop/kill. Only then does it fsync a terminal
 root-owned acknowledgment (`failed`, never success, for a claimed job).
+Native `systemctl show` renders no queued job as a present empty `Job=`.
+The shared host status reader canonicalizes exactly that value to the internal
+`0` sentinel; legacy explicit `Job=0` also remains accepted. It never adds a
+missing Job property or normalizes whitespace, malformed values or queued job
+IDs. Timer shapes, service PID/cgroup checks and all unit/source identities stay
+unchanged. Both root finalizer checks and the restricted peer idle reads use
+this same reader.
 The controller's next guard retry can restore original state after that real
 acknowledgment and its existing idle/storage checks. A late claim serializes on
 the same mutex and cannot pass a terminal record. Acknowledgment after the
@@ -519,6 +526,20 @@ Cancellation remains unverified; use read-only status and, if needed, the
 existing explicit `cold-recover` operator channel. A root start-helper preflight
 or executor unit start failure instead revokes the slot and requests the guard
 itself, without another workstation authentication.
+
+**Already-bound pre-fix runs:** native Job-format correction is not retroactive.
+The old exact standby code can acknowledge irrevocable revocation under its
+worker mutex without the finalizer self-check, if invoked through its existing
+bound authority and the original source/peer/boot/clock checks succeed. That
+acknowledgment alone cannot settle a run whose immutable host helper still
+returns empty Job values: `cold-recover` unconditionally requires the old peer
+idle gate, even when no application was paused, and that gate still rejects
+`Job=`. The old finalizer also fails its independent readiness/quiescence checks.
+There is no documented complete/lock-release path around those old gates.
+Retain the original lock, deadline, approval and all source/contract/grant
+artifacts; do not retrofit this fix by replacing bound sources, amending grants,
+fabricating an acknowledgment or forcing lock removal. Resolving that old-run
+blocker requires a separate operator decision, not authority added by this fix.
 
 Unsafe/degraded storage, identity drift, lost native peers, a busy package
 transaction or unavailable worker2 can block restoration. The timer retries and

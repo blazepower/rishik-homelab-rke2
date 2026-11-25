@@ -705,7 +705,10 @@ class ColdTests(unittest.TestCase):
         actions = MagicMock()
         def execute(args):
             if args[:2] == ["systemctl", "show"]:
-                return "\n".join(k + "=" + str(v) for k, v in native(args[2]).items())
+                values = native(args[2])
+                if values.get("Job") == "0":
+                    values["Job"] = ""
+                return "\n".join(k + "=" + str(v) for k, v in values.items())
             self.assertEqual(args, ["systemctl", "stop", worker_unit.removesuffix(".service") + "-finalize.timer"])
             return actions(args)
         def unit_hash(name):
@@ -728,6 +731,122 @@ class ColdTests(unittest.TestCase):
                 stack.enter_context(patcher)
             stack.enter_context(patch.object(h, "command", side_effect=execute))
             yield contract, actions
+
+    def test_native_empty_job_output_proves_exact_finalizer_and_worker_readiness_without_timer_pid_fields(self):
+        with self.finalizer_environment() as (contract, command):
+            unit = "node-maintenance-cold-worker-" + contract["run_id"] + "-finalize.timer"
+            raw = h.command(["systemctl", "show", unit])
+            self.assertIn("\nJob=\n", raw)
+            proof = h.worker_status(contract["run_id"])
+            c.worker_finalizer_ready(proof, contract, time.time())
+            c.worker_ready(proof, contract, time.time())
+            self.assertEqual(proof["finalizer"]["timer"]["Job"], "0")
+            self.assertEqual(proof["unit"]["Job"], "0")
+            for name in ("MainPID", "ControlPID", "ControlGroup"):
+                self.assertNotIn(name, proof["finalizer"]["timer"])
+            command.assert_not_called()
+        self.assertEqual(self.api.events, [])
+
+    def test_native_missing_malformed_or_queued_jobs_never_prove_finalizer_or_worker_ready(self):
+        original_unit = copy.deepcopy(self.api.worker_native)
+        original_timer = copy.deepcopy(self.api.finalizer["timer"])
+        for section in ("unit", "timer"):
+            for value in (None, "37", "37 worker.service", " ", "0 ", "00", "invalid"):
+                self.api.worker_native = copy.deepcopy(original_unit)
+                self.api.finalizer["timer"] = copy.deepcopy(original_timer)
+                state = self.api.worker_native if section == "unit" else self.api.finalizer["timer"]
+                if value is None:
+                    state.pop("Job")
+                else:
+                    state["Job"] = value
+                with self.subTest(section=section, job=value), self.finalizer_environment() as (contract, command):
+                    proof = h.worker_status(contract["run_id"])
+                    native = proof["unit"] if section == "unit" else proof["finalizer"]["timer"]
+                    if value is None:
+                        self.assertNotIn("Job", native)
+                    else:
+                        self.assertEqual(native["Job"], value)
+                    with self.assertRaises((RuntimeError, KeyError)):
+                        c.worker_ready(proof, contract, time.time())
+                    command.assert_not_called()
+        self.assertEqual(self.api.events, [])
+
+    def test_native_empty_job_peer_idle_and_api_accept_only_explicit_absence_on_all_six_units(self):
+        run_id, step_id = "1" * 32, "2" * 32
+        units = [f"node-maintenance-{step_id}-os.service", f"node-maintenance-reboot-{step_id}.timer",
+                 f"node-maintenance-reboot-{step_id}.service", "reboot.target", "shutdown.target",
+                 f"node-maintenance-cold-worker-{run_id}.service"]
+        jobs = {unit: "" for unit in units}
+        raw = []
+        def show(args):
+            self.assertEqual(args[:2], ["systemctl", "show"])
+            unit = args[2]
+            self.assertIn(unit, units)
+            native = {"LoadState": "loaded", "ActiveState": "inactive"}
+            if jobs[unit] is not None:
+                native["Job"] = jobs[unit]
+            if unit.endswith(".service"):
+                native.update(MainPID="0", ControlPID="0", ControlGroup="")
+            value = "\n".join(k + "=" + v for k, v in native.items())
+            raw.append(value)
+            return value
+        protocol = MagicMock()
+        protocol.request.side_effect = lambda *_args: peer_source.idle(h, run_id, step_id)
+        with patch.object(h, "command", side_effect=show), patch.object(h, "worker_cgroup_empty") as groups, \
+                patch.object(c, "peer", return_value=protocol):
+            self.assertTrue(c.API().host_idle(self.policy, step_id, run_id))
+            self.assertEqual(len(groups.call_args_list), 3)
+            self.assertTrue(all("\nJob=" in value for value in raw))
+            for unit in units:
+                for job in (None, "187", "187 shutdown.target", " ", "0 ", "invalid"):
+                    jobs[unit] = job
+                    with self.subTest(unit=unit, job=job), self.assertRaises((RuntimeError, KeyError)):
+                        c.API().host_idle(self.policy, step_id, run_id)
+                jobs[unit] = ""
+            self.assertTrue(c.API().host_idle(self.policy, step_id, run_id))
+            jobs.update({unit: "0" for unit in units})
+            self.assertTrue(c.API().host_idle(self.policy, step_id, run_id))
+
+    def test_old_bound_standby_can_ack_cancel_but_legacy_empty_job_idle_gate_still_blocks_settlement(self):
+        self.api.worker.state["phase"] = "staged"
+        self.api.worker_native.update(ActiveState="inactive", MainPID="0", ControlGroup="")
+        contract = self.api.worker.read()["contract"]
+        deadline = self.journal.read()["deadline_epoch"]
+        self.coordinator.request_recovery("already-cancelled-before-first-pause")
+        peer = self.journal.read() | {
+            "controller_name": c.SERVER, "controller_boot_id": contract["bindings"][c.SERVER]["boot_id"],
+            "controller_kernel": contract["bindings"][c.SERVER]["kernel"],
+            "live_source_bindings": contract["source_bindings"],
+        }
+        with patch.object(h, "worker_runtime", return_value=(Path("."), contract)), \
+                patch.object(h, "worker_transaction", side_effect=lambda _, fn: self.api.worker.transaction(fn)), \
+                patch.object(h, "cold_peer_status", return_value=peer), \
+                patch.object(h.Path, "read_text", return_value=contract["bindings"][c.WORKER]["boot_id"]), \
+                patch.object(h.platform, "release", return_value=contract["bindings"][c.WORKER]["kernel"]), \
+                patch.object(h, "audit", return_value=contract["bindings"][c.WORKER]), \
+                patch.object(h, "main") as main:
+            h.cold_standby(contract["run_id"])
+            main.assert_not_called()
+        self.assertEqual(self.api.worker.read()["phase"], "cancelled")
+        self.assertNotIn("finalizer_ack", self.api.worker.read())
+        def legacy_native(unit):
+            state = {"LoadState": "loaded", "ActiveState": "inactive", "Job": ""}
+            if unit.endswith(".service"):
+                state.update(MainPID="0", ControlPID="0", ControlGroup="")
+            return state
+        protocol = MagicMock()
+        protocol.request.side_effect = lambda *_args: peer_source.idle(h, contract["run_id"], contract["host_step_id"])
+        with patch.object(h, "worker_unit_status", side_effect=legacy_native), \
+                patch.object(h, "worker_cgroup_empty"), patch.object(c, "peer", return_value=protocol), \
+                patch.object(self.api, "host_idle", side_effect=c.API().host_idle), \
+                self.assertRaisesRegex(RuntimeError, "host work still active/unknown"):
+            self.coordinator.recover()
+        self.assertEqual(self.journal.read()["phase"], "waiting-worker-standby-revocation")
+        self.assertEqual(self.journal.read()["deadline_epoch"], deadline)
+        self.assertFalse(self.journal.read()["completed"])
+        self.assertFalse(self.journal.read()["host_started"])
+        self.assertEqual(self.api.events, [])
+        self.assertTrue(self.api.items("configmap"))
 
     def test_controller_heartbeat_between_request_and_response_uses_receive_time_for_wait_and_claim(self):
         worker = self.worker_journal()

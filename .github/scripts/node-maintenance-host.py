@@ -396,7 +396,11 @@ def worker_unit_status(unit):
     value = command(["systemctl", "show", unit, "-p", "LoadState", "-p", "ActiveState",
                      "-p", "MainPID", "-p", "ControlPID", "-p", "Job", "-p", "User",
                      "-p", "FragmentPath", "-p", "ControlGroup", "-p", "Unit"])
-    return dict(v.split("=", 1) for v in value.splitlines())
+    native = dict(v.split("=", 1) for v in value.splitlines())
+    # Native systemctl renders an absent job as Job=; never synthesize a missing property.
+    if "Job" in native and native["Job"] == "":
+        native["Job"] = "0"
+    return native
 
 
 def worker_unit_digest(unit):
