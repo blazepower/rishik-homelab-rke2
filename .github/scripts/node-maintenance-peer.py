@@ -7,11 +7,13 @@ from contextlib import contextmanager
 import datetime
 import hashlib
 import importlib.util
+import ipaddress
 import json
 import os
 from pathlib import Path
 import platform
 import re
+import shlex
 import socket
 import stat
 import struct
@@ -26,6 +28,10 @@ NODES = {"rishik-controller": "192.168.1.10", "rishik-worker2": "192.168.1.12"}
 SOURCES = ("node-maintenance-peer.py", "node-maintenance-host.py")
 PROTOCOL = "node-maintenance-peer-v1"
 READ_ENV = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LC_ALL": "C"}
+SSHD_CONFIG = Path("/etc/ssh/sshd_config")
+SSHD_PARTS = Path("/etc/ssh/sshd_config.d")
+SSHD_DEFAULTS = Path("/etc/default/ssh")
+SSHD_PROC = Path("/proc")
 
 
 def require(condition, message):
@@ -156,17 +162,12 @@ def helper(value, directory):
 
 def local_proof(require_probe=True):
     value, directory = config()
-    authorization = public_json(directory / "authorization.json")
-    require(authorization["setup_id"] == value["setup_id"]
-            and authorization["expires_epoch"] == value["expires_epoch"]
-            and authorization["entry"] == authorized_entry(value, authorization["incoming_public_key"])
-            and authorization["incoming_key_fingerprint"] == public_key(authorization["incoming_public_key"])
-            and authorization["entry"] in (HOME / ".ssh/authorized_keys").read_text().splitlines(),
-            "Exact restricted authorized-key entry absent/drifted")
+    authorization = activation_verified(value, directory)
     proof = {k: value[k] for k in ("setup_id", "node", "peer", "started_epoch", "expires_epoch",
                                   "source_sha256", "peer_host_fingerprint", "public_key_fingerprint",
                                   "original_boot_id", "original_kernel")}
     proof["incoming_key_fingerprint"] = authorization["incoming_key_fingerprint"]
+    proof["ssh_policy_sha256"] = sha(canonical(authorization["policy"]))
     if require_probe:
         probe = public_json(directory / "probe.json")
         require(probe["config_sha256"] == sha(canonical(value))
@@ -180,6 +181,8 @@ def plan_scope(plan):
     proof = local_proof()
     expected = plan["peer_scope"][proof["node"]]
     require(proof == expected, "Approved peer identity/trust/source/expiry/probe drift")
+    value, directory = config()
+    validate_policy(value, public_json(directory / "authorization.json"), installed=True)
     for name, digest in proof["source_sha256"].items():
         require(plan["source_bindings"][".github/scripts/" + name] == digest, "Approved peer source drift")
     for node, peer in plan["peer_scope"].items():
@@ -253,6 +256,7 @@ def dispatch(text):
     operation, run_id, step_id = parse_request(text, value)
     if operation == "proof":
         return local_proof(require_probe=False)
+    activation_verified(value, directory)
     h = helper(value, directory)
     if operation == "audit":
         return h.audit()
@@ -322,37 +326,205 @@ def authorized_entry(value, key):
             f'{key} node-maintenance-peer:{value["setup_id"]}:{value["peer"]}')
 
 
-def edit_authorized(entry, add=True, separator=False, original_sha256=None):
-    user = account()
-    directory = HOME / ".ssh"
-    metadata = directory.lstat()
-    require(stat.S_ISDIR(metadata.st_mode) and metadata.st_uid == user.pw_uid
-            and stat.S_IMODE(metadata.st_mode) == 0o700, "Existing user SSH directory must remain unchanged")
-    path = directory / "authorized_keys"
-    metadata = path.lstat()
-    require(stat.S_ISREG(metadata.st_mode) and metadata.st_uid == user.pw_uid
-            and stat.S_IMODE(metadata.st_mode) == 0o600, "Existing authorized_keys must be regular user-owned 0600")
-    original = path.read_bytes()
-    line = entry.encode() + b"\n"
-    if add:
-        require(original_sha256 is None or sha(original) == original_sha256,
-                "Authorized_keys changed after setup ownership receipt; stop")
-        require(entry.encode() not in original and b"node-maintenance-peer:" not in original,
-                "Existing maintenance authorization; no replacement/rotation")
-        separator = bool(original and not original.endswith(b"\n"))
-        changed = original + (b"\n" if separator else b"") + line
+def ssh_files(value):
+    return (PUBLIC / value["setup_id"] / "incoming_authorized_keys",
+            SSHD_PARTS / ("90-node-maintenance-peer-" + value["setup_id"] + ".conf"))
+
+
+def ssh_manifest(value, owned_text=None):
+    checked(SSHD_PARTS, 0o755, directory=True)
+    _, owned = ssh_files(value)
+    paths = [SSHD_CONFIG, *sorted(SSHD_PARTS.glob("*.conf"))]
+    result, includes = {}, 0
+    for path in paths:
+        metadata = path.lstat()
+        require(stat.S_ISREG(metadata.st_mode) and metadata.st_uid == 0
+                and stat.S_IMODE(metadata.st_mode) in (0o600, 0o644), "SSHD config ownership/type drift")
+        data = path.read_bytes()
+        if path == owned:
+            require(owned_text is not None and data == owned_text, "Foreign owned SSH drop-in; no overwrite")
+        else:
+            require("node-maintenance-peer-" not in path.name, "Foreign maintenance SSH scope")
+            for line in data.decode().splitlines():
+                words = shlex.split(line, comments=True)
+                if not words:
+                    continue
+                require(words[0].lower() != "match", "Preexisting Match policy conflicts; no activation")
+                if words[0].lower() == "include":
+                    require(path == SSHD_CONFIG and words[1:] == [str(SSHD_PARTS / "*.conf")],
+                            "Unsupported SSH Include layout; no policy waiver")
+                    includes += 1
+        result[str(path)] = {"sha256": sha(data), "mode": stat.S_IMODE(metadata.st_mode)}
+    require(includes == 1, "Exactly one native global SSH drop-in Include required")
+    return result
+
+
+def ssh_contexts(value):
+    peer = NODES[value["peer"]]
+    node = NODES[value["node"]]
+    return {f"{user}@{address}:{local}:{port}":
+            f"user={user},addr={address},host={address},laddr={local},lport={port}"
+            for user, address, local, port in (
+                ("rishik", peer, node, 22), ("rishik", value["operator_ip"], node, 22),
+                ("rishik", "192.0.2.1", node, 22), ("root", peer, node, 22),
+                ("nobody", peer, node, 22), ("rishik", peer, "192.0.2.254", 22),
+                ("rishik", peer, node, 2222))}
+
+
+def ssh_effective(context):
+    output = execute(["/usr/sbin/sshd", "-T", "-f", str(SSHD_CONFIG), "-C", context])
+    result = {}
+    for line in output.splitlines():
+        name, value = line.split(" ", 1)
+        result.setdefault(name, []).append(value)
+    require(len(result.get("authorizedkeysfile", [])) == 1, "Unknown native AuthorizedKeysFile shape")
+    return result
+
+
+def key_paths(effective):
+    value = effective["authorizedkeysfile"][0]
+    paths = value.split()
+    require(paths and paths != ["none"]
+            and all(re.fullmatch(r"[A-Za-z0-9_./%+-]+", p) for p in paths),
+            "Unsupported/disabled original AuthorizedKeysFile; never replace original policy")
+    return paths
+
+
+def policy_shape(effective):
+    return {"authorized_keys": effective["authorizedkeysfile"][0].split(),
+            "other_sha256": sha(canonical({k: v for k, v in effective.items() if k != "authorizedkeysfile"}))}
+
+
+def ssh_service():
+    output = execute(["/usr/bin/systemctl", "show", "ssh.service", "-p", "LoadState", "-p", "ActiveState",
+                      "-p", "MainPID", "-p", "ExecStart", "-p", "ExecReload", "-p", "DropInPaths"])
+    value = dict(line.split("=", 1) for line in output.splitlines())
+    start = re.findall(r"argv\[\]=(.*?) ;", value["ExecStart"])
+    reload = re.findall(r"argv\[\]=(.*?) ;", value["ExecReload"])
+    require(value["LoadState"] == "loaded" and value["ActiveState"] == "active"
+            and value["MainPID"].isdigit() and int(value["MainPID"]) > 1 and not value["DropInPaths"]
+            and start == ["/usr/sbin/sshd -D $SSHD_OPTS"]
+            and re.findall(r"\bpath=(.*?) ;", value["ExecStart"]) == ["/usr/sbin/sshd"]
+            and re.findall(r"\bpath=(.*?) ;", value["ExecReload"]) == [args.split()[0] for args in reload]
+            and re.findall(r"ignore_errors=(yes|no)", value["ExecReload"]) == ["no"] * len(reload)
+            and reload in (["/bin/kill -HUP $MAINPID"], ["/usr/bin/kill -HUP $MAINPID"],
+                           ["/usr/sbin/sshd -t", "/bin/kill -HUP $MAINPID"],
+                           ["/usr/sbin/sshd -t", "/usr/bin/kill -HUP $MAINPID"]),
+            "Nonstandard SSH daemon/start/reload policy; no reload or restart")
+    if SSHD_DEFAULTS.exists():
+        for line in SSHD_DEFAULTS.read_text().splitlines():
+            if line.strip().startswith("SSHD_OPTS="):
+                require(shlex.split(line.strip().split("=", 1)[1], comments=True) in ([], [""]),
+                        "Alternate sshd options/config unsupported")
+    argv = " ".join(part.decode() for part in (SSHD_PROC / value["MainPID"] / "cmdline").read_bytes().split(b"\0") if part)
+    require(argv == "/usr/sbin/sshd -D" or re.fullmatch(
+        r"sshd: /usr/sbin/sshd -D \[listener\] \d+ of \d+-\d+ startups", argv),
+        "Running sshd has alternate/unverified arguments; no policy activation")
+    return value["MainPID"]
+
+
+def dropin_text(value, original_paths):
+    keyfile, _ = ssh_files(value)
+    return (f"# node-maintenance-peer:{value['setup_id']}\n"
+            f"Match User rishik Address {NODES[value['peer']]} LocalAddress {NODES[value['node']]} LocalPort 22\n"
+            "    AuthorizedKeysFile " + " ".join([*original_paths, str(keyfile)]) + "\n").encode()
+
+
+def policy_baseline(value):
+    manifest = ssh_manifest(value)
+    ssh_service()
+    execute(["/usr/sbin/sshd", "-t", "-f", str(SSHD_CONFIG)])
+    profiles = {}
+    for name, context in ssh_contexts(value).items():
+        effective = ssh_effective(context)
+        require(effective.get("pubkeyauthentication") == ["yes"]
+                and effective.get("forcecommand") == ["none"] and effective.get("chrootdirectory") == ["none"],
+                "Original SSH restrictions cannot execute the fixed read-only peer protocol; no waiver")
+        key_paths(effective)
+        profiles[name] = policy_shape(effective)
+    require(ssh_manifest(value) == manifest, "Concurrent original SSH configuration drift; no activation")
+    return {"manifest": manifest, "profiles": profiles}
+
+
+def validate_policy(value, authorization, installed):
+    policy = authorization["policy"]
+    keyfile, dropin = ssh_files(value)
+    expected = dict(policy["manifest"])
+    text = dropin_text(value, policy["profiles"][next(iter(ssh_contexts(value)))]["authorized_keys"])
+    if installed:
+        expected[str(dropin)] = {"sha256": sha(text), "mode": 0o644}
+    require(ssh_manifest(value, text if installed else None) == expected,
+            "Foreign/concurrent SSH config drift; do not activate/reload")
+    pid = ssh_service()
+    execute(["/usr/sbin/sshd", "-t", "-f", str(SSHD_CONFIG)])
+    for index, (name, context) in enumerate(ssh_contexts(value).items()):
+        wanted = dict(policy["profiles"][name])
+        if installed and index == 0:
+            wanted["authorized_keys"] = [*wanted["authorized_keys"], str(keyfile)]
+        require(policy_shape(ssh_effective(context)) == wanted,
+                "Native effective SSH policy changed beyond exact peer key file; no activation/reload")
+    require(ssh_manifest(value, text if installed else None) == expected, "SSH config changed during native validation")
+    return pid
+
+
+def reload_policy(value, authorization, installed):
+    pid = validate_policy(value, authorization, installed)
+    execute(["/usr/bin/systemctl", "reload", "ssh.service"])
+    require(validate_policy(value, authorization, installed) == pid,
+            "SSH reload failed/ambiguous or daemon identity changed; no ready receipt")
+
+
+def activation_verified(value, directory):
+    record = public_json(directory / "authorization.json")
+    keyfile, dropin = ssh_files(value)
+    require(record["activated"] is True and not (directory / "authorization.revoked.json").exists()
+            and record["setup_id"] == value["setup_id"] and record["expires_epoch"] == value["expires_epoch"]
+            and record["entry"] == authorized_entry(value, record["incoming_public_key"])
+            and record["incoming_key_fingerprint"] == public_key(record["incoming_public_key"])
+            and checked(keyfile, 0o444).read_bytes() == (record["entry"] + "\n").encode()
+            and checked(dropin, 0o644).read_bytes() == dropin_text(
+                value, record["policy"]["profiles"][next(iter(ssh_contexts(value)))]["authorized_keys"]),
+            "Exact activated restricted key/drop-in absent/drifted; no protocol readiness")
+    return record
+
+
+def remove_authorization(value, directory, record):
+    keyfile, dropin = ssh_files(value)
+    marker = directory / "authorization.revoked.json"
+    revoked = {"setup_id": value["setup_id"], "authorization_sha256": sha(canonical(record))}
+    require(record["setup_id"] == value["setup_id"] and record["expires_epoch"] == value["expires_epoch"]
+            and record["entry"] == authorized_entry(value, record["incoming_public_key"])
+            and record["incoming_key_fingerprint"] == public_key(record["incoming_public_key"]),
+            "Foreign authorization cleanup record")
+    if marker.exists():
+        require(public_json(marker) == revoked, "Foreign revocation record; no cleanup")
+    if record["activated"] is True:
+        if not marker.exists():
+            activation_verified(value, directory)
+        validate_policy(value, record, installed=dropin.exists())
     else:
-        require(original.splitlines().count(entry.encode()) == 1, "Exact owned entry absent/ambiguous; no cleanup")
-        changed = b"".join(row for row in original.splitlines(keepends=True) if row.rstrip(b"\r\n") != entry.encode())
-        if separator and original.endswith(line) and changed.endswith(b"\n") and (
-                original_sha256 is None or sha(changed[:-1]) == original_sha256):
-            changed = changed[:-1]
-    staged = directory / ("node-maintenance-peer-" + sha(line)[:16] + ".next")
-    write_new(staged, changed, 0o600)
-    os.chown(staged, metadata.st_uid, metadata.st_gid)
-    require(path.lstat() == metadata and path.read_bytes() == original, "Concurrent authorized_keys edit; stop")
-    os.replace(staged, path)
-    return separator
+        require(record["activated"] is False and not (directory / "run.json").exists()
+                and not (directory / "authorization.json").exists(), "Pending setup has run/ready state; retain")
+        expected = dict(record["policy"]["manifest"])
+        text = dropin_text(value, record["policy"]["profiles"][next(iter(ssh_contexts(value)))]["authorized_keys"])
+        if dropin.exists():
+            expected[str(dropin)] = {"sha256": sha(text), "mode": 0o644}
+        require(ssh_manifest(value, text if dropin.exists() else None) == expected,
+                "Original SSH config drift during pending cleanup; retain")
+    if not marker.exists():
+        write_new(marker, canonical(revoked))
+    for path, mode, expected in (
+            (keyfile, 0o444, (record["entry"] + "\n").encode()),
+            (dropin, 0o644, dropin_text(value, record["policy"]["profiles"][next(iter(ssh_contexts(value)))]["authorized_keys"]))):
+        if path.exists():
+            require(checked(path, mode).read_bytes() == expected, "Foreign owned SSH artifact; retain and inspect")
+            path.unlink()
+    reload_policy(value, record, installed=False)
+    cleaned = directory / "authorization.cleaned.json"
+    if cleaned.exists():
+        require(public_json(cleaned) == revoked, "Foreign cleanup receipt")
+    else:
+        write_new(cleaned, canonical(revoked))
 
 
 def prepare_input(setup_id):
@@ -360,25 +532,20 @@ def prepare_input(setup_id):
     incoming = HOME / ".local/state/node-maintenance-peer" / setup_id
     value = json.loads((incoming / "setup.json").read_bytes())
     require(set(value) == {"setup_id", "node", "peer", "started_epoch", "expires_epoch",
-                           "peer_host_key", "peer_host_fingerprint", "source_sha256"}
+                           "peer_host_key", "peer_host_fingerprint", "source_sha256", "operator_ip"}
             and value["setup_id"] == setup_id and value["node"] in NODES
             and value["peer"] == next(n for n in NODES if n != value["node"])
             and isinstance(value["started_epoch"], int) and isinstance(value["expires_epoch"], int)
             and value["expires_epoch"] == value["started_epoch"] + 86400
             and 0 <= time.time() - value["started_epoch"] < 900
             and set(value["source_sha256"]) == set(SOURCES), "Exact fresh immutable 24h setup scope required")
+    require(str(ipaddress.IPv4Address(value["operator_ip"])) == value["operator_ip"]
+            and value["operator_ip"] not in NODES.values(), "Exact distinct trusted Windows source IP required")
     host_identity(value["node"])
     known_host(value)
     sources = {name: (incoming / name).read_bytes() for name in SOURCES}
     require(all(sha(data) == value["source_sha256"][name] for name, data in sources.items())
             and sha(Path(__file__).read_bytes()) == value["source_sha256"][SOURCES[0]], "Approved setup source drift")
-    # Refuse absent/unexpected original SSH settings before creating anything.
-    user = account()
-    ssh = (HOME / ".ssh").lstat()
-    keys = (HOME / ".ssh/authorized_keys").lstat()
-    require(stat.S_ISDIR(ssh.st_mode) and ssh.st_uid == user.pw_uid and stat.S_IMODE(ssh.st_mode) == 0o700
-            and stat.S_ISREG(keys.st_mode) and keys.st_uid == user.pw_uid and stat.S_IMODE(keys.st_mode) == 0o600,
-            "Provisioned existing user SSH settings required; no broad SSH configuration changes")
     return value, sources
 
 
@@ -418,19 +585,26 @@ def authorize():
     incoming = HOME / ".local/state/node-maintenance-peer" / value["setup_id"] / "peer-public-key.txt"
     key = incoming.read_text().strip()
     entry = authorized_entry(value, key)
-    original = (HOME / ".ssh/authorized_keys").read_bytes()
     record = {"setup_id": value["setup_id"], "expires_epoch": value["expires_epoch"], "entry": entry,
               "incoming_key_fingerprint": public_key(key), "incoming_public_key": key,
-              "separator": bool(original and not original.endswith(b"\n")), "original_sha256": sha(original)}
-    # Write ownership evidence first; an interrupted append can only fail closed.
+              "policy": policy_baseline(value), "activated": False}
+    keyfile, dropin = ssh_files(value)
+    write_new(directory / "authorization.pending.json", canonical(record), 0o600)
+    original_paths = record["policy"]["profiles"][next(iter(ssh_contexts(value)))]["authorized_keys"]
+    write_new(dropin, dropin_text(value, original_paths), 0o644)
+    reload_policy(value, record, installed=True)
+    require(time.time() < value["expires_epoch"], "Scope expired during native SSH setup")
+    write_new(keyfile, (entry + "\n").encode())
+    validate_policy(value, record, installed=True)
+    record["activated"] = True
     write_new(directory / "authorization.json", canonical(record))
-    edit_authorized(entry, original_sha256=record["original_sha256"])
     return local_proof(require_probe=False)
 
 
 def probe():
     value, directory = config()
     own = local_proof(require_probe=False)
+    validate_policy(value, public_json(directory / "authorization.json"), installed=True)
     peer = request("proof")
     require(peer["node"] == value["peer"] and peer["peer"] == value["node"]
             and all(peer[k] == own[k] for k in ("setup_id", "started_epoch", "expires_epoch", "source_sha256"))
@@ -490,14 +664,19 @@ def cleanup(setup_id):
                 native = h.worker_unit_status("node-maintenance-cold-worker-" + grant["run_id"] + suffix)
                 require(native["ActiveState"] in ("inactive", "failed") and native["Job"] == "0",
                         "Worker finalizer still active; retain channel")
-    record = public_json(directory / "authorization.json")
-    edit_authorized(record["entry"], add=False, separator=record["separator"], original_sha256=record["original_sha256"])
-    private = checked(PRIVATE / setup_id, 0o700, directory=True)
-    for name, mode in (("identity", 0o600), ("identity.pub", 0o644), ("known_hosts", 0o600)):
-        checked(private / name, mode).unlink()
-    private.rmdir()
+    authorization = directory / "authorization.json"
+    record = (public_json(authorization) if authorization.exists()
+              else json.loads(checked(directory / "authorization.pending.json", 0o600).read_bytes()))
+    remove_authorization(value, directory, record)
+    private = PRIVATE / setup_id
+    if private.exists():
+        checked(private, 0o700, directory=True)
+        for name, mode in (("identity", 0o600), ("identity.pub", 0o644), ("known_hosts", 0o600)):
+            if (private / name).exists():
+                checked(private / name, mode).unlink()
+        private.rmdir()
     (PUBLIC / "current.json").unlink()
-    return {"setup_id": setup_id, "exact_entry_removed": True, "host_local_identity_removed": True}
+    return {"setup_id": setup_id, "owned_keyfile_dropin_removed": True, "host_local_identity_removed": True}
 
 
 def main():

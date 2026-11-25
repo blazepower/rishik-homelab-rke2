@@ -1306,7 +1306,77 @@ class ColdTests(unittest.TestCase):
         blob = b"\x00\x00\x00\x0bssh-ed25519\x00\x00\x00\x20" + bytes([17]) * 32
         value["peer_host_key"] = "ssh-ed25519 " + base64.b64encode(blob).decode()
         value["peer_host_fingerprint"] = peer_source.public_key(value["peer_host_key"])
+        value["operator_ip"] = "192.168.1.50"
         return value
+
+    @contextmanager
+    def peer_policy_environment(self):
+        import tempfile
+        value = self.peer_config()
+        with tempfile.TemporaryDirectory(dir=Path.cwd(), prefix=".peer-policy-test-") as root, ExitStack() as stack:
+            root = Path(root)
+            public, parts, home, proc = (root / name for name in ("public", "parts", "home", "proc"))
+            directory = public / value["setup_id"]
+            for path in (directory, parts, home / ".ssh", proc / "1234"):
+                path.mkdir(parents=True)
+            config = root / "sshd_config"
+            config.write_text("Include " + shlex.quote(str(parts / "*.conf")) + "\n# original global settings\n")
+            baseline = parts / "50-original.conf"
+            baseline.write_bytes(b"# original SSH settings\nPasswordAuthentication no\n")
+            original = home / ".ssh" / "authorized_keys"
+            original.write_bytes(b"original-public-entry\n")
+            second = home / ".ssh" / "authorized_keys2"
+            second.write_bytes(b"second-original-public-entry\n")
+            user_config = home / ".ssh" / "config"
+            user_config.write_bytes(b"unrelated user SSH settings\n")
+            (proc / "1234" / "cmdline").write_bytes(b"sshd: /usr/sbin/sshd -D [listener] 0 of 10-100 startups\0")
+            incoming = home / ".local/state/node-maintenance-peer" / value["setup_id"]
+            incoming.mkdir(parents=True)
+            (incoming / "peer-public-key.txt").write_text(value["peer_host_key"])
+            state = SimpleNamespace(value=value, directory=directory, original=original, second=second,
+                                    config=config, baseline=baseline, parts=parts, commands=[], syntax_fail=False,
+                                    reload_fail=False, pid="1234", other_drift=False, wrong_context=False,
+                                    original_paths=[".ssh/authorized_keys", ".ssh/authorized_keys2"],
+                                    forcecommand="none", proc=proc)
+            for name, path in (("PUBLIC", public), ("SSHD_PARTS", parts), ("SSHD_CONFIG", config),
+                               ("SSHD_DEFAULTS", root / "ssh-defaults"), ("SSHD_PROC", proc), ("HOME", home)):
+                stack.enter_context(patch.object(peer_source, name, path))
+            state.keyfile, state.dropin = peer_source.ssh_files(value)
+            def execute(args):
+                state.commands.append(args)
+                if args[:3] == ["/usr/bin/systemctl", "show", "ssh.service"]:
+                    return ("LoadState=loaded\nActiveState=active\nMainPID=" + state.pid
+                            + "\nExecStart={ path=/usr/sbin/sshd ; argv[]=/usr/sbin/sshd -D $SSHD_OPTS ; ignore_errors=no ; }"
+                            + "\nExecReload={ path=/usr/sbin/sshd ; argv[]=/usr/sbin/sshd -t ; ignore_errors=no ; }"
+                            + " { path=/bin/kill ; argv[]=/bin/kill -HUP $MAINPID ; ignore_errors=no ; }\nDropInPaths=")
+                if args == ["/usr/bin/systemctl", "reload", "ssh.service"]:
+                    if state.reload_fail:
+                        raise RuntimeError("native reload refused")
+                    return ""
+                self.assertEqual(args[:2], ["/usr/sbin/sshd", args[1]])
+                self.assertIn(args[1], ("-t", "-T"))
+                if args[1] == "-t":
+                    if state.syntax_fail and state.dropin.exists():
+                        raise RuntimeError("native syntax refused")
+                    return ""
+                paths = list(state.original_paths)
+                exact = args[-1] == next(iter(peer_source.ssh_contexts(value).values()))
+                if state.dropin.exists() and (exact or state.wrong_context):
+                    paths.append(str(state.keyfile))
+                return ("\n".join(("port 22", "listenaddress 0.0.0.0:22", "listenaddress [::]:22",
+                                   "pubkeyauthentication yes", "chrootdirectory none",
+                                   "forcecommand " + state.forcecommand,
+                                   "passwordauthentication " + ("yes" if state.dropin.exists() and state.other_drift else "no"),
+                                   "authorizedkeysfile " + " ".join(paths), "allowtcpforwarding yes")))
+            def metadata(path):
+                mode = stat.S_IFDIR | 0o755 if path in (public, directory, parts) else stat.S_IFREG | 0o644
+                return SimpleNamespace(st_uid=0, st_mode=mode)
+            stack.enter_context(patch.object(peer_source, "config", return_value=(value, directory)))
+            stack.enter_context(patch.object(peer_source, "checked", side_effect=lambda path, *_a, **_kw: path))
+            stack.enter_context(patch.object(peer_source.Path, "lstat", autospec=True, side_effect=metadata))
+            stack.enter_context(patch.object(peer_source.os, "fchmod", create=True))
+            stack.enter_context(patch.object(peer_source, "execute", side_effect=execute))
+            yield state
 
     def test_forced_peer_requests_reject_shell_unknown_ops_paths_injection_and_foreign_scope(self):
         value = self.peer_config()
@@ -1353,7 +1423,7 @@ class ColdTests(unittest.TestCase):
         # Rejection precedes any installation of a new trust file.
         invalid = value | {"peer_host_fingerprint": "SHA256:" + "0" * 43}
         setup = {k: invalid[k] for k in ("setup_id", "node", "peer", "started_epoch", "expires_epoch",
-                                       "peer_host_key", "peer_host_fingerprint", "source_sha256")}
+                                       "peer_host_key", "peer_host_fingerprint", "source_sha256", "operator_ip")}
         with patch.object(peer_source.Path, "read_bytes", return_value=json.dumps(setup).encode()), \
                 patch.object(peer_source, "host_identity"), patch.object(peer_source, "write_new") as write, \
                 patch.object(peer_source, "execute") as execute, self.assertRaises(RuntimeError):
@@ -1413,34 +1483,37 @@ class ColdTests(unittest.TestCase):
             peer_source.request("worker-status", "4" * 32, "2" * 32)
         execute.assert_not_called()
 
-    def test_restricted_key_append_and_exact_cleanup_preserve_original_ssh_bytes(self):
-        import tempfile
-        value = self.peer_config()
-        entry = peer_source.authorized_entry(value, value["peer_host_key"])
-        self.assertIn('from="192.168.1.12",restrict,command="/usr/bin/python3 -I -B ', entry)
-        self.assertIn('expiry-time="', entry)
-        for original in (b"original-public-entry\n", b"original-public-entry"):
-            with self.subTest(original=original), tempfile.TemporaryDirectory(dir=Path.cwd(), prefix=".peer-test-") as root:
-                home = Path(root)
-                ssh = home / ".ssh"
-                ssh.mkdir()
-                path = ssh / "authorized_keys"
-                path.write_bytes(original)
-                (ssh / "known_hosts").write_bytes(b"old trusted host\n")
-                (ssh / "config").write_bytes(b"existing user settings\n")
-                native = SimpleNamespace(st_uid=1000, st_gid=1000, st_mode=stat.S_IFREG | 0o600)
-                metadata = lambda p: SimpleNamespace(st_uid=1000, st_mode=stat.S_IFDIR | 0o700) if p == ssh else native
-                with patch.object(peer_source, "HOME", home), \
-                        patch.object(peer_source, "account", return_value=SimpleNamespace(pw_uid=1000)), \
-                        patch.object(peer_source.Path, "lstat", autospec=True, side_effect=metadata), \
-                        patch.object(peer_source.os, "fchmod", create=True), patch.object(peer_source.os, "chown", create=True):
-                    separator = peer_source.edit_authorized(entry)
-                    self.assertTrue(path.read_bytes().startswith(original))
-                    self.assertEqual(path.read_bytes().splitlines().count(entry.encode()), 1)
-                    peer_source.edit_authorized(entry, add=False, separator=separator)
-                self.assertEqual(path.read_bytes(), original)
-                self.assertEqual((ssh / "known_hosts").read_bytes(), b"old trusted host\n")
-                self.assertEqual((ssh / "config").read_bytes(), b"existing user settings\n")
+    def test_scoped_authorize_and_cleanup_never_rewrite_concurrently_written_original_keys(self):
+        with self.peer_policy_environment() as env:
+            originals = {path: path.read_bytes() for path in (env.original, env.second, env.config, env.baseline)}
+            write_new = peer_source.write_new
+            def concurrent_authorize(path, data, *args):
+                if path == env.keyfile:
+                    env.original.write_bytes(env.original.read_bytes() + b"unrelated-concurrent-authorize-entry\n")
+                return write_new(path, data, *args)
+            with patch.object(peer_source, "write_new", side_effect=concurrent_authorize):
+                proof = peer_source.authorize()
+            record = peer_source.public_json(env.directory / "authorization.json")
+            self.assertEqual(proof["ssh_policy_sha256"], peer_source.sha(peer_source.canonical(record["policy"])))
+            self.assertIn('from="192.168.1.12",restrict,command="/usr/bin/python3 -I -B ', record["entry"])
+            self.assertIn('expiry-time="', record["entry"])
+            unlink = Path.unlink
+            def concurrent_cleanup(path, *args, **kwargs):
+                if path == env.keyfile:
+                    env.original.write_bytes(env.original.read_bytes() + b"unrelated-concurrent-cleanup-entry\n")
+                    env.second.write_bytes(env.second.read_bytes() + b"unrelated-concurrent-second-entry\n")
+                return unlink(path, *args, **kwargs)
+            with patch.object(peer_source.Path, "unlink", autospec=True, side_effect=concurrent_cleanup):
+                peer_source.remove_authorization(env.value, env.directory, record)
+            self.assertEqual(env.original.read_bytes(), originals[env.original]
+                             + b"unrelated-concurrent-authorize-entry\nunrelated-concurrent-cleanup-entry\n")
+            self.assertEqual(env.second.read_bytes(), originals[env.second] + b"unrelated-concurrent-second-entry\n")
+            for path in (env.config, env.baseline):
+                self.assertEqual(path.read_bytes(), originals[path])
+            self.assertFalse(env.keyfile.exists())
+            self.assertFalse(env.dropin.exists())
+            self.assertEqual([cmd for cmd in env.commands if cmd[0] == "/usr/bin/systemctl" and cmd[1] != "show"],
+                             [["/usr/bin/systemctl", "reload", "ssh.service"]] * 2)
 
     def test_peer_expiry_source_and_pointer_drift_fail_before_request_or_pause(self):
         value = self.peer_config()
@@ -1475,7 +1548,7 @@ class ColdTests(unittest.TestCase):
     def test_peer_prepare_generates_only_local_scoped_identity_and_bound_public_source(self):
         value = self.peer_config()
         setup = {k: value[k] for k in ("setup_id", "node", "peer", "started_epoch", "expires_epoch",
-                                     "peer_host_key", "peer_host_fingerprint", "source_sha256")}
+                                     "peer_host_key", "peer_host_fingerprint", "source_sha256", "operator_ip")}
         sources = {name: (DIRECTORY / name).read_bytes() for name in peer_source.SOURCES}
         reads = []
         def read_bytes(path):
@@ -1517,7 +1590,7 @@ class ColdTests(unittest.TestCase):
     def test_peer_setup_replay_or_foreign_host_fails_without_rotation_or_new_expiry(self):
         value = self.peer_config()
         setup = {k: value[k] for k in ("setup_id", "node", "peer", "started_epoch", "expires_epoch",
-                                     "peer_host_key", "peer_host_fingerprint", "source_sha256")}
+                                     "peer_host_key", "peer_host_fingerprint", "source_sha256", "operator_ip")}
         sources = {name: (DIRECTORY / name).read_bytes() for name in peer_source.SOURCES}
         def read(path):
             return json.dumps(setup).encode() if path.name == "setup.json" else sources[path.name]
@@ -1545,6 +1618,7 @@ class ColdTests(unittest.TestCase):
         audit = {"name": c.WORKER, "boot_id": remote["original_boot_id"], "kernel": remote["original_kernel"]}
         with patch.object(peer_source, "config", return_value=(value, Path(".peer-scope-fixture"))), \
                 patch.object(peer_source, "local_proof", return_value=own), \
+                patch.object(peer_source, "validate_policy"), patch.object(peer_source, "public_json"), \
                 patch.object(peer_source, "request", side_effect=[remote, audit]) as request, \
                 patch.object(peer_source, "write_new") as write:
             peer_source.probe()
@@ -1553,33 +1627,218 @@ class ColdTests(unittest.TestCase):
         self.assertEqual(probe["peer_proof_sha256"], peer_source.sha(peer_source.canonical(remote)))
         with patch.object(peer_source, "config", return_value=(value, Path(".peer-scope-fixture"))), \
                 patch.object(peer_source, "local_proof", return_value=own), \
+                patch.object(peer_source, "validate_policy"), patch.object(peer_source, "public_json"), \
                 patch.object(peer_source, "request", return_value=remote | {"incoming_key_fingerprint": "foreign"}), \
                 patch.object(peer_source, "write_new") as write, self.assertRaisesRegex(RuntimeError, "identity drift"):
             peer_source.probe()
         write.assert_not_called()
 
     def test_peer_authorization_receipt_proves_exact_restrictions_not_any_existing_public_key(self):
-        value = self.peer_config()
-        key = value["peer_host_key"]
-        with patch.object(peer_source, "config", return_value=(value, Path(".peer-scope-fixture"))), \
-                patch.object(peer_source.Path, "read_text", return_value=key), \
-                patch.object(peer_source.Path, "read_bytes", return_value=b"old public entry"), \
-                patch.object(peer_source, "write_new") as write, \
-                patch.object(peer_source, "edit_authorized") as edit, patch.object(peer_source, "local_proof"):
+        with self.peer_policy_environment() as env:
             peer_source.authorize()
-        record = json.loads(write.call_args.args[1])
-        self.assertEqual(record["entry"], peer_source.authorized_entry(value, key))
-        edit.assert_called_once_with(record["entry"], original_sha256=peer_source.sha(b"old public entry"))
-        with patch.object(peer_source, "config", return_value=(value, Path(".peer-scope-fixture"))), \
-                patch.object(peer_source, "public_json", return_value=record), \
-                patch.object(peer_source.Path, "read_text", return_value=record["entry"] + "\n"):
-            self.assertEqual(peer_source.local_proof(require_probe=False)["incoming_key_fingerprint"], peer_source.public_key(key))
-        for unsafe in (key, record["entry"].replace(",restrict,", ","), record["entry"].replace('from="192.168.1.12"', 'from="*"')):
-            changed = record | {"entry": unsafe}
-            with self.subTest(entry=unsafe), patch.object(peer_source, "config", return_value=(value, Path("."))), \
-                    patch.object(peer_source, "public_json", return_value=changed), \
-                    patch.object(peer_source.Path, "read_text", return_value=unsafe), self.assertRaisesRegex(RuntimeError, "drifted"):
+            record = peer_source.public_json(env.directory / "authorization.json")
+            self.assertEqual(peer_source.local_proof(require_probe=False)["incoming_key_fingerprint"],
+                             peer_source.public_key(env.value["peer_host_key"]))
+            for unsafe in (env.value["peer_host_key"], record["entry"].replace(",restrict,", ","),
+                           record["entry"].replace('from="192.168.1.12"', 'from="*"')):
+                with self.subTest(entry=unsafe), patch.object(peer_source, "public_json", return_value=record | {"entry": unsafe}), \
+                        self.assertRaisesRegex(RuntimeError, "drifted"):
+                    peer_source.local_proof(require_probe=False)
+
+    def test_native_peer_policy_preserves_all_original_paths_and_repeated_properties(self):
+        with self.peer_policy_environment() as env:
+            original = peer_source.policy_baseline(env.value)
+            self.assertEqual(len(original["profiles"]), 7)
+            peer_source.authorize()
+            record = peer_source.public_json(env.directory / "authorization.json")
+            for index, (name, context) in enumerate(peer_source.ssh_contexts(env.value).items()):
+                effective = peer_source.ssh_effective(context)
+                self.assertEqual(effective["listenaddress"], ["0.0.0.0:22", "[::]:22"])
+                wanted = list(original["profiles"][name]["authorized_keys"])
+                if index == 0:
+                    wanted.append(str(env.keyfile))
+                self.assertEqual(effective["authorizedkeysfile"][0].split(), wanted)
+                self.assertEqual(peer_source.policy_shape(effective)["other_sha256"], original["profiles"][name]["other_sha256"])
+            self.assertEqual(record["policy"], original)
+            peer_source.remove_authorization(env.value, env.directory, record)
+            self.assertEqual(peer_source.policy_baseline(env.value), original)
+
+    def test_native_peer_policy_rejects_other_setting_or_nonpeer_effective_delta_before_reload(self):
+        for change in ("other_drift", "wrong_context"):
+            with self.subTest(change=change), self.peer_policy_environment() as env:
+                setattr(env, change, True)
+                with self.assertRaisesRegex(RuntimeError, "beyond exact peer"):
+                    peer_source.authorize()
+                self.assertFalse(env.keyfile.exists())
+                self.assertFalse((env.directory / "authorization.json").exists())
+                self.assertNotIn(["/usr/bin/systemctl", "reload", "ssh.service"], env.commands)
+                pending = json.loads((env.directory / "authorization.pending.json").read_bytes())
+                setattr(env, change, False)
+                peer_source.remove_authorization(env.value, env.directory, pending)
+                self.assertFalse(env.dropin.exists())
+
+    def test_native_peer_setup_rejects_existing_match_foreign_include_and_disabled_original_keys(self):
+        for change in ("match", "include", "foreign-scope", "disabled", "forcecommand", "ownership"):
+            with self.subTest(change=change), self.peer_policy_environment() as env, ExitStack() as stack:
+                if change == "match":
+                    env.baseline.write_bytes(b"Match User rishik\n    PasswordAuthentication yes\n")
+                elif change == "include":
+                    env.baseline.write_bytes(b"Include another-config\n")
+                elif change == "foreign-scope":
+                    (env.parts / ("90-node-maintenance-peer-" + "9" * 32 + ".conf")).write_bytes(b"# foreign\n")
+                elif change == "disabled":
+                    env.original_paths = ["none"]
+                elif change == "forcecommand":
+                    env.forcecommand = "foreign-command"
+                else:
+                    stack.enter_context(patch.object(peer_source.Path, "lstat", return_value=
+                                                     SimpleNamespace(st_uid=1000, st_mode=stat.S_IFREG | 0o644)))
+                before = env.original.read_bytes()
+                with self.assertRaises(RuntimeError):
+                    peer_source.authorize()
+                self.assertFalse(env.keyfile.exists())
+                self.assertFalse(env.dropin.exists())
+                self.assertFalse((env.directory / "authorization.pending.json").exists())
+                self.assertEqual(env.original.read_bytes(), before)
+
+    def test_native_peer_source_config_drift_stops_activation_and_cleanup_without_overwrite(self):
+        with self.peer_policy_environment() as env:
+            write_new = peer_source.write_new
+            changed = b"# concurrent original SSH config writer\nPasswordAuthentication yes\n"
+            def write(path, data, *args):
+                if path == env.dropin:
+                    env.baseline.write_bytes(changed)
+                return write_new(path, data, *args)
+            with patch.object(peer_source, "write_new", side_effect=write), self.assertRaisesRegex(RuntimeError, "config drift"):
+                peer_source.authorize()
+            pending = json.loads((env.directory / "authorization.pending.json").read_bytes())
+            with self.assertRaisesRegex(RuntimeError, "config drift"):
+                peer_source.remove_authorization(env.value, env.directory, pending)
+            self.assertEqual(env.baseline.read_bytes(), changed)
+            self.assertTrue(env.dropin.exists())
+            self.assertFalse(env.keyfile.exists())
+            self.assertFalse((env.directory / "authorization.revoked.json").exists())
+            self.assertNotIn(["/usr/bin/systemctl", "reload", "ssh.service"], env.commands)
+
+    def test_native_peer_syntax_or_reload_failure_never_creates_ready_credential_and_pending_cleanup_is_bounded(self):
+        for change in ("syntax_fail", "reload_fail"):
+            with self.subTest(change=change), self.peer_policy_environment() as env:
+                before = {path: path.read_bytes() for path in (env.original, env.config, env.baseline)}
+                setattr(env, change, True)
+                with self.assertRaisesRegex(RuntimeError, "native .* refused"):
+                    peer_source.authorize()
+                self.assertFalse(env.keyfile.exists())
+                self.assertFalse((env.directory / "authorization.json").exists())
+                with self.assertRaises(OSError):
+                    peer_source.local_proof(require_probe=False)
+                pending = json.loads((env.directory / "authorization.pending.json").read_bytes())
+                setattr(env, change, False)
+                peer_source.remove_authorization(env.value, env.directory, pending)
+                self.assertFalse(env.dropin.exists())
+                self.assertFalse(env.keyfile.exists())
+                for path, data in before.items():
+                    self.assertEqual(path.read_bytes(), data)
+                self.assertEqual(env.value["expires_epoch"], self.peer_config()["expires_epoch"])
+
+    def test_native_peer_cleanup_reload_failure_revokes_protocol_and_retries_only_owned_artifacts(self):
+        with self.peer_policy_environment() as env:
+            before = {path: path.read_bytes() for path in (env.original, env.config, env.baseline)}
+            peer_source.authorize()
+            record = peer_source.public_json(env.directory / "authorization.json")
+            env.reload_fail = True
+            with self.assertRaisesRegex(RuntimeError, "native reload refused"):
+                peer_source.remove_authorization(env.value, env.directory, record)
+            self.assertTrue((env.directory / "authorization.revoked.json").exists())
+            self.assertFalse((env.directory / "authorization.cleaned.json").exists())
+            self.assertFalse(env.keyfile.exists())
+            self.assertFalse(env.dropin.exists())
+            with self.assertRaises(RuntimeError):
                 peer_source.local_proof(require_probe=False)
+            env.reload_fail = False
+            peer_source.remove_authorization(env.value, env.directory, record)
+            self.assertTrue((env.directory / "authorization.cleaned.json").exists())
+            for path, data in before.items():
+                self.assertEqual(path.read_bytes(), data)
+
+    def test_native_peer_failed_postreload_validation_or_missing_owned_file_never_proves_readiness(self):
+        with self.peer_policy_environment() as env:
+            execute = peer_source.execute
+            def changed_after_reload(args):
+                result = execute(args)
+                if args == ["/usr/bin/systemctl", "reload", "ssh.service"]:
+                    env.other_drift = True
+                return result
+            with patch.object(peer_source, "execute", side_effect=changed_after_reload), \
+                    self.assertRaisesRegex(RuntimeError, "beyond exact peer"):
+                peer_source.authorize()
+            self.assertFalse(env.keyfile.exists())
+            self.assertFalse((env.directory / "authorization.json").exists())
+        with self.peer_policy_environment() as env:
+            peer_source.authorize()
+            env.keyfile.unlink()
+            with self.assertRaises(OSError):
+                peer_source.local_proof(require_probe=False)
+
+    def test_native_peer_daemon_alternate_running_arguments_or_nonstandard_reload_are_not_waived(self):
+        with self.peer_policy_environment() as env:
+            (env.proc / "1234" / "cmdline").write_bytes(b"/usr/sbin/sshd\0-D\0-f\0other-config\0")
+            with self.assertRaisesRegex(RuntimeError, "alternate/unverified"):
+                peer_source.authorize()
+            self.assertFalse(env.dropin.exists())
+        for old, new in (("/bin/kill -HUP $MAINPID", "/usr/bin/systemctl restart ssh.service"),
+                         ("path=/bin/kill", "path=/usr/bin/python3"), ("ignore_errors=no", "ignore_errors=yes")):
+            with self.subTest(new=new), self.peer_policy_environment() as env:
+                execute = peer_source.execute
+                def nonstandard(args):
+                    return execute(args).replace(old, new)
+                with patch.object(peer_source, "execute", side_effect=nonstandard), self.assertRaisesRegex(RuntimeError, "Nonstandard SSH"):
+                    peer_source.authorize()
+                self.assertFalse(env.dropin.exists())
+
+    def test_pending_peer_cleanup_resumes_after_revocation_without_requiring_invalid_candidate_policy(self):
+        with self.peer_policy_environment() as env:
+            env.syntax_fail = True
+            with self.assertRaises(RuntimeError):
+                peer_source.authorize()
+            pending = json.loads((env.directory / "authorization.pending.json").read_bytes())
+            unlink = Path.unlink
+            def interrupted(path, *args, **kwargs):
+                if path == env.dropin:
+                    raise OSError("interrupted exact owned removal")
+                return unlink(path, *args, **kwargs)
+            with patch.object(peer_source.Path, "unlink", autospec=True, side_effect=interrupted), self.assertRaises(OSError):
+                peer_source.remove_authorization(env.value, env.directory, pending)
+            self.assertTrue((env.directory / "authorization.revoked.json").exists())
+            peer_source.remove_authorization(env.value, env.directory, pending)
+            self.assertFalse(env.dropin.exists())
+            self.assertTrue((env.directory / "authorization.cleaned.json").exists())
+
+    def test_full_explicit_peer_cleanup_removes_only_owned_policy_and_private_identity_without_reading_key(self):
+        with self.peer_policy_environment() as env:
+            for name in peer_source.SOURCES:
+                (env.directory / name).write_bytes((DIRECTORY / name).read_bytes())
+            (env.directory / "config.json").write_bytes(peer_source.canonical(env.value))
+            (peer_source.PUBLIC / "current.json").write_bytes(peer_source.canonical({"setup_id": env.value["setup_id"]}))
+            private = env.directory.parent.parent / "private"
+            identity = private / env.value["setup_id"]
+            identity.mkdir(parents=True)
+            for name in ("identity", "identity.pub", "known_hosts"):
+                (identity / name).touch()
+            originals = {path: path.read_bytes() for path in (env.original, env.second, env.config, env.baseline)}
+            peer_source.authorize()
+            read = Path.read_bytes
+            def public_read_only(path):
+                self.assertNotEqual(path.name, "identity", "Private identity bytes must never be read/exported")
+                return read(path)
+            with patch.object(peer_source, "PRIVATE", private), patch.object(peer_source, "host_identity"), \
+                    patch.object(peer_source, "helper"), patch.object(peer_source.Path, "read_bytes", autospec=True, side_effect=public_read_only):
+                result = peer_source.cleanup(env.value["setup_id"])
+            self.assertTrue(result["owned_keyfile_dropin_removed"])
+            self.assertFalse(identity.exists())
+            self.assertFalse((peer_source.PUBLIC / "current.json").exists())
+            self.assertTrue((env.directory / "config.json").exists())
+            for path, data in originals.items():
+                self.assertEqual(path.read_bytes(), data)
 
     def test_cold_transport_binds_peer_source_and_rejects_extra_source_or_arbitrary_path(self):
         bundle = {name: base64.b64encode((c.m.ROOT / Path(name)).read_bytes()).decode() for name in c.BUNDLE_FILES}
@@ -1606,6 +1865,7 @@ class ColdTests(unittest.TestCase):
         with patch.object(peer_source.os, "geteuid", return_value=0, create=True), \
                 patch.object(peer_source, "local_proof", return_value=self.plan["peer_scope"][c.SERVER]), \
                 patch.object(peer_source, "config", return_value=(value, Path(".peer-scope-fixture"))), \
+                patch.object(peer_source, "validate_policy"), patch.object(peer_source, "public_json"), \
                 patch.object(peer_source, "write_new") as write:
             peer_source.register_run(self.plan, "1" * 32, "2" * 32, start, start + 43200)
             grant = json.loads(write.call_args.args[1])
@@ -1627,6 +1887,7 @@ class ColdTests(unittest.TestCase):
         text = peer_source.PROTOCOL + " " + value["setup_id"] + " worker-status " + "1" * 32 + " " + "2" * 32
         with self.finalizer_environment(), patch.object(peer_source, "config", return_value=(value, Path("."))), \
                 patch.object(peer_source, "helper", return_value=h), \
+                patch.object(peer_source, "activation_verified"), \
                 patch.object(peer_source, "public_json", return_value=grant):
             proof = peer_source.dispatch(text)
             self.assertEqual(proof["record"], self.api.worker.read())
@@ -1669,6 +1930,7 @@ class ColdTests(unittest.TestCase):
                     "MainPID": "2345"}
         with patch.object(peer_source, "config", return_value=(value, Path("."))), \
                 patch.object(peer_source, "helper", return_value=h), patch.object(peer_source, "public_json", return_value=grant), \
+                patch.object(peer_source, "activation_verified"), \
                 patch.object(h, "cold_public", return_value=copy.deepcopy(public)) as read, \
                 patch.object(h, "worker_unit_status", side_effect=native), patch.object(peer_source, "execute", return_value="enabled"), \
                 patch.object(peer_source.Path, "read_text", return_value="old-other"), \
@@ -1695,6 +1957,7 @@ class ColdTests(unittest.TestCase):
             return "Inst fixture (2 Ubuntu:26.04/stable [amd64])" if args[0] == "apt-get" else "multi-user.target"
         with patch.object(peer_source, "config", return_value=(value, Path("."))), \
                 patch.object(peer_source, "helper", return_value=h), \
+                patch.object(peer_source, "activation_verified"), \
                 patch.object(h.Path, "read_text", autospec=True, side_effect=lambda path: texts[path.as_posix()]), \
                 patch.object(h.Path, "glob", return_value=[]), patch.object(h.Path, "exists", return_value=False), \
                 patch.object(h.shutil, "disk_usage", return_value=SimpleNamespace(free=10 * 1024**3)), \
@@ -1744,7 +2007,7 @@ class ColdTests(unittest.TestCase):
                     patch.object(peer_source.Path, "exists", return_value=True), \
                     patch.object(peer_source, "host_identity"), patch.object(peer_source, "helper", return_value=helper), \
                     patch.object(peer_source, "request", return_value={"completed": False}) as request, \
-                    patch.object(peer_source, "edit_authorized") as edit, patch.object(peer_source.Path, "unlink") as unlink, \
+                    patch.object(peer_source, "remove_authorization") as edit, patch.object(peer_source.Path, "unlink") as unlink, \
                     patch.object(peer_source, "execute") as execute, self.assertRaisesRegex(RuntimeError, "retain"):
                 peer_source.cleanup(value["setup_id"])
             edit.assert_not_called()

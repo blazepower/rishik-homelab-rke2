@@ -285,14 +285,16 @@ restored. Monitoring PDBs are not bypassed: their pods are cold. The held
 
 The approved scope is **only** controller `192.168.1.10` and worker2
 `192.168.1.12`, existing incoming user `rishik`, Ubuntu 26.04/amd64. Worker1,
-original user SSH keys/configuration, root SSH login and sudoers are unchanged.
+original user SSH key/config files, root SSH login and sudoers are unchanged.
 `node-maintenance-peer.py` installs root-owned mode-0444 source/config in
 `/etc/node-maintenance-peer/<setup-id>` and a new host-local root identity in
 `/var/lib/node-maintenance-peer/<setup-id>` (directory 0700, private key 0600).
 Never read, print, export or copy that private key; only the generated **public**
 key crosses the original trusted Windows channels.
 
-Incoming authorization is one additional exact `authorized_keys` entry:
+Incoming authorization is one exact restricted entry in a **separate root-owned
+0444 key file**, `/etc/node-maintenance-peer/<setup-id>/incoming_authorized_keys`;
+the original user `authorized_keys` files are never read, rewritten or replaced:
 `from="<exact-peer-IP>",restrict,command="<fixed isolated Python read script>",expiry-time="<immutable UTC expiry>"`.
 There is no PTY, shell, user rc, agent/X11/port forwarding, caller-supplied
 executable/path/Python/JSON or privileged RPC. Only finite `proof`, `audit`,
@@ -310,11 +312,36 @@ The new identity has a **separate** root-owned known_hosts file and ignores
 normal/global SSH configuration, agent identities and multiplexed connections.
 Ed25519 host keys must match authoritative `SHA256:...` fingerprints already
 verified using the trusted Windows-to-node connections. `ssh-keyscan` by itself
-is never an authority. No general trust entries or original SSH settings are
-modified. Exact node/platform/user/IP/source/fingerprint/expiry checks precede
-setup changes; a root flock and atomic compare-before-replace preserve existing
-authorized_keys bytes/ownership/mode. Unexpected existing SSH layout or
-concurrent edits fail closed.
+is never an authority. No general trust entries are modified. Exact
+node/platform/user/IP/source/fingerprint/expiry checks precede setup changes.
+
+The **only permitted server-policy delta** is one exclusively created
+`/etc/ssh/sshd_config.d/90-node-maintenance-peer-<setup-id>.conf`: `Match User
+rishik Address <exact-peer-IP> LocalAddress <exact-node-IP> LocalPort 22` adds
+only the owned key file after **every original effective AuthorizedKeysFile
+path, in original order**. It does not set a server ForceCommand or change any
+other setting. Original config/drop-in files and original user key files remain
+byte-for-byte untouched, including entries written concurrently by other tools.
+
+Activation requires the standard global `Include
+/etc/ssh/sshd_config.d/*.conf`, no existing Match/nested Include/foreign
+maintenance scope, root-owned regular configuration files, enabled original
+public-key paths, and no conflicting ForceCommand/chroot. Native `sshd -t`
+and `sshd -T -C` must prove the exact extra path for the peer, unchanged
+Windows operator/other-source/user/local-address/port profiles, and unchanged
+**all other effective settings**, including repeated native properties.
+The helper also checks the standard running `ssh.service` arguments/reload
+and empty SSHD_OPTS. It uses **only validated `systemctl reload ssh.service`**,
+never restart/stop, requiring the listener PID to remain unchanged.
+
+The private root flock coordinates this helper only; it does **not** exclude
+uncooperative config writers. Manifest/effective-policy checks before and after
+validation/reload reject observed foreign drift without overwriting it.
+Privileged config writers must be quiescent during native operator acceptance;
+source checks cannot promise atomic exclusion across an external edit and
+daemon HUP. An unknown/rejected reload produces no ready credential/receipt.
+Pending owned artifacts remain for explicit cleanup/inspection, not automatic
+rollback of someone else's SSH policy.
 
 **Operator-only preparation, before any pause (not performed here):**
 
@@ -323,7 +350,8 @@ concurrent edits fail closed.
    No existing scope/identity may be overwritten or renewed. Capture each
    authoritative Ed25519 host fingerprint using the already trusted Windows
    SSH connection; supply its matching public host key, not unverified scan
-   output. Compute exact raw-byte SHA256 for both source files with
+   output. Also record the actual trusted Windows connection's IPv4 source as
+   `operator_ip` (distinct from the node IPs). Compute exact raw-byte SHA256 for both source files with
    `Get-FileHash .github\scripts\node-maintenance-peer.py` and
    `Get-FileHash .github\scripts\node-maintenance-host.py`.
 2. Using only original Windows SSH/SCP, stage these two files plus a public
@@ -336,6 +364,7 @@ concurrent edits fail closed.
      "setup_id": "<32-lowercase-hex>",
      "node": "rishik-controller",
      "peer": "rishik-worker2",
+     "operator_ip": "<verified-Windows-source-IPv4>",
      "started_epoch": 1795584000,
      "expires_epoch": 1795670400,
      "peer_host_key": "ssh-ed25519 <verified-public-host-key>",
@@ -353,7 +382,7 @@ concurrent edits fail closed.
    the Windows values (`sha256sum`), then run:
 
    ```sh
-   sudo /usr/bin/python3 -B /home/rishik/.local/state/node-maintenance-peer/<setup-id>/node-maintenance-peer.py prepare --setup-id <setup-id>
+   sudo /usr/bin/python3 -I -B /home/rishik/.local/state/node-maintenance-peer/<setup-id>/node-maintenance-peer.py prepare --setup-id <setup-id>
    ```
 
    `prepare` must occur within 15 minutes of the fixed start. Retrieve only
@@ -384,8 +413,9 @@ only the explicit operator recovery channel; do not waive checks or manufacture
 an acknowledgment.
 
 After verified terminal recovery and native idle checks, explicit operator
-cleanup **worker2 first, then controller** removes only the owned authorization entry and that
-host-local generated identity/trust file:
+cleanup **worker2 first, then controller** revokes the protocol, removes only
+the owned key file/drop-in, proves the original native policy restored, and
+performs a validated reload before removing that host-local identity/trust file:
 
 ```sh
 sudo /usr/bin/python3 -I -B /etc/node-maintenance-peer/<setup-id>/node-maintenance-peer.py cleanup --setup-id <setup-id>
@@ -399,9 +429,16 @@ after proving executor/guard services inactive. Worker cleanup never stops
 package/reboot/standby work; active finalizers or children block it. Technical
 source/scope records remain; ordinary SSH remains untouched. Cleanup does not
 extend expiry, reboot, uncordon or alter applications.
+Failed pre-pause setup can use the same explicit cleanup command with its exact
+root-only pending record and no run/ready receipt. It verifies original config
+hashes and exact owned bytes before removal; foreign drift is a blocker.
+Reload failure leaves revocation durable and identity retained, without claiming
+cleanup success. The same bounded cleanup may retry after the native blocker is
+resolved; it never rewrites original keys/config or resets the fixed expiry.
 
 **Native acceptance still required:** both approved operator root setups,
 actual OpenSSH expiry/restrict/forced-command behavior, authoritative fingerprints,
+the original/candidate/restored `sshd -t/-T -C` policies and standard reload/PID,
 non-root public-read permissions, both strict protocol probes, real systemd
 timer/service/cgroup shapes, then fresh guard/standby/start proofs. No live setup
 or acceptance is claimed by source tests. The previously observed missing
