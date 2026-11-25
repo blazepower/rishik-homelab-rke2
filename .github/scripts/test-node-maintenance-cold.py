@@ -662,6 +662,8 @@ class ColdTests(unittest.TestCase):
                 return {"LoadState": "loaded", "ActiveState": "inactive", "Job": "0"}
             self.assertIn(unit, {"node-maintenance-reboot-" + contract["host_step_id"] + suffix
                                  for suffix in (".timer", ".service")})
+            if unit.endswith(".timer"):
+                return {"LoadState": "not-found", "ActiveState": "inactive", "Job": "0"}
             return {"LoadState": "not-found", "ActiveState": "inactive", "MainPID": "0",
                     "ControlPID": "0", "Job": "0", "ControlGroup": ""}
         def peer(_):
@@ -782,7 +784,7 @@ class ColdTests(unittest.TestCase):
             self.assertEqual(clock["calls"], 2)
             self.assertEqual(worker.read()["phase"], "waiting")
 
-    def test_dead_standby_after_first_app_pause_needs_real_finalizer_ack_before_guard_can_restore(self):
+    def test_dead_standby_native_absent_timer_shape_needs_real_finalizer_ack_before_guard_can_restore(self):
         for row in self.plan["reconciliation"] + self.plan["schedules"]:
             self.coordinator.mutate(row, "suspend", True)
         for row in self.plan["autoscalers"]:
@@ -815,6 +817,20 @@ class ColdTests(unittest.TestCase):
         self.assertEqual(self.journal.read()["phase"], "recovered-after-failure")
         self.assertEqual(self.api.get("deployments", "homebox", "homebox")["spec"]["replicas"], 1)
         self.coordinator.original_state()
+
+    def test_finalizer_loaded_inactive_timer_has_no_service_pid_or_cgroup_properties(self):
+        self.coordinator.request_recovery("test-revocation")
+        self.api.worker_native.update(ActiveState="failed", MainPID="0", ControlGroup="")
+        with self.finalizer_environment() as (contract, command):
+            native = h.worker_unit_status
+            timer = "node-maintenance-reboot-" + contract["host_step_id"] + ".timer"
+            with patch.object(h, "worker_unit_status", side_effect=lambda u: (
+                    {"LoadState": "loaded", "ActiveState": "inactive", "Job": "0"}
+                    if u == timer else native(u))):
+                h.cold_worker_finalize(contract["run_id"])
+            self.assertEqual(self.api.worker.read()["phase"], "cancelled")
+            self.assertIn("finalizer_ack", self.api.worker.read())
+            command.assert_called_once()
 
     def test_finalizer_refuses_unknown_queued_active_child_or_drifted_unit_without_ack(self):
         self.coordinator.request_recovery("test-revocation")
@@ -880,8 +896,8 @@ class ColdTests(unittest.TestCase):
             native = h.worker_unit_status
             timer = "node-maintenance-reboot-" + contract["host_step_id"] + ".timer"
             with patch.object(h, "worker_unit_status", side_effect=lambda u: (
-                    {"LoadState": "loaded", "ActiveState": "active", "Job": "42", "MainPID": "0",
-                     "ControlPID": "0", "ControlGroup": ""} if u == timer else native(u))), \
+                    {"LoadState": "loaded", "ActiveState": "active", "Job": "42"}
+                    if u == timer else native(u))), \
                     self.assertRaisesRegex(RuntimeError, "reboot unit"):
                 h.cold_worker_finalize(contract["run_id"])
             command.assert_not_called()

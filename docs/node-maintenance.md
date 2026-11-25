@@ -247,7 +247,10 @@ The source execution ordering is:
    slot authorized while its ten-second timer runs, then require idle host units
    and a verified new boot/approved kernel before normal restoration. Use a
    single-shot timer that does not remain active after elapse. Check native
-   `reboot.target`/`shutdown.target` jobs too; an idle reboot service alone does
+   timer load/active/job metadata without inventing service PID/cgroup
+   properties, including the native absent-timer shape. Reboot **services**
+   still require zero PIDs and empty exact cgroups for dead-job acknowledgment.
+   Also check `reboot.target`/`shutdown.target` jobs; an idle reboot service alone does
    not prove an already-requested shutdown finished.
    Transient `systemd-run` units disappear at reboot. A verified new boot can
    therefore complete with those units absent; their absence alone never

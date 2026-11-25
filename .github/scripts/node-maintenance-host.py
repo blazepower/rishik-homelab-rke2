@@ -455,10 +455,12 @@ def worker_quiescent(contract, cold):
         name = "node-maintenance-reboot-" + contract["host_step_id"] + suffix
         reboot = worker_unit_status(name)
         require(reboot["LoadState"] in ("loaded", "not-found")
-                and reboot["ActiveState"] in ("inactive", "failed") and reboot["Job"] == "0"
-                and reboot["MainPID"] == "0" and reboot["ControlPID"] == "0",
+                and reboot["ActiveState"] in ("inactive", "failed") and reboot["Job"] == "0",
                 "Finalizer reboot unit/children still active or unknown")
-        worker_cgroup_empty(name, reboot)
+        if suffix == ".service":
+            require(reboot["MainPID"] == "0" and reboot["ControlPID"] == "0",
+                    "Finalizer reboot service children still active or unknown")
+            worker_cgroup_empty(name, reboot)
     for unit in ("reboot.target", "shutdown.target"):
         shutdown = worker_unit_status(unit)
         require(shutdown["LoadState"] == "loaded" and shutdown["ActiveState"] == "inactive"
