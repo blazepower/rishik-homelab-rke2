@@ -346,6 +346,8 @@ def ssh_manifest(value, owned_text=None):
         else:
             require("node-maintenance-peer-" not in path.name, "Foreign maintenance SSH scope")
             for line in data.decode().splitlines():
+                # OpenSSH permits '=' between the directive keyword and arguments.
+                line = re.sub(r"^([ \t]*[^ \t=]+)[ \t]*=[ \t]*", r"\1 ", line, count=1)
                 words = shlex.split(line, comments=True)
                 if not words:
                     continue
