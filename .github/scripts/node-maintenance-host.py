@@ -16,7 +16,6 @@ import sys
 import tarfile
 import time
 import urllib.request
-import shlex
 import zlib
 
 
@@ -244,25 +243,24 @@ def schedule_reboot(payload):
 
 def cold_peer_status(run_id):
     require(re.fullmatch("[a-f0-9]{32}", run_id), "Invalid cold run identifier")
-    source = (
-        "import json,pathlib,stat; "
-        f"p=pathlib.Path('/var/lib/node-maintenance-cold-status/{run_id}.json'); "
-        "s=p.lstat(); assert stat.S_ISREG(s.st_mode) and s.st_uid==0 and stat.S_IMODE(s.st_mode)==0o444; "
-        "v=json.loads(p.read_text()); "
-        "import socket,subprocess,platform; "
-        "v['controller_name']=socket.gethostname(); "
-        "v['controller_boot_id']=pathlib.Path('/proc/sys/kernel/random/boot_id').read_text().strip(); "
-        "v['controller_kernel']=platform.release(); "
-        f"u='node-maintenance-cold-{run_id}'; "
-        "defstate=lambda unit,prop: subprocess.check_output(['systemctl','show',unit,'-p',prop,'--value'],text=True).strip(); "
-        "v['executor_active']=(defstate(u+'.service','ActiveState') in ('active','activating') and int(defstate(u+'.service','MainPID'))>0); "
-        "v['guard_active']=(defstate(u+'-guard.timer','ActiveState')=='active'); "
-        "v['guard_enabled']=(subprocess.check_output(['systemctl','is-enabled',u+'-guard.timer'],text=True).strip()=='enabled'); "
-        "print(json.dumps(v))"
-    )
-    return json.loads(command(["ssh", "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
-                               "-o", "ConnectTimeout=10", "rishik@192.168.1.10",
-                               shlex.join(["python3", "-c", source])]))
+    return load_peer().request("controller-status", run_id)
+
+
+def load_peer():
+    import importlib.util
+    if "__file__" in globals():
+        script = Path(__file__).with_name("node-maintenance-peer.py")
+    else:
+        setup_id = cold_public(Path("/etc/node-maintenance-peer/current.json"))["setup_id"]
+        require(re.fullmatch("[a-f0-9]{32}", setup_id), "Invalid maintenance peer setup")
+        script = Path("/etc/node-maintenance-peer") / setup_id / "node-maintenance-peer.py"
+        meta = script.lstat()
+        require(stat.S_ISREG(meta.st_mode) and meta.st_uid == 0 and stat.S_IMODE(meta.st_mode) == 0o444,
+                "Installed maintenance peer source is not trusted")
+    spec = importlib.util.spec_from_file_location("maintenance_peer", script)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def standby_peer_binding(contract, peer):
@@ -320,7 +318,8 @@ def read_transport(payload):
             == transport["approval"], "Standby exact plan approval mismatch")
     files = json.loads(zlib.decompress(base64.b64decode(transport["bundle"])))
     expected = {".github/scripts/node-maintenance.py", ".github/scripts/node-maintenance-host.py",
-                ".github/scripts/node-maintenance-cold.py", "node-config/maintenance/policy.json",
+                ".github/scripts/node-maintenance-cold.py", ".github/scripts/node-maintenance-peer.py",
+                "node-config/maintenance/policy.json",
                 "apps/_shared/http-addon-owned/source.json"}
     require(set(files) == expected == set(transport["plan"]["source_bindings"]), "Unexpected standby source bundle")
     return transport, files
@@ -369,7 +368,8 @@ def worker_runtime(run_id):
     plan = json.loads((directory / "plan.json").read_text())
     require(set(state["contract"]["source_bindings"]) == {
         ".github/scripts/node-maintenance.py", ".github/scripts/node-maintenance-host.py",
-        ".github/scripts/node-maintenance-cold.py", "node-config/maintenance/policy.json",
+        ".github/scripts/node-maintenance-cold.py", ".github/scripts/node-maintenance-peer.py",
+        "node-config/maintenance/policy.json",
         "apps/_shared/http-addon-owned/source.json"}, "Worker bound source set drift")
     for name, expected in state["contract"]["source_bindings"].items():
         path = directory / name
@@ -605,6 +605,8 @@ def cold_worker_register(payload):
     contract = cold.worker_contract(transport["plan"], policy, run_id, transport["host_step_id"],
                                     payload["started_epoch"], payload["deadline_epoch"])
     require(contract["plan_sha256"] == transport["approval"], "Worker approval drift")
+    load_peer().register_run(transport["plan"], run_id, transport["host_step_id"],
+                             payload["started_epoch"], payload["deadline_epoch"])
     require(standby_peer(contract, cold_peer_status(run_id), time.time()) == "waiting",
             "Controller must be registered/inert before worker setup")
     status_directory = Path("/var/lib/node-maintenance-cold-worker-status")
@@ -657,7 +659,8 @@ def cold_register(payload):
     payload = {**payload, **transport}
     files = json.loads(zlib.decompress(base64.b64decode(payload["bundle"])))
     expected = (".github/scripts/node-maintenance.py", ".github/scripts/node-maintenance-host.py",
-                ".github/scripts/node-maintenance-cold.py", "node-config/maintenance/policy.json",
+                ".github/scripts/node-maintenance-cold.py", ".github/scripts/node-maintenance-peer.py",
+                "node-config/maintenance/policy.json",
                 "apps/_shared/http-addon-owned/source.json")
     require(set(files) == set(expected) and set(payload["plan"]["source_bindings"]) == set(expected),
             "Unexpected guard bundle members")
@@ -695,6 +698,8 @@ def cold_register(payload):
     policy = json.loads((directory / "node-config/maintenance/policy.json").read_text())
     contract = cold_module.worker_contract(payload["plan"], policy, payload["run_id"], payload["host_step_id"],
                                           payload["started_epoch"], payload["deadline_epoch"])
+    load_peer().register_run(payload["plan"], payload["run_id"], payload["host_step_id"],
+                             payload["started_epoch"], payload["deadline_epoch"])
     state.update(worker_contract=contract, worker_contract_sha256=cold_module.sha(cold_module.canonical(contract)),
                  worker_ready_verified=False)
     require(state["deadline_epoch"] == state["started_epoch"] + 43200
@@ -751,6 +756,7 @@ def load_cold(script):
 
 
 def cold_start(c, cold, payload):
+    load_peer().plan_scope(c.plan)
     def ready(state):
         c.gate(state)
         require(state["mode"] == "registered" and time.time() < state["deadline_epoch"] - 7200,
@@ -856,6 +862,10 @@ def rke2_upgrade(payload, work):
 
 def main(payload):
     operation = payload["operation"]
+    if operation == "cold-peer-proof":
+        require(set(payload) == {"operation"}, "Peer proof takes no caller path/source/payload")
+        print(json.dumps(load_peer().local_proof()))
+        return
     if operation == "cold-worker-status":
         print(json.dumps(worker_status(payload["run_id"])))
         return

@@ -97,7 +97,8 @@ IM_PATHS = {
     "log": {"path": "/var/lib/longhorn/logs", "type": "DirectoryOrCreate"},
 }
 BUNDLE_FILES = (".github/scripts/node-maintenance.py", ".github/scripts/node-maintenance-host.py",
-                ".github/scripts/node-maintenance-cold.py", "node-config/maintenance/policy.json",
+                ".github/scripts/node-maintenance-cold.py", ".github/scripts/node-maintenance-peer.py",
+                "node-config/maintenance/policy.json",
                 "apps/_shared/http-addon-owned/source.json")
 
 
@@ -325,12 +326,41 @@ def source_bindings():
     return {name: sha((m.ROOT / Path(name)).read_bytes()) for name in BUNDLE_FILES}
 
 
+def peer():
+    script = DIRECTORY / "node-maintenance-peer.py"
+    spec = importlib.util.spec_from_file_location("cold_peer", script)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def check_peer_scope(plan, starting=True):
+    require(set(plan["peer_scope"]) == {SERVER, WORKER}, "Exact controller/worker2 restricted peer scope required")
+    for node, proof in plan["peer_scope"].items():
+        other = plan["peer_scope"][WORKER if node == SERVER else SERVER]
+        require(proof["node"] == node and proof["peer"] == other["node"]
+                and re.fullmatch("[a-f0-9]{32}", proof["setup_id"])
+                and proof["setup_id"] == other["setup_id"]
+                and proof["started_epoch"] == other["started_epoch"]
+                and proof["expires_epoch"] == proof["started_epoch"] + 86400 == other["expires_epoch"]
+                and proof["started_epoch"] <= time.time() < proof["expires_epoch"] - (43200 if starting else 0)
+                and proof["source_sha256"] == {name: plan["source_bindings"][".github/scripts/" + name]
+                                               for name in ("node-maintenance-peer.py", "node-maintenance-host.py")}
+                and proof["original_boot_id"] == plan["bindings"][node]["boot_id"]
+                and proof["original_kernel"] == plan["bindings"][node]["kernel"]
+                and proof["incoming_key_fingerprint"] == other["public_key_fingerprint"]
+                and proof["probe"]["peer_proof_sha256"] == sha(canonical({k: v for k, v in other.items() if k != "probe"}))
+                and proof["started_epoch"] <= proof["probe"]["verified_epoch"] <= time.time(),
+                "Restricted peer proof/source/identity/clock/expiry drift; block BEFORE first pause")
+
+
 def worker_contract(plan, policy, run_id, step_id, started, deadline):
     require(re.fullmatch("[a-f0-9]{32}", run_id) and re.fullmatch("[a-f0-9]{32}", step_id)
             and run_id != step_id and deadline == started + 43200, "Invalid exact worker standby slot")
     return {
         "run_id": run_id, "host_step_id": step_id, "plan_sha256": sha(canonical(plan)),
         "source_bindings": plan["source_bindings"], "bindings": plan["bindings"],
+        "peer_scope": plan["peer_scope"],
         "started_epoch": started, "deadline_epoch": deadline,
         "os_payload": {
             "operation": "os", "run_id": step_id, "cold_run_id": run_id, "name": WORKER, "role": "agent",
@@ -417,40 +447,23 @@ class API:
                   "-p", json.dumps(operations))
 
     def host_audit(self, policy, name):
-        node = next(n for n in policy["nodes"] if n["name"] == name)
-        return m.remote(node, {"operation": "audit"})
+        require(name == WORKER, "Cold peer host audit is worker2 only")
+        return peer().request("audit")
 
     def worker_status(self, policy, run_id):
-        node = next(n for n in policy["nodes"] if n["name"] == WORKER)
-        return m.remote(node, {"operation": "cold-worker-status", "run_id": run_id})
+        return peer().request("worker-status", run_id)
 
     def host_idle(self, policy, step_id, run_id=None):
-        node = next(n for n in policy["nodes"] if n["name"] == WORKER)
-        standby = [f"node-maintenance-cold-worker-{run_id}.service"] if run_id else []
-        code = ("import subprocess,json; "
-                f"units=['node-maintenance-{step_id}-os.service','node-maintenance-reboot-{step_id}.timer',"
-                f"'node-maintenance-reboot-{step_id}.service','reboot.target','shutdown.target']+{standby!r}; "
-                "states=[subprocess.run(['systemctl','show',u,'-p','ActiveState','-p','LoadState','-p','Job'],capture_output=True,text=True) for u in units]; "
-                "assert all(r.returncode==0 for r in states); "
-                "print(json.dumps([dict(v.split('=',1) for v in r.stdout.strip().splitlines()) for r in states]))")
-        state = json.loads(m.run(["ssh", "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
-                                 "-o", "ConnectTimeout=10", node["ssh"], shlex.join(["python3", "-c", code])]))
-        require(len(state) == 5 + len(standby) and all(s["ActiveState"] in ("inactive", "failed") and s["Job"] == "0"
+        observed = peer().request("worker-idle", run_id, step_id)
+        state = observed["states"]
+        require(len(state) == 6 and all(s["ActiveState"] in ("inactive", "failed") and s["Job"] == "0"
                                        for s in state[:3]),
                 "Host APT/reboot service or timer is active/queued; warming is unsafe")
         require(all(s["LoadState"] == "loaded" and s["Job"] == "0" and s["ActiveState"] == "inactive"
                     for s in state[3:5]), "Host shutdown/reboot job is pending; warming is unsafe")
-        if run_id:
-            require(state[5]["ActiveState"] in ("inactive", "failed") and state[5]["Job"] == "0",
-                    "Standby can still claim/execute; waiting is not idle authorization")
-            # A failed root process must not hide a surviving package child.
-            code = ("import json,pathlib,subprocess; "
-                    f"units=['node-maintenance-{step_id}-os.service','node-maintenance-cold-worker-{run_id}.service']; "
-                    "groups=[subprocess.check_output(['systemctl','show',u,'-p','ControlGroup','--value'],text=True).strip() for u in units]; "
-                    "assert all(not g or 'populated 0' in (pathlib.Path('/sys/fs/cgroup')/g.lstrip('/')/'cgroup.events').read_text() for g in groups); "
-                    "print('{}')")
-            m.run(["ssh", "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
-                   "-o", "ConnectTimeout=10", node["ssh"], shlex.join(["python3", "-c", code])])
+        require(state[5]["ActiveState"] in ("inactive", "failed") and state[5]["Job"] == "0",
+                "Standby can still claim/execute; waiting is not idle authorization")
+        require(observed["cgroups_empty"] is True, "Bound package cgroup populated/unknown; no warmup")
         return state[0]["LoadState"] != "not-found"
 
 
@@ -611,6 +624,8 @@ def build_plan(policy, api=None):
         "host_sha256": baseline["host_sha256"], "source_bindings": source_bindings(),
         "bindings": baseline["bindings"], "kubectl": baseline["kubectl"], "quarantine": inventory["baseline_health"]["quarantine"],
         "controller_client": controller_client,
+        "peer_scope": {n["name"]: m.remote(n, {"operation": "cold-peer-proof"})
+                       for n in policy["nodes"] if n["name"] in (SERVER, WORKER)},
         "outage_budget": {"maximum_seconds": 43200, "recovery_reserve_seconds": 7200},
         "controllers": sorted(controllers, key=key), "parents": sorted(parents, key=key),
         "claims": claims, "storage": volume_records, "autoscalers": autoscalers, "hpas": inventory["hpas"],
@@ -639,6 +654,7 @@ def check_plan(plan, approval, policy, api=None, age=True):
             "Cold deadline/reserve is not approved")
     require(plan["source_bindings"] == source_bindings() and plan["policy_sha256"] == sha(m.POLICY.read_bytes()),
             "Cold source/policy changed after approval")
+    check_peer_scope(plan, starting=age)
     require(plan["runner_sha256"] == sha((DIRECTORY / "node-maintenance.py").read_bytes())
             and plan["host_sha256"] == sha((DIRECTORY / "node-maintenance-host.py").read_bytes()),
             "Runner/host byte binding drift")

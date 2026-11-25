@@ -32,6 +32,7 @@ def load(name, filename):
 
 c = load("cold_test_source", "node-maintenance-cold.py")
 h = load("cold_test_host", "node-maintenance-host.py")
+peer_source = load("cold_test_peer", "node-maintenance-peer.py")
 
 IM_IMAGE = "longhornio/longhorn-instance-manager:v1.12.1"
 PAUSED_DEFAULT_RULES = {
@@ -497,9 +498,27 @@ def fixture(hpa_behavior=None, handler_suspend=False):
                                           "pending_packages": []} for n in policy["nodes"]},
                 "policy_sha256": c.sha(c.m.POLICY.read_bytes()), "runner_sha256": c.sha((DIRECTORY / "node-maintenance.py").read_bytes()),
                 "host_sha256": c.sha((DIRECTORY / "node-maintenance-host.py").read_bytes())}
+    peer_scope = {}
+    peer_started = int(time.time()) - 10
+    for index, node in enumerate((c.SERVER, c.WORKER)):
+        peer_scope[node] = {"node": node, "peer": c.WORKER if node == c.SERVER else c.SERVER,
+                            "setup_id": "3" * 32, "started_epoch": peer_started,
+                            "expires_epoch": peer_started + 86400,
+                            "source_sha256": {name: c.sha((DIRECTORY / name).read_bytes()) for name in peer_source.SOURCES},
+                            "original_boot_id": baseline["bindings"][node]["boot_id"],
+                            "original_kernel": baseline["bindings"][node]["kernel"],
+                            "public_key_fingerprint": "SHA256:" + str(index) * 43,
+                            "incoming_key_fingerprint": "SHA256:" + str(1 - index) * 43,
+                            "peer_host_fingerprint": "SHA256:" + "h" * 43}
+    peer_probes = {node: {"config_sha256": "a" * 64, "verified_epoch": time.time(),
+                          "peer_proof_sha256": c.sha(c.canonical(peer_scope[proof["peer"]]))}
+                   for node, proof in peer_scope.items()}
+    for node, proof in peer_scope.items():
+        proof["probe"] = peer_probes[node]
     with patch.object(c.m, "cold_inventory", return_value=inventory), patch.object(c.m, "audit_nodes", return_value={c.WORKER: host}), \
             patch.object(c.m, "build_plan", return_value=baseline), \
-            patch.object(c.m, "remote", return_value={"version": "v1.35.10+rke2r1", "sha256": "a" * 64}):
+            patch.object(c.m, "remote", side_effect=lambda node, payload: peer_scope[node["name"]]
+                         if payload["operation"] == "cold-peer-proof" else {"version": "v1.35.10+rke2r1", "sha256": "a" * 64}):
         plan = c.build_plan(policy, api)
     approval = c.sha(c.canonical(plan))
     api.plan = plan
@@ -1065,6 +1084,7 @@ class ColdTests(unittest.TestCase):
         for failure in ("worker", "guard"):
             self.journal.state.update(mode="registered", host_slot_cancelled=False)
             with self.subTest(failure=failure), patch.object(h, "load_cold", return_value=c), \
+                    patch.object(h, "load_peer", return_value=MagicMock()), \
                     patch.object(c, "load_runtime", return_value=self.coordinator), patch.object(h, "command") as command:
                 command.side_effect = lambda args: "active" if "is-active" in args else "enabled"
                 if failure == "worker":
@@ -1252,36 +1272,484 @@ class ColdTests(unittest.TestCase):
         peer["last_epoch"] = now
         self.assertEqual(h.standby_peer(contract, peer, now), "claim")
 
-    def test_peer_status_uses_only_public_receipt_and_existing_strict_readonly_channel(self):
-        import ast
+    def test_peer_status_uses_only_bound_finite_protocol_not_remote_python(self):
         peer = self.standby_peer()
-        with patch.object(h, "command", return_value=json.dumps(peer)) as command:
+        protocol = MagicMock()
+        protocol.request.return_value = peer
+        with patch.object(h, "load_peer", return_value=protocol), patch.object(h, "command") as command:
             self.assertEqual(h.cold_peer_status(peer["run_id"]), peer)
-        args = command.call_args.args[0]
-        self.assertEqual(args[:2], ["ssh", "-T"])
-        self.assertIn("BatchMode=yes", args)
-        self.assertIn("StrictHostKeyChecking=yes", args)
-        self.assertIn("rishik@192.168.1.10", args)
-        source = shlex.split(args[-1])[2]
-        ast.parse(source)
-        self.assertIn("/var/lib/node-maintenance-cold-status/", source)
-        self.assertNotIn("/var/lib/node-maintenance-cold/", source)  # Root-private staged source is not readable by SSH user.
-        self.assertNotIn("sudo", source)
-        self.assertIn("'active','activating'", source)  # Controller Type=oneshot stays activating while running.
+        protocol.request.assert_called_once_with("controller-status", peer["run_id"])
+        command.assert_not_called()
 
     def test_native_standby_idle_checks_waiting_unit_and_surviving_package_cgroup(self):
         state = [{"ActiveState": "inactive", "LoadState": "not-found", "Job": "0"} for _ in range(3)]
         state += [{"ActiveState": "inactive", "LoadState": "loaded", "Job": "0"} for _ in range(3)]
         state[5]["ActiveState"] = "active"
-        with patch.object(c.m, "run", return_value=json.dumps(state)), self.assertRaisesRegex(RuntimeError, "still claim"):
+        protocol = MagicMock()
+        protocol.request.return_value = {"states": state, "cgroups_empty": True}
+        with patch.object(c, "peer", return_value=protocol), self.assertRaisesRegex(RuntimeError, "still claim"):
             c.API().host_idle(self.policy, "2" * 32, "1" * 32)
         state[5]["ActiveState"] = "failed"
-        with patch.object(c.m, "run", side_effect=[json.dumps(state), RuntimeError("package cgroup populated")]), \
+        protocol.request.side_effect = RuntimeError("package cgroup populated")
+        with patch.object(c, "peer", return_value=protocol), \
                 self.assertRaisesRegex(RuntimeError, "populated"):
             c.API().host_idle(self.policy, "2" * 32, "1" * 32)
-        with patch.object(c.m, "run", side_effect=[json.dumps(state), "{}"]) as run:
+        protocol.request.side_effect = None
+        with patch.object(c, "peer", return_value=protocol):
             self.assertFalse(c.API().host_idle(self.policy, "2" * 32, "1" * 32))
-        self.assertIn("populated 0", shlex.split(run.call_args.args[0][-1])[2])
+        protocol.request.assert_called_with("worker-idle", "1" * 32, "2" * 32)
+
+    def peer_config(self, node=c.SERVER):
+        value = copy.deepcopy(self.plan["peer_scope"][node])
+        value.pop("probe")
+        value.pop("incoming_key_fingerprint")
+        blob = b"\x00\x00\x00\x0bssh-ed25519\x00\x00\x00\x20" + bytes([17]) * 32
+        value["peer_host_key"] = "ssh-ed25519 " + base64.b64encode(blob).decode()
+        value["peer_host_fingerprint"] = peer_source.public_key(value["peer_host_key"])
+        return value
+
+    def test_forced_peer_requests_reject_shell_unknown_ops_paths_injection_and_foreign_scope(self):
+        value = self.peer_config()
+        prefix = peer_source.PROTOCOL + " " + value["setup_id"] + " "
+        for request in ("", "sh", "python3 -c 'print(1)'", prefix + "audit; id",
+                        prefix + "audit\nid", prefix + "audit /etc/shadow", prefix + "audit '{}'",
+                        prefix + "controller-status ../../etc/passwd " + "2" * 32,
+                        prefix + "reboot " + "1" * 32 + " " + "2" * 32,
+                        prefix + "worker-status " + "1" * 32 + " " + "2" * 32,
+                        prefix + "controller-status " + "1" * 32,
+                        peer_source.PROTOCOL + " " + "4" * 32 + " proof"):
+            with self.subTest(request=request), patch.object(peer_source, "config", return_value=(value, Path("."))), \
+                    patch.object(peer_source, "helper") as helper, patch.object(peer_source, "execute") as execute, \
+                    self.assertRaises(RuntimeError):
+                peer_source.dispatch(request)
+            helper.assert_not_called()
+            execute.assert_not_called()
+
+    def test_peer_serve_requires_existing_nonroot_account_exact_remote_ip_no_pty(self):
+        value = self.peer_config()
+        for uid, connection, extra in ((0, "192.168.1.12 1234 192.168.1.10 22", {}),
+                                      (1000, "192.168.1.11 1234 192.168.1.10 22", {}),
+                                      (1000, "192.168.1.12 1234 192.168.1.11 22", {}),
+                                      (1000, "192.168.1.12 1234 192.168.1.10 22", {"SSH_TTY": "/dev/pts/0"})):
+            with self.subTest(uid=uid, connection=connection, extra=extra), \
+                    patch.object(peer_source, "config", return_value=(value, Path("."))), \
+                    patch.object(peer_source, "account", return_value=SimpleNamespace(pw_uid=1000)), \
+                    patch.object(peer_source.os, "geteuid", return_value=uid, create=True), \
+                    patch.dict(peer_source.os.environ, {"SSH_CONNECTION": connection, **extra}, clear=True), \
+                    patch.object(peer_source.os.sys, "argv", ["peer.py", "serve"]), \
+                    patch.object(peer_source, "dispatch") as dispatch, self.assertRaises(RuntimeError):
+                peer_source.main()
+            dispatch.assert_not_called()
+
+    def test_peer_known_host_requires_authoritative_fingerprint_and_key_wire_shape(self):
+        value = self.peer_config()
+        expected = ("192.168.1.12 " + value["peer_host_key"] + "\n").encode()
+        self.assertEqual(peer_source.known_host(value), expected)
+        for changes in ({"peer_host_fingerprint": "SHA256:" + "0" * 43},
+                        {"peer_host_key": value["peer_host_key"] + " injected-options"},
+                        {"peer_host_key": "ssh-ed25519 " + base64.b64encode(b"invalid").decode()}):
+            with self.subTest(changes=changes), self.assertRaises(RuntimeError):
+                peer_source.known_host(value | changes)
+        # Rejection precedes any installation of a new trust file.
+        invalid = value | {"peer_host_fingerprint": "SHA256:" + "0" * 43}
+        setup = {k: invalid[k] for k in ("setup_id", "node", "peer", "started_epoch", "expires_epoch",
+                                       "peer_host_key", "peer_host_fingerprint", "source_sha256")}
+        with patch.object(peer_source.Path, "read_bytes", return_value=json.dumps(setup).encode()), \
+                patch.object(peer_source, "host_identity"), patch.object(peer_source, "write_new") as write, \
+                patch.object(peer_source, "execute") as execute, self.assertRaises(RuntimeError):
+            peer_source.prepare(value["setup_id"])
+        write.assert_not_called()
+        execute.assert_not_called()
+
+    def test_peer_serve_clears_caller_executable_bus_and_loader_environment_before_fixed_reads(self):
+        value = self.peer_config()
+        text = peer_source.PROTOCOL + " " + value["setup_id"] + " audit"
+        def dispatch(request):
+            self.assertEqual(request, text)
+            self.assertEqual(dict(peer_source.os.environ), peer_source.READ_ENV)
+            return {"technical": True}
+        with patch.object(peer_source, "config", return_value=(value, Path("."))), \
+                patch.object(peer_source, "account", return_value=SimpleNamespace(pw_uid=1000)), \
+                patch.object(peer_source.os, "geteuid", return_value=1000, create=True), \
+                patch.dict(peer_source.os.environ, {"SSH_CONNECTION": "192.168.1.12 1234 192.168.1.10 22",
+                           "SSH_ORIGINAL_COMMAND": text, "PATH": "caller-bin", "LD_LIBRARY_PATH": "caller-library",
+                           "DBUS_SESSION_BUS_ADDRESS": "caller-bus"}, clear=True), \
+                patch.object(peer_source.os.sys, "argv", ["peer.py", "serve"]), \
+                patch.object(peer_source, "dispatch", side_effect=dispatch), patch("builtins.print"):
+            peer_source.main()
+
+    def test_outgoing_peer_uses_only_host_local_identity_scoped_trust_and_finite_command(self):
+        value = self.peer_config()
+        directory = Path(".peer-scope-fixture")
+        grant = {k: self.journal.read()["worker_contract"][k] for k in
+                 ("run_id", "host_step_id", "plan_sha256", "source_bindings", "started_epoch", "deadline_epoch")}
+        touched = []
+        def read(path):
+            touched.append(str(path))
+            self.assertEqual(path.name, "known_hosts")
+            return peer_source.known_host(value)
+        with patch.object(peer_source.os, "geteuid", return_value=0, create=True), \
+                patch.object(peer_source, "config", return_value=(value, directory)), \
+                patch.object(peer_source, "public_json", return_value=grant), \
+                patch.object(peer_source, "checked", side_effect=lambda p, *_args, **_kwargs: p), \
+                patch.object(peer_source.Path, "read_bytes", autospec=True, side_effect=read), \
+                patch.object(peer_source, "execute", return_value="{}") as execute:
+            self.assertEqual(peer_source.request("worker-status", "1" * 32), {})
+        args = execute.call_args.args[0]
+        self.assertEqual(args[-2:], ["rishik@192.168.1.12",
+                                     peer_source.PROTOCOL + " " + value["setup_id"] + " worker-status " + "1" * 32 + " " + "2" * 32])
+        for restriction in ("IdentitiesOnly=yes", "IdentityAgent=none", "ForwardAgent=no", "ClearAllForwardings=yes",
+                            "StrictHostKeyChecking=yes", "GlobalKnownHostsFile=/dev/null", "UpdateHostKeys=no",
+                            "PasswordAuthentication=no", "ControlPath=none"):
+            self.assertIn(restriction, args)
+        self.assertEqual(args[1:3], ["-F", "/dev/null"])
+        self.assertNotIn("sudo", args)
+        self.assertFalse(any("identity" in path for path in touched))
+        self.assertFalse(any("python" in arg or "-c " in arg for arg in args))
+        with patch.object(peer_source.os, "geteuid", return_value=0, create=True), \
+                patch.object(peer_source, "config", return_value=(value, directory)), \
+                patch.object(peer_source, "public_json", return_value=grant), \
+                patch.object(peer_source, "execute") as execute, self.assertRaises(RuntimeError):
+            peer_source.request("worker-status", "4" * 32, "2" * 32)
+        execute.assert_not_called()
+
+    def test_restricted_key_append_and_exact_cleanup_preserve_original_ssh_bytes(self):
+        import tempfile
+        value = self.peer_config()
+        entry = peer_source.authorized_entry(value, value["peer_host_key"])
+        self.assertIn('from="192.168.1.12",restrict,command="/usr/bin/python3 -I -B ', entry)
+        self.assertIn('expiry-time="', entry)
+        for original in (b"original-public-entry\n", b"original-public-entry"):
+            with self.subTest(original=original), tempfile.TemporaryDirectory(dir=Path.cwd(), prefix=".peer-test-") as root:
+                home = Path(root)
+                ssh = home / ".ssh"
+                ssh.mkdir()
+                path = ssh / "authorized_keys"
+                path.write_bytes(original)
+                (ssh / "known_hosts").write_bytes(b"old trusted host\n")
+                (ssh / "config").write_bytes(b"existing user settings\n")
+                native = SimpleNamespace(st_uid=1000, st_gid=1000, st_mode=stat.S_IFREG | 0o600)
+                metadata = lambda p: SimpleNamespace(st_uid=1000, st_mode=stat.S_IFDIR | 0o700) if p == ssh else native
+                with patch.object(peer_source, "HOME", home), \
+                        patch.object(peer_source, "account", return_value=SimpleNamespace(pw_uid=1000)), \
+                        patch.object(peer_source.Path, "lstat", autospec=True, side_effect=metadata), \
+                        patch.object(peer_source.os, "fchmod", create=True), patch.object(peer_source.os, "chown", create=True):
+                    separator = peer_source.edit_authorized(entry)
+                    self.assertTrue(path.read_bytes().startswith(original))
+                    self.assertEqual(path.read_bytes().splitlines().count(entry.encode()), 1)
+                    peer_source.edit_authorized(entry, add=False, separator=separator)
+                self.assertEqual(path.read_bytes(), original)
+                self.assertEqual((ssh / "known_hosts").read_bytes(), b"old trusted host\n")
+                self.assertEqual((ssh / "config").read_bytes(), b"existing user settings\n")
+
+    def test_peer_expiry_source_and_pointer_drift_fail_before_request_or_pause(self):
+        value = self.peer_config()
+        source = {name: (DIRECTORY / name).read_bytes() for name in peer_source.SOURCES}
+        def bytes_for(path):
+            if path.name in source:
+                return source[path.name]
+            self.fail("Unexpected peer source read: " + str(path))
+        for change in ({"expires_epoch": value["started_epoch"] + 10},
+                       {"started_epoch": value["started_epoch"] - 90000, "expires_epoch": value["expires_epoch"] - 90000},
+                       {"node": "rishik-worker1"}, {"peer": "rishik-worker1"},
+                       {"source_sha256": value["source_sha256"] | {"node-maintenance-host.py": "0" * 64}}):
+            with self.subTest(change=change), patch.object(peer_source, "checked", side_effect=lambda p, *_a, **_k: p), \
+                    patch.object(peer_source, "public_json", side_effect=[{"setup_id": value["setup_id"]}, value | change]), \
+                    patch.object(peer_source, "host_identity"), \
+                    patch.object(peer_source.Path, "read_bytes", autospec=True, side_effect=bytes_for), \
+                    patch.object(peer_source, "execute") as execute, self.assertRaises(RuntimeError):
+                peer_source.config()
+            execute.assert_not_called()
+        changed = copy.deepcopy(self.plan)
+        for proof in changed["peer_scope"].values():
+            proof["started_epoch"] -= 50000
+            proof["expires_epoch"] -= 50000
+        with patch.object(c.sys.stdin, "isatty", return_value=True), patch.object(c.sys.stdout, "isatty", return_value=True), \
+                patch.object(c, "API", return_value=self.api), patch.object(c.m, "remote") as remote, \
+                patch.object(c.m, "kube") as kube, self.assertRaisesRegex(RuntimeError, "expiry"):
+            c.apply(changed, c.sha(c.canonical(changed)), self.policy, "/existing/protected/mount", True)
+        remote.assert_not_called()
+        kube.assert_not_called()
+        self.assertEqual(self.api.events, [])
+
+    def test_peer_prepare_generates_only_local_scoped_identity_and_bound_public_source(self):
+        value = self.peer_config()
+        setup = {k: value[k] for k in ("setup_id", "node", "peer", "started_epoch", "expires_epoch",
+                                     "peer_host_key", "peer_host_fingerprint", "source_sha256")}
+        sources = {name: (DIRECTORY / name).read_bytes() for name in peer_source.SOURCES}
+        reads = []
+        def read_bytes(path):
+            reads.append(path.name)
+            return json.dumps(setup).encode() if path.name == "setup.json" else sources[path.name]
+        def read_text(path):
+            reads.append(path.name)
+            if path.name == "identity.pub":
+                return value["peer_host_key"] + " public-fixture-comment"
+            self.assertEqual(path.name, "boot_id")
+            return value["original_boot_id"]
+        user = SimpleNamespace(pw_uid=1000)
+        def metadata(path):
+            return SimpleNamespace(st_uid=1000, st_mode=stat.S_IFDIR | 0o700 if path.name == ".ssh" else stat.S_IFREG | 0o600)
+        with patch.object(peer_source, "host_identity"), patch.object(peer_source, "account", return_value=user), \
+                patch.object(peer_source.Path, "read_bytes", autospec=True, side_effect=read_bytes), \
+                patch.object(peer_source.Path, "read_text", autospec=True, side_effect=read_text), \
+                patch.object(peer_source.Path, "lstat", autospec=True, side_effect=metadata), \
+                patch.object(peer_source.Path, "exists", return_value=False), patch.object(peer_source.Path, "mkdir") as mkdir, \
+                patch.object(peer_source.Path, "chmod"), patch.object(peer_source.platform, "release", return_value=value["original_kernel"]), \
+                patch.object(peer_source, "checked", side_effect=lambda p, *_a, **_k: p) as checked, \
+                patch.object(peer_source, "write_new") as write, patch.object(peer_source, "execute", return_value="") as execute:
+            result = peer_source.prepare(value["setup_id"])
+        args = execute.call_args.args[0]
+        self.assertEqual(args[:4], ["/usr/bin/ssh-keygen", "-q", "-t", "ed25519"])
+        self.assertNotIn("-y", args)
+        self.assertEqual(Path(args[-1]), peer_source.PRIVATE / value["setup_id"] / "identity")
+        self.assertEqual(result["public_key"], value["peer_host_key"])
+        self.assertNotIn("identity", reads)
+        self.assertTrue(any(call.args == (peer_source.PRIVATE / value["setup_id"] / "identity", 0o600)
+                            for call in checked.call_args_list))
+        self.assertTrue(any(call.kwargs.get("mode") == 0o700 for call in mkdir.call_args_list))
+        written = {call.args[0].name: call.args[1] for call in write.call_args_list}
+        self.assertEqual(written["known_hosts"], peer_source.known_host(value))
+        self.assertEqual(written["node-maintenance-peer.py"], sources["node-maintenance-peer.py"])
+        self.assertNotIn("authorized_keys", written)
+        self.assertNotIn("sudoers", written)
+
+    def test_peer_setup_replay_or_foreign_host_fails_without_rotation_or_new_expiry(self):
+        value = self.peer_config()
+        setup = {k: value[k] for k in ("setup_id", "node", "peer", "started_epoch", "expires_epoch",
+                                     "peer_host_key", "peer_host_fingerprint", "source_sha256")}
+        sources = {name: (DIRECTORY / name).read_bytes() for name in peer_source.SOURCES}
+        def read(path):
+            return json.dumps(setup).encode() if path.name == "setup.json" else sources[path.name]
+        metadata = lambda p: SimpleNamespace(st_uid=1000, st_mode=stat.S_IFDIR | 0o700 if p.name == ".ssh" else stat.S_IFREG | 0o600)
+        with patch.object(peer_source.Path, "read_bytes", autospec=True, side_effect=read), \
+                patch.object(peer_source.Path, "lstat", autospec=True, side_effect=metadata), \
+                patch.object(peer_source.Path, "exists", return_value=True), \
+                patch.object(peer_source, "account", return_value=SimpleNamespace(pw_uid=1000)), \
+                patch.object(peer_source, "checked"), patch.object(peer_source, "write_new") as write, \
+                patch.object(peer_source, "execute") as execute, \
+                patch.object(peer_source, "host_identity") as identity:
+            identity.side_effect = RuntimeError("foreign native host")
+            with self.assertRaisesRegex(RuntimeError, "foreign"):
+                peer_source.prepare(value["setup_id"])
+            identity.side_effect = None
+            with self.assertRaisesRegex(RuntimeError, "never reset"):
+                peer_source.prepare(value["setup_id"])
+        write.assert_not_called()
+        execute.assert_not_called()
+
+    def test_scoped_peer_probe_records_real_reverse_identity_and_audit_not_creation_success(self):
+        value = self.peer_config()
+        own = {k: v for k, v in self.plan["peer_scope"][c.SERVER].items() if k != "probe"}
+        remote = {k: v for k, v in self.plan["peer_scope"][c.WORKER].items() if k != "probe"}
+        audit = {"name": c.WORKER, "boot_id": remote["original_boot_id"], "kernel": remote["original_kernel"]}
+        with patch.object(peer_source, "config", return_value=(value, Path(".peer-scope-fixture"))), \
+                patch.object(peer_source, "local_proof", return_value=own), \
+                patch.object(peer_source, "request", side_effect=[remote, audit]) as request, \
+                patch.object(peer_source, "write_new") as write:
+            peer_source.probe()
+        self.assertEqual([call.args for call in request.call_args_list], [("proof",), ("audit",)])
+        probe = json.loads(write.call_args.args[1])
+        self.assertEqual(probe["peer_proof_sha256"], peer_source.sha(peer_source.canonical(remote)))
+        with patch.object(peer_source, "config", return_value=(value, Path(".peer-scope-fixture"))), \
+                patch.object(peer_source, "local_proof", return_value=own), \
+                patch.object(peer_source, "request", return_value=remote | {"incoming_key_fingerprint": "foreign"}), \
+                patch.object(peer_source, "write_new") as write, self.assertRaisesRegex(RuntimeError, "identity drift"):
+            peer_source.probe()
+        write.assert_not_called()
+
+    def test_peer_authorization_receipt_proves_exact_restrictions_not_any_existing_public_key(self):
+        value = self.peer_config()
+        key = value["peer_host_key"]
+        with patch.object(peer_source, "config", return_value=(value, Path(".peer-scope-fixture"))), \
+                patch.object(peer_source.Path, "read_text", return_value=key), \
+                patch.object(peer_source.Path, "read_bytes", return_value=b"old public entry"), \
+                patch.object(peer_source, "write_new") as write, \
+                patch.object(peer_source, "edit_authorized") as edit, patch.object(peer_source, "local_proof"):
+            peer_source.authorize()
+        record = json.loads(write.call_args.args[1])
+        self.assertEqual(record["entry"], peer_source.authorized_entry(value, key))
+        edit.assert_called_once_with(record["entry"], original_sha256=peer_source.sha(b"old public entry"))
+        with patch.object(peer_source, "config", return_value=(value, Path(".peer-scope-fixture"))), \
+                patch.object(peer_source, "public_json", return_value=record), \
+                patch.object(peer_source.Path, "read_text", return_value=record["entry"] + "\n"):
+            self.assertEqual(peer_source.local_proof(require_probe=False)["incoming_key_fingerprint"], peer_source.public_key(key))
+        for unsafe in (key, record["entry"].replace(",restrict,", ","), record["entry"].replace('from="192.168.1.12"', 'from="*"')):
+            changed = record | {"entry": unsafe}
+            with self.subTest(entry=unsafe), patch.object(peer_source, "config", return_value=(value, Path("."))), \
+                    patch.object(peer_source, "public_json", return_value=changed), \
+                    patch.object(peer_source.Path, "read_text", return_value=unsafe), self.assertRaisesRegex(RuntimeError, "drifted"):
+                peer_source.local_proof(require_probe=False)
+
+    def test_cold_transport_binds_peer_source_and_rejects_extra_source_or_arbitrary_path(self):
+        bundle = {name: base64.b64encode((c.m.ROOT / Path(name)).read_bytes()).decode() for name in c.BUNDLE_FILES}
+        for extra in (None, "../../arbitrary-source.py"):
+            files = bundle if extra is None else bundle | {extra: base64.b64encode(b"not-approved").decode()}
+            transport = {"plan": self.plan, "approval": self.approval, "host_step_id": "2" * 32,
+                         "bundle": base64.b64encode(zlib.compress(c.canonical(files))).decode()}
+            data = c.canonical(transport)
+            payload = {"run_id": "1" * 32,
+                       "input_file": str(Path("/home/rishik/.local/state/node-maintenance-cold") / ("1" * 32) / "source.json"),
+                       "input_sha256": c.sha(data)}
+            with self.subTest(extra=extra), patch.object(h.Path, "read_bytes", return_value=data), \
+                    patch.object(h.Path, "is_symlink", return_value=False):
+                if extra:
+                    with self.assertRaisesRegex(RuntimeError, "source bundle"):
+                        h.read_transport(payload)
+                else:
+                    _, actual = h.read_transport(payload)
+                    self.assertIn(".github/scripts/node-maintenance-peer.py", actual)
+
+    def test_run_grant_is_exact_single_use_and_does_not_renew_scope_or_outage_deadline(self):
+        value = self.peer_config()
+        start = self.journal.read()["started_epoch"]
+        with patch.object(peer_source.os, "geteuid", return_value=0, create=True), \
+                patch.object(peer_source, "local_proof", return_value=self.plan["peer_scope"][c.SERVER]), \
+                patch.object(peer_source, "config", return_value=(value, Path(".peer-scope-fixture"))), \
+                patch.object(peer_source, "write_new") as write:
+            peer_source.register_run(self.plan, "1" * 32, "2" * 32, start, start + 43200)
+            grant = json.loads(write.call_args.args[1])
+            self.assertEqual(grant["deadline_epoch"], start + 43200)
+            self.assertEqual(grant["plan_sha256"], self.approval)
+            write.side_effect = FileExistsError("immutable run already registered")
+            with self.assertRaises(FileExistsError):
+                peer_source.register_run(self.plan, "1" * 32, "2" * 32, start, start + 43200)
+        with patch.object(c.time, "time", return_value=start + 40000):
+            c.check_peer_scope(self.plan, starting=False)
+        self.assertEqual(self.plan["peer_scope"][c.SERVER]["expires_epoch"], value["expires_epoch"])
+        self.assertEqual(self.journal.read()["deadline_epoch"], start + 43200)
+
+    def test_peer_worker_status_reads_actual_public_record_and_rejects_foreign_step(self):
+        contract = self.journal.read()["worker_contract"]
+        value = self.peer_config(c.WORKER)
+        grant = {k: contract[k] for k in ("run_id", "host_step_id", "plan_sha256", "source_bindings",
+                                        "started_epoch", "deadline_epoch")}
+        text = peer_source.PROTOCOL + " " + value["setup_id"] + " worker-status " + "1" * 32 + " " + "2" * 32
+        with self.finalizer_environment(), patch.object(peer_source, "config", return_value=(value, Path("."))), \
+                patch.object(peer_source, "helper", return_value=h), \
+                patch.object(peer_source, "public_json", return_value=grant):
+            proof = peer_source.dispatch(text)
+            self.assertEqual(proof["record"], self.api.worker.read())
+            self.assertEqual(proof["unit"]["MainPID"], self.api.worker_native["MainPID"])
+            with self.assertRaisesRegex(RuntimeError, "Foreign"):
+                peer_source.dispatch(text[:-32] + "4" * 32)
+            wrong = dict(grant, source_bindings={})
+            with patch.object(peer_source, "public_json", return_value=wrong), self.assertRaisesRegex(RuntimeError, "binding"):
+                peer_source.dispatch(text)
+
+    def test_peer_native_idle_keeps_timer_shape_and_checks_absent_and_live_service_cgroups(self):
+        units = []
+        def native(unit):
+            units.append(unit)
+            state = {"LoadState": "not-found", "ActiveState": "inactive", "Job": "0"}
+            if unit in ("reboot.target", "shutdown.target"):
+                state["LoadState"] = "loaded"
+            return state
+        with patch.object(h, "worker_unit_status", side_effect=native), patch.object(h, "worker_cgroup_empty") as groups:
+            result = peer_source.idle(h, "1" * 32, "2" * 32)
+        self.assertTrue(result["cgroups_empty"])
+        self.assertEqual(len(result["states"]), 6)
+        self.assertEqual(len(groups.call_args_list), 3)
+        self.assertTrue(all(call.args[0].endswith(".service") for call in groups.call_args_list))
+        with patch.object(h, "worker_unit_status", side_effect=native), \
+                patch.object(h, "worker_cgroup_empty", side_effect=RuntimeError("surviving child")), \
+                self.assertRaisesRegex(RuntimeError, "surviving child"):
+            peer_source.idle(h, "1" * 32, "2" * 32)
+
+    def test_peer_controller_status_uses_public_receipt_and_native_executor_guard_metadata(self):
+        value = self.peer_config()
+        contract = self.journal.read()["worker_contract"]
+        grant = {k: contract[k] for k in ("run_id", "host_step_id", "plan_sha256", "source_bindings",
+                                        "started_epoch", "deadline_epoch")}
+        public = {k: self.journal.read()[k] for k in ("run_id", "host_step_id", "plan_sha256", "started_epoch",
+                                                    "deadline_epoch", "worker_contract", "mode", "phase")}
+        text = peer_source.PROTOCOL + " " + value["setup_id"] + " controller-status " + "1" * 32 + " " + "2" * 32
+        def native(unit):
+            return {"LoadState": "loaded", "ActiveState": "activating" if unit.endswith(".service") else "active",
+                    "MainPID": "2345"}
+        with patch.object(peer_source, "config", return_value=(value, Path("."))), \
+                patch.object(peer_source, "helper", return_value=h), patch.object(peer_source, "public_json", return_value=grant), \
+                patch.object(h, "cold_public", return_value=copy.deepcopy(public)) as read, \
+                patch.object(h, "worker_unit_status", side_effect=native), patch.object(peer_source, "execute", return_value="enabled"), \
+                patch.object(peer_source.Path, "read_text", return_value="old-other"), \
+                patch.object(peer_source.socket, "gethostname", return_value=c.SERVER), \
+                patch.object(peer_source.platform, "release", return_value=value["original_kernel"]):
+            result = peer_source.dispatch(text)
+        read.assert_called_once_with(Path("/var/lib/node-maintenance-cold-status") / ("1" * 32 + ".json"))
+        self.assertTrue(result["executor_active"])
+        self.assertTrue(result["guard_active"])
+        self.assertTrue(result["guard_enabled"])
+        self.assertNotIn("mutations", result)
+        self.assertNotIn("plan", result)
+
+    def test_peer_host_audit_is_actual_finite_simulation_not_package_update_or_private_read(self):
+        value = self.peer_config(c.WORKER)
+        texts = {"/etc/os-release": 'ID=ubuntu\nVERSION_ID="26.04"\n',
+                 "/proc/meminfo": "MemAvailable: 102400 kB\nSUnreclaim: 0 kB\n",
+                 "/proc/stat": "btime 1234\n", "/proc/sys/kernel/random/boot_id": "old-worker2"}
+        commands = []
+        def command(args):
+            commands.append(args)
+            self.assertIn(args, [["apt-get", "-s", "--no-remove", "--with-new-pkgs", "upgrade"],
+                                 ["systemctl", "get-default"]])
+            return "Inst fixture (2 Ubuntu:26.04/stable [amd64])" if args[0] == "apt-get" else "multi-user.target"
+        with patch.object(peer_source, "config", return_value=(value, Path("."))), \
+                patch.object(peer_source, "helper", return_value=h), \
+                patch.object(h.Path, "read_text", autospec=True, side_effect=lambda path: texts[path.as_posix()]), \
+                patch.object(h.Path, "glob", return_value=[]), patch.object(h.Path, "exists", return_value=False), \
+                patch.object(h.shutil, "disk_usage", return_value=SimpleNamespace(free=10 * 1024**3)), \
+                patch.object(h, "installed", return_value=False), patch.object(h, "command", side_effect=command), \
+                patch.object(h.socket, "gethostname", return_value=c.WORKER), \
+                patch.object(h.platform, "release", return_value=value["original_kernel"]), \
+                patch.object(h.platform, "machine", return_value="x86_64"):
+            audit = peer_source.dispatch(peer_source.PROTOCOL + " " + value["setup_id"] + " audit")
+        self.assertEqual(audit["boot_id"], "old-worker2")
+        self.assertEqual(audit["os_version"], "26.04")
+        self.assertEqual(audit["pending_packages"], ["Inst fixture (2 Ubuntu:26.04/stable [amd64])"])
+        self.assertEqual(len(commands), 2)
+
+    def test_peer_expiry_in_root_start_cancels_before_first_pause_and_never_prints_ready(self):
+        protocol = MagicMock()
+        protocol.plan_scope.side_effect = RuntimeError("expired exact peer scope")
+        self.journal.state.update(mode="registered")
+        with patch.object(h, "load_peer", return_value=protocol), patch.object(h, "load_cold", return_value=c), \
+                patch.object(c, "load_runtime", return_value=self.coordinator), \
+                patch.object(h, "command") as command, patch("builtins.print") as output, \
+                self.assertRaisesRegex(RuntimeError, "expired"):
+            h.cold_control({"operation": "cold-start", "run_id": "1" * 32})
+        self.assertTrue(self.journal.read()["host_slot_cancelled"])
+        self.assertEqual(self.api.events, [])
+        self.assertEqual(command.call_args.args[0][-1], "node-maintenance-cold-" + "1" * 32 + "-guard.service")
+        output.assert_not_called()
+
+    def test_peer_cleanup_retains_identity_for_live_foreign_or_nonterminal_controller_run(self):
+        value = self.peer_config(c.WORKER)
+        source = (DIRECTORY / "node-maintenance-peer.py").read_bytes()
+        contract = self.journal.read()["worker_contract"]
+        grant = {k: contract[k] for k in ("run_id", "host_step_id", "plan_sha256", "source_bindings",
+                                        "started_epoch", "deadline_epoch")}
+        def public(path):
+            if path.name == "current.json":
+                return {"setup_id": value["setup_id"]}
+            return value if path.name == "config.json" else grant
+        helper = MagicMock()
+        for record in ({"phase": "waiting", "contract": contract},
+                       {"phase": "packages-complete", "contract": contract | {"host_step_id": "4" * 32}},
+                       {"phase": "packages-complete", "contract": contract}):
+            helper.worker_status.return_value = {"record": record}
+            with self.subTest(record=record["phase"], step=record["contract"]["host_step_id"]), \
+                    patch.object(peer_source, "checked", side_effect=lambda p, *_a, **_k: p), \
+                    patch.object(peer_source, "public_json", side_effect=public), \
+                    patch.object(peer_source.Path, "read_bytes", return_value=source), \
+                    patch.object(peer_source.Path, "exists", return_value=True), \
+                    patch.object(peer_source, "host_identity"), patch.object(peer_source, "helper", return_value=helper), \
+                    patch.object(peer_source, "request", return_value={"completed": False}) as request, \
+                    patch.object(peer_source, "edit_authorized") as edit, patch.object(peer_source.Path, "unlink") as unlink, \
+                    patch.object(peer_source, "execute") as execute, self.assertRaisesRegex(RuntimeError, "retain"):
+                peer_source.cleanup(value["setup_id"])
+            edit.assert_not_called()
+            unlink.assert_not_called()
+            execute.assert_not_called()
 
     def test_bound_host_reserve_revalidates_exact_payload_and_persistent_local_clock_before_reboot(self):
         peer = self.standby_peer(authorized=True)
@@ -1314,6 +1782,7 @@ class ColdTests(unittest.TestCase):
                 return ""
             raise RuntimeError("executor start failed")
         with patch.object(h, "load_cold", return_value=c), patch.object(c, "load_runtime", return_value=self.coordinator), \
+                patch.object(h, "load_peer", return_value=MagicMock()), \
                 patch.object(self.api, "kube", return_value=json.dumps(versions)), \
                 patch.object(self.api, "host_audit", return_value=self.plan["bindings"][c.WORKER]), \
                 patch.object(h, "command", side_effect=command) as invoke, patch("builtins.print") as output, \
@@ -2103,12 +2572,14 @@ class ColdTests(unittest.TestCase):
         self.assertFalse(self.journal.read()["completed"])
 
     def test_native_shutdown_job_blocks_warmup_even_after_reboot_service_becomes_idle(self):
-        states = [{"ActiveState": "inactive", "LoadState": "loaded", "Job": "0"} for _ in range(5)]
-        with patch.object(c.m, "run", return_value=json.dumps(states)):
+        states = [{"ActiveState": "inactive", "LoadState": "loaded", "Job": "0"} for _ in range(6)]
+        protocol = MagicMock()
+        protocol.request.return_value = {"states": states, "cgroups_empty": True}
+        with patch.object(c, "peer", return_value=protocol):
             self.assertTrue(c.API().host_idle(self.policy, self.journal.read()["host_step_id"]))
         for index in range(5):
             states[index]["Job"] = "178"
-            with self.subTest(unit=index), patch.object(c.m, "run", return_value=json.dumps(states)), \
+            with self.subTest(unit=index), patch.object(c, "peer", return_value=protocol), \
                     self.assertRaisesRegex(RuntimeError, "active/queued|shutdown/reboot job is pending"):
                 c.API().host_idle(self.policy, self.journal.read()["host_step_id"])
             states[index]["Job"] = "0"
@@ -2116,8 +2587,10 @@ class ColdTests(unittest.TestCase):
     def test_native_transient_units_disappear_at_reboot_but_boot_proof_remains_mandatory(self):
         self.record_package_receipt()
         states = [{"ActiveState": "inactive", "LoadState": "not-found", "Job": "0"} for _ in range(3)]
-        states += [{"ActiveState": "inactive", "LoadState": "loaded", "Job": "0"} for _ in range(2)]
-        with patch.object(c.m, "run", return_value=json.dumps(states)):
+        states += [{"ActiveState": "inactive", "LoadState": "loaded", "Job": "0"} for _ in range(3)]
+        protocol = MagicMock()
+        protocol.request.return_value = {"states": states, "cgroups_empty": True}
+        with patch.object(c, "peer", return_value=protocol):
             self.assertFalse(c.API().host_idle(self.policy, self.journal.read()["host_step_id"]))
         self.api.host_boot = "rebooted-worker2"
         self.assertFalse(self.api.host_idle(self.policy, self.journal.read()["host_step_id"]))

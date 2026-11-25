@@ -166,10 +166,13 @@ The source execution ordering is:
    SSH/authentication and native checks, not the subsequent drain/APT duration.
    No `sudo -v`, cached-sudo lifetime or later normal privileged host-start,
    receipt-complete or recovery call is required.
-   Verify existing controller-to-worker2 read-only audit/receipt SSH and
-   worker2-to-controller read-only status SSH. Missing host trust/authentication
-   is a blocker, never a reason to install keys, known_hosts entries, sudoers
-   rules, a generic root gateway or a privileged pod.
+   First complete the explicitly approved, narrowly restricted peer setup below.
+   Controller-to-worker2 audit/status/idle reads and worker2-to-controller status
+   reads use only its dedicated identity, authoritative scoped host trust and
+   finite forced-command protocol. Ordinary Windows SSH/interactive sudo is
+   unchanged. Missing scoped trust/authentication, source drift, absent actual
+   protocol probes or insufficient fixed expiry blocks the first pause; never
+   bypass trust or install a generic/root shell gateway, sudoers or privileged pod.
 3. Freeze exact Flux reconciliation and scheduled producers; require no
    in-flight reconciliations or active Jobs. In addition to the four media schedules,
    explicitly bind `kube-system/media-mount-handler`: this five-minute,
@@ -224,8 +227,8 @@ The source execution ordering is:
 6. After all current cold storage, released native PDB, actual drain and
    infrastructure gates pass again under the controller journal mutex, the
    root executor authorizes only its existing precise host slot. The standby
-   polls only bound root-owned **read-only** controller status over preexisting
-   strict BatchMode SSH. It remains inert until that authorization: no package,
+   polls only bound root-owned **read-only** controller status over the approved
+   restricted BatchMode peer protocol. It remains inert until that authorization: no package,
    service, kernel, application or node mutations. Cancelled, stale, expired,
    changed boot/source/peer, clock rollback, reserve or lost-executor slots
    cannot launch. The controller refreshes native protection while the job waits
@@ -242,7 +245,7 @@ The source execution ordering is:
    authority immediately before starting and before **scheduling and executing**
    the deferred reboot. A long transaction cannot authorize a late reboot.
    The controller ingests the exact bound root-owned 0444 worker package receipt
-   itself over existing read-only SSH; no workstation receipt forwarding or late
+   itself over the restricted read-only peer protocol; no workstation receipt forwarding or late
    sudo is involved. A package receipt is **not** reboot completion: keep only the existing host
    slot authorized while its ten-second timer runs, then require idle host units
    and a verified new boot/approved kernel before normal restoration. Use a
@@ -278,7 +281,134 @@ and sealed-secrets. Their singleton controller/selector/UID/specs are bound and
 restored. Monitoring PDBs are not bypassed: their pods are cold. The held
 14-budget Git proposal is not assumed deployed. All other budgets are untouched.
 
-Future **authorized real terminal** commands, not commands performed here:
+### Restricted peer setup (explicit separate approval; source held)
+
+The approved scope is **only** controller `192.168.1.10` and worker2
+`192.168.1.12`, existing incoming user `rishik`, Ubuntu 26.04/amd64. Worker1,
+original user SSH keys/configuration, root SSH login and sudoers are unchanged.
+`node-maintenance-peer.py` installs root-owned mode-0444 source/config in
+`/etc/node-maintenance-peer/<setup-id>` and a new host-local root identity in
+`/var/lib/node-maintenance-peer/<setup-id>` (directory 0700, private key 0600).
+Never read, print, export or copy that private key; only the generated **public**
+key crosses the original trusted Windows channels.
+
+Incoming authorization is one additional exact `authorized_keys` entry:
+`from="<exact-peer-IP>",restrict,command="<fixed isolated Python read script>",expiry-time="<immutable UTC expiry>"`.
+There is no PTY, shell, user rc, agent/X11/port forwarding, caller-supplied
+executable/path/Python/JSON or privileged RPC. Only finite `proof`, `audit`,
+`controller-status`, `worker-status` (including the bound technical receipt),
+and `worker-idle` reads are accepted. Run/step IDs must match a single
+root-owned 0444 run grant written by the existing visible cold registration.
+Unknown operations, source/role/IP/run drift, traversal or shell syntax reject.
+The script runs as `rishik` without sudo, reads only public technical records
+and fixed native metadata, and cannot access private journals, Secrets,
+kubeconfigs or application logs. Audit is read-only APT **simulation**, never
+update/install. Timer properties are unit-type-aware; service PID/cgroup and
+native reboot/shutdown checks remain required.
+
+The new identity has a **separate** root-owned known_hosts file and ignores
+normal/global SSH configuration, agent identities and multiplexed connections.
+Ed25519 host keys must match authoritative `SHA256:...` fingerprints already
+verified using the trusted Windows-to-node connections. `ssh-keyscan` by itself
+is never an authority. No general trust entries or original SSH settings are
+modified. Exact node/platform/user/IP/source/fingerprint/expiry checks precede
+setup changes; a root flock and atomic compare-before-replace preserve existing
+authorized_keys bytes/ownership/mode. Unexpected existing SSH layout or
+concurrent edits fail closed.
+
+**Operator-only preparation, before any pause (not performed here):**
+
+1. In Windows choose one fresh 32-lowercase-hex setup ID and one integer UTC
+   start epoch; expiry must be **exactly start + 86400 seconds** on both nodes.
+   No existing scope/identity may be overwritten or renewed. Capture each
+   authoritative Ed25519 host fingerprint using the already trusted Windows
+   SSH connection; supply its matching public host key, not unverified scan
+   output. Compute exact raw-byte SHA256 for both source files with
+   `Get-FileHash .github\scripts\node-maintenance-peer.py` and
+   `Get-FileHash .github\scripts\node-maintenance-host.py`.
+2. Using only original Windows SSH/SCP, stage these two files plus a public
+   `setup.json` in
+   `/home/rishik/.local/state/node-maintenance-peer/<setup-id>` on each node.
+   The JSON has exactly these fields (substitute verified public values):
+
+   ```json
+   {
+     "setup_id": "<32-lowercase-hex>",
+     "node": "rishik-controller",
+     "peer": "rishik-worker2",
+     "started_epoch": 1795584000,
+     "expires_epoch": 1795670400,
+     "peer_host_key": "ssh-ed25519 <verified-public-host-key>",
+     "peer_host_fingerprint": "SHA256:<authoritative-Windows-verified-fingerprint>",
+     "source_sha256": {
+       "node-maintenance-peer.py": "<raw-byte-sha256>",
+       "node-maintenance-host.py": "<raw-byte-sha256>"
+     }
+   }
+   ```
+
+   Reverse `node`/`peer` and use the controller's verified host key/fingerprint
+   for the worker2 JSON. The example epochs are illustrative, not reusable.
+3. In each original visible node terminal, compare staged source hashes with
+   the Windows values (`sha256sum`), then run:
+
+   ```sh
+   sudo /usr/bin/python3 -B /home/rishik/.local/state/node-maintenance-peer/<setup-id>/node-maintenance-peer.py prepare --setup-id <setup-id>
+   ```
+
+   `prepare` must occur within 15 minutes of the fixed start. Retrieve only
+   `/etc/node-maintenance-peer/<setup-id>/public-key.txt` over original Windows
+   SSH; stage it as the **other** node's
+   `/home/rishik/.local/state/node-maintenance-peer/<setup-id>/peer-public-key.txt`.
+   Then in both original visible terminals run, in this order:
+
+   ```sh
+   sudo /usr/bin/python3 -I -B /etc/node-maintenance-peer/<setup-id>/node-maintenance-peer.py authorize --setup-id <setup-id>
+   sudo /usr/bin/python3 -I -B /etc/node-maintenance-peer/<setup-id>/node-maintenance-peer.py probe --setup-id <setup-id>
+   ```
+
+   Authorize **both** before probing either. Probe performs actual restricted
+   reciprocal identity/source reads and the fixed host audit, then writes a
+   root-owned 0444 technical scope/fingerprint/probe record. Unit/file creation
+   alone is not readiness. Review both records before generating a **new** cold
+   plan: it hash-binds these exact proofs and expiry. The original three cold
+   privileged setup calls remain before first pause, and grant exactly one
+   approved plan/run/step; no replacement payload or second run is permitted.
+
+The immutable peer expiry must outlive the original complete 12h outage
+deadline. It is not reset by polling, guard retries, setup failure or recovery.
+An interrupted setup retains ownership records and fails closed, never silently
+rotates credentials/replaces expiry. Expiry or unavailable channels during a
+blocked recovery remain a **runtime blocker**: retain the original lock and use
+only the explicit operator recovery channel; do not waive checks or manufacture
+an acknowledgment.
+
+After verified terminal recovery and native idle checks, explicit operator
+cleanup **worker2 first, then controller** removes only the owned authorization entry and that
+host-local generated identity/trust file:
+
+```sh
+sudo /usr/bin/python3 -I -B /etc/node-maintenance-peer/<setup-id>/node-maintenance-peer.py cleanup --setup-id <setup-id>
+```
+
+While the scope is valid, worker cleanup also reads actual controller terminal
+completion before removing a still-working channel. After expiry it still
+requires its exact terminal local record and native idle proofs; cleanup cannot
+restore or renew an expired channel. Controller cleanup disables only its exact **completed** run's guard timer,
+after proving executor/guard services inactive. Worker cleanup never stops
+package/reboot/standby work; active finalizers or children block it. Technical
+source/scope records remain; ordinary SSH remains untouched. Cleanup does not
+extend expiry, reboot, uncordon or alter applications.
+
+**Native acceptance still required:** both approved operator root setups,
+actual OpenSSH expiry/restrict/forced-command behavior, authoritative fingerprints,
+non-root public-read permissions, both strict protocol probes, real systemd
+timer/service/cgroup shapes, then fresh guard/standby/start proofs. No live setup
+or acceptance is claimed by source tests. The previously observed missing
+controller-to-worker2 host trust/authentication is not considered resolved until
+these actual restricted probes succeed.
+
+Future **authorized real terminal** cold commands, after restricted setup:
 
 ```powershell
 python -B .github\scripts\node-maintenance.py cold-plan --output .\worker2-cold-plan.json
