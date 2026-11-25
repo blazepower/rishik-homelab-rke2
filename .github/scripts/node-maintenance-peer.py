@@ -346,7 +346,10 @@ def ssh_manifest(value, owned_text=None):
         else:
             require("node-maintenance-peer-" not in path.name, "Foreign maintenance SSH scope")
             for line in data.decode().splitlines():
-                # OpenSSH permits '=' between the directive keyword and arguments.
+                keyword = re.match(r"^[ \t]*([^ \t=]*)", line)[1]
+                require(keyword.startswith("#") or not any(quote in keyword for quote in "'\""),
+                        "Quoted SSH directive keywords unsupported; no activation/reload")
+                # Only unquoted keywords use OpenSSH's optional '=' delimiter.
                 line = re.sub(r"^([ \t]*[^ \t=]+)[ \t]*=[ \t]*", r"\1 ", line, count=1)
                 words = shlex.split(line, comments=True)
                 if not words:

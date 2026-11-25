@@ -327,8 +327,10 @@ Activation requires the standard global `Include
 /etc/ssh/sshd_config.d/*.conf`, no existing Match/nested Include/foreign
 maintenance scope, root-owned regular configuration files, enabled original
 public-key paths, and no conflicting ForceCommand/chroot.
-The Include/Match guards recognize both whitespace and native `=` keyword
-delimiters; equals-separated directives cannot hide an additional include target.
+The Include/Match guards recognize whitespace and native `=` delimiters for
+unquoted keywords only. Quoted directive keywords are unsupported and rejected
+before normalization: `"Include"= ...` must not hide an additional relative
+`=` include target. Original configuration is never rewritten to bypass this gate.
 Native `sshd -t` and `sshd -T -C` must prove the exact extra path for the peer, unchanged
 Windows operator/other-source/user/local-address/port profiles, and unchanged
 **all other effective settings**, including repeated native properties.

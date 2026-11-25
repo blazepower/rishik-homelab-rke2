@@ -1721,9 +1721,10 @@ class ColdTests(unittest.TestCase):
             self.assertNotIn(["/usr/bin/systemctl", "reload", "ssh.service"], env.commands)
 
     def test_native_peer_standard_include_equals_delimiters_preserve_existing_layout(self):
-        for directive in ("Include=", "Include = ", "Include\t=\t", '  "Include"= ', "iNcLuDe= "):
+        for directive in ("Include=", "Include = ", "Include\t=\t", "iNcLuDe= "):
             with self.subTest(directive=directive), self.peer_policy_environment() as env:
-                env.config.write_text(directive + shlex.quote(str(env.parts / "*.conf")) + "\n")
+                env.config.write_text('#"Include"= ignored comment\n'
+                                      + directive + shlex.quote(str(env.parts / "*.conf")) + "\n")
                 before = env.config.read_bytes()
                 peer_source.authorize()
                 record = peer_source.public_json(env.directory / "authorization.json")
@@ -1742,7 +1743,7 @@ class ColdTests(unittest.TestCase):
                     extra = directive + "\n    PasswordAuthentication yes\n"
                 env.config.write_text(env.config.read_text() + extra)
                 before = env.config.read_bytes()
-                with self.assertRaisesRegex(RuntimeError, "Include layout|Match policy"):
+                with self.assertRaisesRegex(RuntimeError, "Include layout|Match policy|Quoted SSH"):
                     peer_source.authorize()
                 self.assertFalse(env.keyfile.exists())
                 self.assertFalse(env.dropin.exists())
@@ -1750,35 +1751,54 @@ class ColdTests(unittest.TestCase):
                 self.assertEqual(env.config.read_bytes(), before)
                 self.assertNotIn(["/usr/bin/systemctl", "reload", "ssh.service"], env.commands)
 
+    def test_native_peer_quoted_directive_keywords_reject_without_normalizing_or_modifying_config(self):
+        for directive in ('"Include"= ', '  "Include" = ', '"Include" ', "'Include'= ", 'In"clude"= ',
+                          '"Match"=User alice', 'Match"=User alice'):
+            with self.subTest(directive=directive), self.peer_policy_environment() as env:
+                env.config.write_text(directive + shlex.quote(str(env.parts / "*.conf")) + "\n")
+                before = env.config.read_bytes()
+                with self.assertRaisesRegex(RuntimeError, "Quoted SSH directive"):
+                    peer_source.authorize()
+                self.assertFalse(env.keyfile.exists())
+                self.assertFalse(env.dropin.exists())
+                self.assertFalse((env.directory / "authorization.pending.json").exists())
+                self.assertEqual(env.config.read_bytes(), before)
+                self.assertEqual(env.commands, [])
+
     def test_untracked_equals_include_target_drift_cannot_reload_legacy_sampled_policy_on_cleanup(self):
-        with self.peer_policy_environment() as env:
-            target = env.parts.parent / "untracked-alice.conf"
-            target.write_bytes(b"Match User alice\n    PasswordAuthentication no\n")
-            env.config.write_text(env.config.read_text() + "Include=" + shlex.quote(str(target)) + "\n")
-            # Model the previous guard's incomplete manifest, not a new accepted setup.
-            policy = {"manifest": {str(path): {"sha256": peer_source.sha(path.read_bytes()), "mode": 0o644}
-                                   for path in (env.config, env.baseline)},
-                      "profiles": {name: peer_source.policy_shape(peer_source.ssh_effective(context))
-                                   for name, context in peer_source.ssh_contexts(env.value).items()}}
-            key = env.value["peer_host_key"]
-            record = {"setup_id": env.value["setup_id"], "expires_epoch": env.value["expires_epoch"],
-                      "entry": peer_source.authorized_entry(env.value, key), "incoming_public_key": key,
-                      "incoming_key_fingerprint": peer_source.public_key(key), "policy": policy, "activated": False}
-            first = next(iter(peer_source.ssh_contexts(env.value)))
-            env.dropin.write_bytes(peer_source.dropin_text(env.value, policy["profiles"][first]["authorized_keys"]))
-            env.keyfile.write_bytes((record["entry"] + "\n").encode())
-            sampled = {name: peer_source.policy_shape(peer_source.ssh_effective(context))
-                       for name, context in peer_source.ssh_contexts(env.value).items()}
-            target.write_bytes(b"Match User alice\n    PasswordAuthentication yes\n")
-            self.assertEqual(sampled, {name: peer_source.policy_shape(peer_source.ssh_effective(context))
-                                      for name, context in peer_source.ssh_contexts(env.value).items()})
-            before = {path: path.read_bytes() for path in (env.config, env.baseline, env.original, env.dropin, env.keyfile, target)}
-            with self.assertRaisesRegex(RuntimeError, "Include layout"):
-                peer_source.remove_authorization(env.value, env.directory, record)
-            self.assertFalse((env.directory / "authorization.revoked.json").exists())
-            self.assertNotIn(["/usr/bin/systemctl", "reload", "ssh.service"], env.commands)
-            for path, data in before.items():
-                self.assertEqual(path.read_bytes(), data)
+        for quoted in (False, True):
+            with self.subTest(quoted=quoted), self.peer_policy_environment() as env:
+                # Native quoted keywords leave '=' as an include argument, relative to /etc/ssh.
+                target = env.config.parent / ("=" if quoted else "untracked-alice.conf")
+                target.write_bytes(b"Match User alice\n    PasswordAuthentication no\n")
+                if quoted:
+                    env.config.write_text('"Include"= ' + shlex.quote(str(env.parts / "*.conf")) + "\n")
+                else:
+                    env.config.write_text(env.config.read_text() + "Include=" + shlex.quote(str(target)) + "\n")
+                # Model the previous guard's incomplete manifest, not a new accepted setup.
+                policy = {"manifest": {str(path): {"sha256": peer_source.sha(path.read_bytes()), "mode": 0o644}
+                                       for path in (env.config, env.baseline)},
+                          "profiles": {name: peer_source.policy_shape(peer_source.ssh_effective(context))
+                                       for name, context in peer_source.ssh_contexts(env.value).items()}}
+                key = env.value["peer_host_key"]
+                record = {"setup_id": env.value["setup_id"], "expires_epoch": env.value["expires_epoch"],
+                          "entry": peer_source.authorized_entry(env.value, key), "incoming_public_key": key,
+                          "incoming_key_fingerprint": peer_source.public_key(key), "policy": policy, "activated": False}
+                first = next(iter(peer_source.ssh_contexts(env.value)))
+                env.dropin.write_bytes(peer_source.dropin_text(env.value, policy["profiles"][first]["authorized_keys"]))
+                env.keyfile.write_bytes((record["entry"] + "\n").encode())
+                sampled = {name: peer_source.policy_shape(peer_source.ssh_effective(context))
+                           for name, context in peer_source.ssh_contexts(env.value).items()}
+                target.write_bytes(b"Match User alice\n    PasswordAuthentication yes\n")
+                self.assertEqual(sampled, {name: peer_source.policy_shape(peer_source.ssh_effective(context))
+                                          for name, context in peer_source.ssh_contexts(env.value).items()})
+                before = {path: path.read_bytes() for path in (env.config, env.baseline, env.original, env.dropin, env.keyfile, target)}
+                with self.assertRaisesRegex(RuntimeError, "Include layout|Quoted SSH"):
+                    peer_source.remove_authorization(env.value, env.directory, record)
+                self.assertFalse((env.directory / "authorization.revoked.json").exists())
+                self.assertNotIn(["/usr/bin/systemctl", "reload", "ssh.service"], env.commands)
+                for path, data in before.items():
+                    self.assertEqual(path.read_bytes(), data)
 
     def test_native_peer_syntax_or_reload_failure_never_creates_ready_credential_and_pending_cleanup_is_bounded(self):
         for change in ("syntax_fail", "reload_fail"):
