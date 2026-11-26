@@ -1026,6 +1026,18 @@ Archives are never overwritten; interrupted archive/install attempts can
 resume only with the same reviewed candidate and no actuation. Drift retains
 the lock and rejects revision rather than inventing a receipt.
 
+If interrupted inside clock/helper replacement, rerun **the same** candidate
+`stage-revision` command. Only `operator-clock.json.updating` (0600) and
+`helper.py.updating` (0444) can resume, after validating the existing exact
+revision manifest, archived predecessor, root ownership, regular single-link
+file identity and exact candidate/clock payload. Both are re-proved before
+publication; the greatest pending/live/archived/original epoch is preserved.
+This also handles the mixed state where the operator clock already names the
+new source but `helper.py` still contains the predecessor. Do not run normal
+recovery commands until revision succeeds. Missing manifests, foreign payloads,
+inode drift or any other pending authority/actuation artifact fail closed and
+remain untouched; there is no wildcard pending cleanup or clock rollback.
+
 Require exit zero with `outcome="pre-actuation-helper-revised"`,
 `actuation=false`, the exact accepted `source_sha256`, and
 `regenerate_signed_worker_audit=true`. Verify the installed raw SHA on both

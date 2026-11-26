@@ -65,6 +65,15 @@ class RecoveryFixture:
             self.stack.enter_context(patch.object(r, "checked", side_effect=exists))
             self.stack.enter_context(patch.object(r, "sync_directory"))
             self.stack.enter_context(patch.object(r.os, "fchmod", create=True))
+            def publication(name):
+                path = r.BASE / name
+                try:
+                    meta = path.lstat()
+                except FileNotFoundError:
+                    return None
+                r.require(stat.S_ISREG(meta.st_mode) and meta.st_nlink == 1, "Fixture pending type/link drift")
+                return path.read_bytes(), (meta.st_dev, meta.st_ino)
+            self.stack.enter_context(patch.object(r, "revision_pending", side_effect=publication))
         self.stack.enter_context(patch.object(r.time, "time", side_effect=lambda: self.now))
         self.stack.enter_context(patch.object(r, "run", side_effect=self.native))
         if not self.real_metadata:
@@ -761,22 +770,124 @@ class RecoveryTests(RecoveryFixture, unittest.TestCase):
                 obj.stage_revision()
 
     def test_revision_interrupted_clock_migration_or_helper_install_restarts_without_reset(self):
+        for node, target in ((r.WORKER, "operator-clock.json"), (r.SERVER, "helper.py")):
+            previous, candidate = self.revision_fixture(node)
+            with self.on(node) as obj, patch.object(r, "__file__", str(r.BASE / "helper.next.py")):
+                if node == r.WORKER:
+                    reviewed_source = obj.source
+                    obj.source = r.PREVIOUS_HELPER_SHA
+                    obj.worker_audit()
+                    obj.source = reviewed_source
+                    self.transfer(r.WORKER, r.SERVER, "worker-audit")
+                section = "public" if node == r.WORKER else "inbox"
+                evidence_path = obj.pub if node == r.WORKER else r.BASE / "inbox"
+                evidence = {path.name: path.read_bytes() for path in evidence_path.iterdir()}
+                old_clock = (r.BASE / "operator-clock.json").read_bytes()
+                original = (obj.original / "state.json").read_bytes()
+                original_replace = r.os.replace
+                def interruption(source, destination):
+                    if destination == r.BASE / target:
+                        self.assertEqual(source, r.BASE / (target + ".updating"))
+                        self.assertTrue(source.exists())
+                        raise Interrupted()
+                    return original_replace(source, destination)
+                with patch.object(r.os, "replace", side_effect=interruption), self.assertRaises(Interrupted):
+                    obj.stage_revision()
+                pending = r.BASE / (target + ".updating")
+                self.assertTrue(pending.exists())
+                self.assertEqual((r.BASE / "helper.py").read_bytes(), previous)
+                if target == "helper.py":
+                    clock = json.loads((r.BASE / "operator-clock.json").read_bytes())
+                    self.assertEqual(clock["source_sha256"], obj.source)
+                    current_source = obj.source
+                    obj.source = r.PREVIOUS_HELPER_SHA
+                    with self.assertRaises(RuntimeError):
+                        obj.clock()
+                    obj.source = current_source
+                archive = r.BASE / ("revision-from-" + r.PREVIOUS_HELPER_SHA)
+                manifest = (archive / "manifest.json").read_bytes()
+                self.assertEqual((archive / "private/operator-clock.json").read_bytes(), old_clock)
+                obj.stage_revision()
+                obj.stage_revision()
+                self.assertFalse(pending.exists())
+                self.assertEqual((r.BASE / "helper.py").read_bytes(), candidate)
+                self.assertEqual((archive / "private/helper.py").read_bytes(), previous)
+                self.assertEqual((archive / "manifest.json").read_bytes(), manifest)
+                for name, data in evidence.items():
+                    self.assertEqual((archive / section / name).read_bytes(), data)
+                    self.assertEqual((evidence_path / name).read_bytes(), data)
+                self.assertEqual((obj.original / "state.json").read_bytes(), original)
+                self.assertGreaterEqual(json.loads((r.BASE / "operator-clock.json").read_bytes())["last_epoch"],
+                                        json.loads(old_clock)["last_epoch"])
+                self.assertFalse((r.BASE / "authority.json").exists())
+        self.assertFalse(any("delete" in args or "stop" in args or "daemon-reload" in args
+                             for _, args, _ in self.calls))
+
+    def test_revision_clock_watermark_uses_maximum_pending_live_and_original_epochs(self):
+        for node, watermark in ((r.WORKER, "pending"), (r.SERVER, "live")):
+            self.revision_fixture(node)
+            with self.on(node) as obj, patch.object(r, "__file__", str(r.BASE / "helper.next.py")):
+                original_replace = r.os.replace
+                def interruption(source, destination):
+                    if destination == r.BASE / "operator-clock.json":
+                        raise Interrupted()
+                    return original_replace(source, destination)
+                with patch.object(r.os, "replace", side_effect=interruption), self.assertRaises(Interrupted):
+                    obj.stage_revision()
+                pending = r.BASE / "operator-clock.json.updating"
+                pending.write_bytes(r.canonical({"source_sha256": obj.source, "last_epoch": self.now}))
+                expected = self.now
+                self.now += 3
+                if watermark == "live":
+                    expected = self.now
+                    (r.BASE / "operator-clock.json").write_bytes(r.canonical(
+                        {"source_sha256": obj.source, "last_epoch": expected}))
+                obj.stage_revision()
+                self.assertEqual(json.loads((r.BASE / "operator-clock.json").read_bytes())["last_epoch"], expected)
+                self.modify_state(node, {"last_epoch": self.now})
+                obj.stage_revision()
+                self.assertEqual(json.loads((r.BASE / "operator-clock.json").read_bytes())["last_epoch"], self.now)
+
+    def test_revision_malformed_foreign_or_unmanifested_pending_is_retained_without_publication(self):
         self.revision_fixture(r.WORKER)
         with self.on(r.WORKER) as obj, patch.object(r, "__file__", str(r.BASE / "helper.next.py")):
-            original_atomic = r.atomic
-            def interruption(path, data, mode=0o600):
-                if path == r.BASE / "helper.py":
-                    raise Interrupted()
-                return original_atomic(path, data, mode)
-            with patch.object(r, "atomic", side_effect=interruption), self.assertRaises(Interrupted):
+            pending = r.BASE / "helper.py.updating"
+            pending.write_bytes(b"foreign helper")
+            before = (r.BASE / "helper.py").read_bytes()
+            with self.assertRaises(RuntimeError):
                 obj.stage_revision()
-            clock = (r.BASE / "operator-clock.json").read_bytes()
-            archive = r.BASE / ("revision-from-" + r.PREVIOUS_HELPER_SHA)
-            manifest = (archive / "manifest.json").read_bytes()
-            obj.stage_revision()
-            self.assertEqual((archive / "manifest.json").read_bytes(), manifest)
-            self.assertEqual((r.BASE / "operator-clock.json").read_bytes(), clock)
-            self.assertEqual((obj.original / "state.json").read_bytes(), self.original_worker)
+            self.assertEqual(pending.read_bytes(), b"foreign helper")
+            pending.unlink()
+            original_replace = r.os.replace
+            def interruption(source, destination):
+                if destination == r.BASE / "operator-clock.json":
+                    raise Interrupted()
+                return original_replace(source, destination)
+            with patch.object(r.os, "replace", side_effect=interruption), self.assertRaises(Interrupted):
+                obj.stage_revision()
+            pending = r.BASE / "operator-clock.json.updating"
+            clock_before = (r.BASE / "operator-clock.json").read_bytes()
+            for data in (b"malformed", b"[]", b"{}", r.canonical(
+                         {"source_sha256": obj.source, "last_epoch": float("nan")}),
+                         json.dumps({"source_sha256": obj.source, "last_epoch": self.now}).encode(),
+                         r.canonical({"source_sha256": r.PREVIOUS_HELPER_SHA, "last_epoch": self.now}),
+                         r.canonical({"source_sha256": obj.source, "last_epoch": r.START - 1}),
+                         r.canonical({"source_sha256": obj.source, "last_epoch": self.now + 1}),
+                         r.canonical({"source_sha256": obj.source, "last_epoch": self.now, "unknown": True})):
+                pending.write_bytes(data)
+                with self.subTest(data=data), self.assertRaises((RuntimeError, ValueError)):
+                    obj.stage_revision()
+                self.assertEqual(pending.read_bytes(), data)
+                self.assertEqual((r.BASE / "operator-clock.json").read_bytes(), clock_before)
+                self.assertEqual((r.BASE / "helper.py").read_bytes(), before)
+            pending.unlink()
+            for name in ("helper.py.updating", "authority.json.updating", "delete-intent-435298222.json.updating"):
+                foreign = r.BASE / name
+                foreign.write_bytes(b"foreign")
+                with self.subTest(name=name), self.assertRaises(RuntimeError):
+                    obj.stage_revision()
+                self.assertEqual(foreign.read_bytes(), b"foreign")
+                foreign.unlink()
 
     def test_revision_retains_old_signed_audit_but_requires_genuinely_regenerated_new_source(self):
         self.revision_fixture(r.WORKER)
@@ -807,6 +918,24 @@ class RecoveryTests(RecoveryFixture, unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 worker.stage_revision()
             self.assertEqual((r.BASE / "helper.py").read_bytes(), b"previous-reviewed-helper-fixture")
+
+    def test_revision_interruption_after_replace_return_is_also_idempotent(self):
+        for node, target in ((r.WORKER, "operator-clock.json"), (r.SERVER, "helper.py")):
+            previous, candidate = self.revision_fixture(node)
+            with self.on(node) as obj, patch.object(r, "__file__", str(r.BASE / "helper.next.py")):
+                original_replace = r.os.replace
+                def interruption(source, destination):
+                    result = original_replace(source, destination)
+                    if destination == r.BASE / target:
+                        raise Interrupted()
+                    return result
+                with patch.object(r.os, "replace", side_effect=interruption), self.assertRaises(Interrupted):
+                    obj.stage_revision()
+                self.assertFalse((r.BASE / (target + ".updating")).exists())
+                obj.stage_revision()
+                self.assertEqual((r.BASE / "helper.py").read_bytes(), candidate)
+                archive = r.BASE / ("revision-from-" + r.PREVIOUS_HELPER_SHA)
+                self.assertEqual((archive / "private/helper.py").read_bytes(), previous)
 
 
 @unittest.skipUnless(os.name == "posix" and getattr(os, "geteuid", lambda: -1)() == 0,
@@ -1014,6 +1143,126 @@ class RecoveryPermissionTests(RecoveryFixture, unittest.TestCase):
             self.assertEqual(stat.S_IMODE((r.BASE / "operator-mutex").stat().st_mode), 0o600)
             self.assertEqual(stat.S_IMODE((obj.original / "mutex").stat().st_mode), 0o644)
             self.assertFalse((r.BASE / "authority.json").exists())
+
+    def pending_revision_fixture(self, target):
+        previous, candidate = b"old-reviewed-pending-fixture", b"new-reviewed-pending-fixture"
+        self.stack.enter_context(patch.object(r, "PREVIOUS_HELPER_SHA", r.sha(previous)))
+        obj = self.nodes[r.SERVER]["object"]
+        obj.source = r.sha(candidate)
+        base = self.nodes[r.SERVER]["base"] / "base"
+        for name, data, mode in (
+            ("helper.py", previous, 0o444), ("helper.next.py", candidate, 0o444),
+            ("operator-clock.json", r.canonical({"source_sha256": r.PREVIOUS_HELPER_SHA,
+                                               "last_epoch": self.now - 1}), 0o600)):
+            (base / name).write_bytes(data)
+            (base / name).chmod(mode)
+        with self.on(r.SERVER), patch.object(r, "__file__", str(base / "helper.next.py")):
+            original_replace = r.os.replace
+            def interruption(source, destination):
+                if destination == base / target:
+                    raise Interrupted()
+                return original_replace(source, destination)
+            with patch.object(r.os, "replace", side_effect=interruption), self.assertRaises(Interrupted):
+                obj.stage_revision()
+        return previous, candidate
+
+    def assert_real_pending_resume(self, target):
+        previous, candidate = self.pending_revision_fixture(target)
+        with self.on(r.SERVER) as obj, patch.object(r, "__file__", str(r.BASE / "helper.next.py")):
+            pending = r.BASE / (target + ".updating")
+            self.assertEqual(stat.S_IMODE(pending.lstat().st_mode),
+                             0o600 if target == "operator-clock.json" else 0o444)
+            self.assertEqual(pending.lstat().st_uid, 0)
+            self.assertEqual(pending.lstat().st_nlink, 1)
+            original = (obj.original / "state.json").read_bytes()
+            archive = r.BASE / ("revision-from-" + r.PREVIOUS_HELPER_SHA)
+            old_clock = (archive / "private/operator-clock.json").read_bytes()
+            obj.stage_revision()
+            self.assertFalse(pending.exists())
+            self.assertEqual((r.BASE / "helper.py").read_bytes(), candidate)
+            self.assertEqual((archive / "private/helper.py").read_bytes(), previous)
+            self.assertEqual((archive / "private/operator-clock.json").read_bytes(), old_clock)
+            self.assertEqual((obj.original / "state.json").read_bytes(), original)
+            self.assertIsNotNone(self.lock_value)
+            self.assertFalse(any("delete" in args or "stop" in args or "daemon-reload" in args
+                                 for _, args, _ in self.calls))
+
+    def test_real_revision_clock_replace_interruption_resumes_without_permission_mocks(self):
+        self.assert_real_pending_resume("operator-clock.json")
+
+    def test_real_revision_helper_replace_interruption_resumes_without_permission_mocks(self):
+        self.assert_real_pending_resume("helper.py")
+
+    def test_real_revision_foreign_pending_mode_owner_link_type_and_inode_are_retained(self):
+        self.pending_revision_fixture("operator-clock.json")
+        with self.on(r.SERVER) as obj, patch.object(r, "__file__", str(r.BASE / "helper.next.py")):
+            pending = r.BASE / "operator-clock.json.updating"
+            data = pending.read_bytes()
+            helper = (r.BASE / "helper.py").read_bytes()
+            clock = (r.BASE / "operator-clock.json").read_bytes()
+            pending.chmod(0o664)
+            with self.assertRaises(RuntimeError):
+                obj.stage_revision()
+            self.assertEqual(pending.read_bytes(), data)
+            pending.chmod(0o600)
+            os.chown(pending, 65534, -1)
+            with self.assertRaises(RuntimeError):
+                obj.stage_revision()
+            os.chown(pending, 0, -1)
+            os.chown(pending, -1, 65534)
+            with self.assertRaises(RuntimeError):
+                obj.stage_revision()
+            os.chown(pending, -1, 0)
+            link = self.root / "extra-pending-link"
+            os.link(pending, link)
+            with self.assertRaises(RuntimeError):
+                obj.stage_revision()
+            link.unlink()
+            pending.unlink()
+            pending.mkdir(mode=0o700)
+            with self.assertRaises(RuntimeError):
+                obj.stage_revision()
+            self.assertTrue(pending.is_dir())
+            pending.rmdir()
+            pending.symlink_to(r.BASE / "operator-clock.json")
+            with self.assertRaises(RuntimeError):
+                obj.stage_revision()
+            self.assertTrue(pending.is_symlink())
+            pending.unlink()
+            pending.write_bytes(data)
+            pending.chmod(0o600)
+            original_open = r.os.open
+            def replace(path, flags, *args, **kwargs):
+                if path == pending:
+                    pending.rename(self.root / "saved-original-pending")
+                    pending.write_bytes(data)
+                    pending.chmod(0o600)
+                return original_open(path, flags, *args, **kwargs)
+            with patch.object(r.os, "open", side_effect=replace), self.assertRaises(RuntimeError):
+                obj.stage_revision()
+            for foreign in (b"malformed", r.canonical(
+                    {"source_sha256": r.PREVIOUS_HELPER_SHA, "last_epoch": self.now})):
+                pending.write_bytes(foreign)
+                with self.assertRaises((ValueError, RuntimeError)):
+                    obj.stage_revision()
+                self.assertEqual(pending.read_bytes(), foreign)
+            pending.write_bytes(data)
+            original_pending = r.revision_pending
+            reads = 0
+            def switch_before_cleanup(name):
+                nonlocal reads
+                if name == pending.name:
+                    reads += 1
+                    if reads == 2:
+                        pending.rename(self.root / "saved-reproved-pending")
+                        pending.write_bytes(data)
+                        pending.chmod(0o600)
+                return original_pending(name)
+            with patch.object(r, "revision_pending", side_effect=switch_before_cleanup), self.assertRaises(RuntimeError):
+                obj.stage_revision()
+            self.assertEqual((r.BASE / "helper.py").read_bytes(), helper)
+            self.assertEqual((r.BASE / "operator-clock.json").read_bytes(), clock)
+            self.assertEqual(pending.read_bytes(), data)
 
 
 if __name__ == "__main__":

@@ -195,6 +195,34 @@ def read_json(path, modes=(0o600,)):
     return json.loads(checked(path, modes).read_bytes())
 
 
+def revision_pending(name):
+    modes = {"operator-clock.json.updating": 0o600, "helper.py.updating": 0o444}
+    require(name in modes, "Only exact revision publication pending files permitted")
+    path = BASE / name
+    try:
+        before = path.lstat()
+    except FileNotFoundError:
+        return None
+    checked(path, (modes[name],))
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(fd, "rb") as stream:
+        opened = os.fstat(stream.fileno())
+        identity = (before.st_dev, before.st_ino)
+        require(before.st_uid == before.st_gid == opened.st_uid == opened.st_gid == 0
+                and stat.S_ISREG(before.st_mode) and stat.S_ISREG(opened.st_mode)
+                and before.st_nlink == opened.st_nlink == 1
+                and stat.S_IMODE(before.st_mode) == stat.S_IMODE(opened.st_mode) == modes[name]
+                and identity == (opened.st_dev, opened.st_ino),
+                "Revision pending ownership/type/mode/inode drift")
+        data = stream.read()
+        current = path.lstat()
+        require((current.st_dev, current.st_ino, current.st_mode, current.st_uid, current.st_gid,
+                 current.st_nlink, current.st_size)
+                == (opened.st_dev, opened.st_ino, opened.st_mode, opened.st_uid, opened.st_gid,
+                    opened.st_nlink, opened.st_size), "Revision pending changed during read")
+    return data, identity
+
+
 def no_job(native):
     return "Job" in native and native["Job"] in ("", "0")
 
@@ -626,6 +654,8 @@ class Recovery:
                              "signing.json": (0o600,), "signing.json.sig": (0o600, 0o644),
                              "allowed-signers": (0o600,), "local-signers": (0o600,)}
             allowed = set(private_modes) | {"operator-mutex", "helper.next.py", "inbox", archive.name}
+            publication_names = ("operator-clock.json.updating", "helper.py.updating")
+            allowed |= set(publication_names)
             require(set(p.name for p in BASE.iterdir()) <= allowed,
                     "Revision forbidden authority/fence/cancel/retirement/unknown artifact")
             checked(BASE / "operator-mutex")
@@ -642,6 +672,9 @@ class Recovery:
             active = checked(BASE / "helper.py", (0o444,)).read_bytes()
             require(sha(active) in (PREVIOUS_HELPER_SHA, self.source), "Unapproved predecessor helper")
             manifest_path = archive / "manifest.json"
+            require(manifest_path.exists() or not any((BASE / name).exists() or (BASE / name).is_symlink()
+                                                      for name in publication_names),
+                    "Publication pending without a proven same-revision manifest")
             if manifest_path.exists():
                 checked(archive, (0o700,), directory=True)
                 manifest = read_json(manifest_path)
@@ -710,6 +743,21 @@ class Recovery:
                 require(sha(checked(archive / relative).read_bytes()) == digest, "Revision archived evidence drift")
             require(sha(checked(archive / "private/helper.py").read_bytes()) == PREVIOUS_HELPER_SHA,
                     "Revision archived predecessor source drift")
+            publications = {name: revision_pending(name) for name in publication_names}
+            pending_floor = manifest["last_epoch"]
+            pending = publications["operator-clock.json.updating"]
+            if pending is not None:
+                body = json.loads(pending[0])
+                require(isinstance(body, dict) and pending[0] == canonical(body)
+                        and set(body) == {"source_sha256", "last_epoch"}
+                        and body["source_sha256"] == self.source and type(body["last_epoch"]) in (int, float)
+                        and math.isfinite(body["last_epoch"])
+                        and manifest["last_epoch"] <= body["last_epoch"] <= time.time(),
+                        "Revision clock publication foreign/malformed/rollback")
+                pending_floor = max(pending_floor, body["last_epoch"])
+            pending = publications["helper.py.updating"]
+            require(pending is None or (pending[0] == candidate and sha(pending[0]) == self.source),
+                    "Revision helper publication is not the exact reviewed candidate")
             # Neither original-clock writes nor authority creation are part of revision.
             state = self.state(check_clock=False)
             require(set(p.name for p in BASE.iterdir()) <= allowed
@@ -725,7 +773,7 @@ class Recovery:
                 for name in self.unit_bodies():
                     self.actor(name, allow_running=name.endswith("-guard.timer") or name.endswith("-guard.service"))
                 require(not self.lock()["metadata"].get("deletionTimestamp"), "Lock terminating during revision")
-            floor = max(manifest["last_epoch"], state["last_epoch"])
+            floor = max(manifest["last_epoch"], pending_floor, state["last_epoch"])
             clock_path = BASE / "operator-clock.json"
             if clock_path.exists():
                 clock = read_json(clock_path)
@@ -735,10 +783,14 @@ class Recovery:
                         and START <= clock["last_epoch"] <= time.time(), "Revision current clock drift")
                 floor = max(floor, clock["last_epoch"])
             require(time.time() >= floor, "Revision clock rollback")
+            require(all(revision_pending(name) == publications[name] for name in publication_names),
+                    "Revision pending content/inode changed before publication")
             atomic(clock_path, canonical({"source_sha256": self.source, "last_epoch": floor}))
             require(sha(checked(BASE / "helper.py", (0o444,)).read_bytes()) in (PREVIOUS_HELPER_SHA, self.source)
                     and sha(checked(BASE / "helper.next.py", (0o444,)).read_bytes()) == self.source,
                     "Revision executable drift before installation")
+            require(revision_pending("helper.py.updating") == publications["helper.py.updating"],
+                    "Revision helper pending changed before installation")
             atomic(BASE / "helper.py", candidate, 0o444)
             return {"outcome": "pre-actuation-helper-revised", "source_sha256": self.source,
                     "previous_source_sha256": PREVIOUS_HELPER_SHA, "actuation": False,
