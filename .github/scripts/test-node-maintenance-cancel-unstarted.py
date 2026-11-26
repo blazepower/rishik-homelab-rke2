@@ -5,7 +5,9 @@ from contextlib import ExitStack, contextmanager
 import copy
 import importlib.util
 import json
+import os
 from pathlib import Path
+import stat
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -29,7 +31,9 @@ class Interrupted(Exception):
     pass
 
 
-class RecoveryTests(unittest.TestCase):
+class RecoveryFixture:
+    real_metadata = False
+
     def setUp(self):
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
@@ -54,17 +58,24 @@ class RecoveryTests(unittest.TestCase):
         def exists(path, *args, **kwargs):
             Path(path).lstat()
             return Path(path)
-        self.stack.enter_context(patch.object(r, "checked", side_effect=exists))
-        self.stack.enter_context(patch.object(r, "sync_directory"))
-        self.stack.enter_context(patch.object(r.os, "fchmod", create=True))
+        if not self.real_metadata:
+            self.stack.enter_context(patch.object(r, "checked", side_effect=exists))
+            self.stack.enter_context(patch.object(r, "sync_directory"))
+            self.stack.enter_context(patch.object(r.os, "fchmod", create=True))
         self.stack.enter_context(patch.object(r.time, "time", side_effect=lambda: self.now))
         self.stack.enter_context(patch.object(r, "run", side_effect=self.native))
-        self.stack.enter_context(patch.object(r, "mutex", side_effect=self.mutex))
+        if not self.real_metadata:
+            self.stack.enter_context(patch.object(r, "mutex", side_effect=self.mutex))
         self.lock_value["data"]["plan_sha256"] = approval
         for node in (r.SERVER, r.WORKER):
             base = self.root / node
             for name in ("base/inbox", "original", "system", "cgroup/system.slice", "public"):
                 (base / name).mkdir(parents=True)
+            if self.real_metadata:
+                for name in ("base", "base/inbox", "original"):
+                    (base / name).chmod(0o700)
+                for name in ("system", "cgroup", "cgroup/system.slice", "public"):
+                    (base / name).chmod(0o755)
             (base / "mountinfo").write_text("29 23 0:26 / /sys/fs/cgroup rw - cgroup2 cgroup rw\n")
             (base / "proc-locks").write_text("")
             for index in range(4):
@@ -89,10 +100,15 @@ class RecoveryTests(unittest.TestCase):
             else:
                 state.update(contract=contract, contract_sha256=r.CONTRACT_SHA, phase="staged", pid=0)
             (obj.original / "state.json").write_bytes(r.canonical(state))
+            if self.real_metadata:
+                for path in obj.original.iterdir():
+                    path.chmod(0o600)
             units = {}
             for name, body in obj.unit_bodies().items():
                 path = base / "system" / name
                 path.write_bytes(body.encode())
+                if self.real_metadata:
+                    path.chmod(0o644)
                 units[name] = {"LoadState": "loaded", "ActiveState": "inactive", "Job": "",
                     "FragmentPath": str(path), "DropInPaths": ""}
                 if name.endswith(".service"):
@@ -180,7 +196,10 @@ class RecoveryTests(unittest.TestCase):
         src = self.nodes[sender]["object"].pub / (kind + ".json")
         dst = self.nodes[receiver]["base"] / "base/inbox" / src.name
         for suffix in ("", ".sig"):
-            Path(str(dst) + suffix).write_bytes(Path(str(src) + suffix).read_bytes())
+            destination = Path(str(dst) + suffix)
+            destination.write_bytes(Path(str(src) + suffix).read_bytes())
+            if self.real_metadata:
+                destination.chmod(0o444)
 
     def prepared(self):
         with self.on(r.WORKER) as worker:
@@ -202,6 +221,8 @@ class RecoveryTests(unittest.TestCase):
         value.update(updates)
         path.write_bytes(r.canonical(value))
 
+
+class RecoveryTests(RecoveryFixture, unittest.TestCase):
     def test_native_empty_jobs_typed_timers_and_genuine_terminal_retirement(self):
         self.cancelled()
         with self.on(r.SERVER) as controller:
@@ -600,6 +621,170 @@ class RecoveryTests(unittest.TestCase):
                     r.Recovery.verify_host(worker)
                 with patch.object(r.platform, "machine", return_value="other"), self.assertRaises(RuntimeError):
                     r.Recovery.verify_host(worker)
+
+    def test_worker_receipt_expiring_inside_final_api_reproof_retains_lock(self):
+        self.cancelled()
+        self.now += 119
+        reads = 0
+        def delay(args):
+            nonlocal reads
+            if args[0] == "fixture-kubectl" and "get" in args:
+                reads += 1
+                if reads == 2:
+                    self.now += 2
+        self.fail = delay
+        with self.on(r.SERVER) as controller, self.assertRaises(RuntimeError):
+            controller.controller_retire()
+        self.assertEqual(reads, 2)
+        self.assertIsNotNone(self.lock_value)
+        self.assertFalse(any("delete" in args for _, args, _ in self.calls))
+
+    def test_worker_receipt_expiring_inside_systemd_reproof_retains_lock(self):
+        self.cancelled()
+        self.now += 119
+        reads = 0
+        guard = "node-maintenance-cold-" + r.RUN + "-guard.service"
+        def delay(args):
+            nonlocal reads
+            if args[:3] == ["/usr/bin/systemctl", "show", guard]:
+                reads += 1
+                if reads == 2:
+                    self.now += 2
+        self.fail = delay
+        with self.on(r.SERVER) as controller, self.assertRaises(RuntimeError):
+            controller.controller_retire()
+        self.assertIsNotNone(self.lock_value)
+        self.assertFalse(any("delete" in args for _, args, _ in self.calls))
+
+    def test_changed_authenticated_worker_receipt_after_reproof_retains_lock(self):
+        self.cancelled()
+        reads = 0
+        def change(args):
+            nonlocal reads
+            if args[0] == "fixture-kubectl" and "get" in args:
+                reads += 1
+                if reads == 2:
+                    path = r.BASE / "inbox/worker-cancel.json"
+                    body = json.loads(path.read_bytes())
+                    body["observed_epoch"] -= 1
+                    path.write_bytes(r.canonical(body))
+                    Path(str(path) + ".sig").write_bytes((r.WORKER + ":" + r.sha(path.read_bytes())).encode())
+        self.fail = change
+        with self.on(r.SERVER) as controller, self.assertRaises(RuntimeError):
+            controller.controller_retire()
+        self.assertIsNotNone(self.lock_value)
+        self.assertFalse(any("delete" in args for _, args, _ in self.calls))
+
+    def test_clock_rollback_during_final_authentication_retains_lock(self):
+        self.cancelled()
+        self.now += 119
+        ready = False
+        reads = 0
+        def rollback(args):
+            nonlocal ready, reads
+            if args[0] == "fixture-kubectl" and "get" in args:
+                reads += 1
+                ready = reads == 2
+            elif ready and args[:3] == ["/usr/bin/ssh-keygen", "-Y", "verify"]:
+                self.now -= 1
+                ready = False
+        self.fail = rollback
+        with self.on(r.SERVER) as controller, self.assertRaises(RuntimeError):
+            controller.controller_retire()
+        self.assertIsNotNone(self.lock_value)
+        self.assertFalse(any("delete" in args for _, args, _ in self.calls))
+
+
+@unittest.skipUnless(os.name == "posix" and getattr(os, "geteuid", lambda: -1)() == 0,
+                     "Actual POSIX root ownership/umask filesystem required; no permission mocks")
+class RecoveryPermissionTests(RecoveryFixture, unittest.TestCase):
+    real_metadata = True
+
+    def test_real_restrictive_umask_creates_exact_guard_directory_and_restores_mask(self):
+        previous = os.umask(0o077)
+        try:
+            control = self.root / "umask-control"
+            control.mkdir(mode=0o755)
+            self.assertEqual(stat.S_IMODE(control.stat().st_mode), 0o700)
+            self.prepared()
+            with self.on(r.SERVER) as controller:
+                unit = "node-maintenance-cold-" + r.RUN + "-guard.service"
+                directory = controller.inhibit_path(unit).parent
+                self.assertEqual(stat.S_IMODE(directory.lstat().st_mode), 0o755)
+                self.assertEqual(directory.lstat().st_uid, 0)
+                self.assertEqual(stat.S_IMODE(controller.inhibit_path(unit).stat().st_mode), 0o644)
+                current = os.umask(0o077)
+                self.assertEqual(current, 0o077)
+                controller.verify_inhibition()
+        finally:
+            os.umask(previous)
+
+    def test_real_created_directory_interruption_retries_without_chmod_or_clock_reset(self):
+        previous = os.umask(0o077)
+        try:
+            with self.on(r.WORKER) as worker:
+                worker.worker_audit()
+            self.transfer(r.WORKER, r.SERVER, "worker-audit")
+            with self.on(r.SERVER) as controller:
+                original_sync = r.sync_directory
+                def interruption(path):
+                    original_sync(path)
+                    if path == r.SYSTEM:
+                        raise Interrupted()
+                with patch.object(r, "sync_directory", side_effect=interruption), self.assertRaises(Interrupted):
+                    controller.controller_fence()
+                unit = "node-maintenance-cold-" + r.RUN + "-guard.service"
+                path = controller.inhibit_path(unit)
+                self.assertEqual(stat.S_IMODE(path.parent.lstat().st_mode), 0o755)
+                self.assertFalse(path.exists())
+                fence = (r.BASE / "guard-inhibited").read_bytes()
+                identity = (path.parent.stat().st_dev, path.parent.stat().st_ino)
+                controller.controller_fence()
+                self.assertEqual((path.parent.stat().st_dev, path.parent.stat().st_ino), identity)
+                self.assertEqual((r.BASE / "guard-inhibited").read_bytes(), fence)
+                self.assertEqual((controller.original / "state.json").read_bytes(), self.original_controller)
+                controller.verify_inhibition()
+            self.assertIsNotNone(self.lock_value)
+        finally:
+            os.umask(previous)
+
+    def test_real_foreign_directory_modes_contents_and_symlink_are_never_repaired(self):
+        with self.on(r.WORKER) as worker:
+            worker.worker_audit()
+        self.transfer(r.WORKER, r.SERVER, "worker-audit")
+        with self.on(r.SERVER) as controller:
+            unit = "node-maintenance-cold-" + r.RUN + "-guard.service"
+            directory = controller.inhibit_path(unit).parent
+            directory.mkdir(mode=0o700)
+            before = directory.lstat()
+            with self.assertRaises(RuntimeError):
+                controller.controller_fence()
+            self.assertEqual(stat.S_IMODE(directory.lstat().st_mode), 0o700)
+            self.assertEqual(directory.lstat().st_ino, before.st_ino)
+            directory.rmdir()
+            directory.mkdir(mode=0o755)
+            directory.chmod(0o755)
+            foreign = directory / "99-unrelated.conf"
+            foreign.write_bytes(b"[Unit]\nDescription=Unrelated\n")
+            foreign.chmod(0o644)
+            with self.assertRaises(RuntimeError):
+                controller.controller_fence()
+            self.assertEqual(foreign.read_bytes(), b"[Unit]\nDescription=Unrelated\n")
+            foreign.unlink()
+            os.chown(directory, 65534, -1)
+            with self.assertRaises(RuntimeError):
+                controller.controller_fence()
+            self.assertEqual(directory.lstat().st_uid, 65534)
+            os.chown(directory, 0, -1)
+            directory.rmdir()
+            target = self.root / "unrelated-directory"
+            target.mkdir(mode=0o700)
+            directory.symlink_to(target, target_is_directory=True)
+            with self.assertRaises(RuntimeError):
+                controller.controller_fence()
+            self.assertTrue(directory.is_symlink())
+            self.assertEqual(stat.S_IMODE(target.lstat().st_mode), 0o700)
+        self.assertIsNotNone(self.lock_value)
 
 
 if __name__ == "__main__":

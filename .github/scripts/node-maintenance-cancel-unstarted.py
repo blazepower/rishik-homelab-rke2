@@ -274,6 +274,7 @@ class Recovery:
             atomic(path, canonical({"source_sha256": self.source, "last_epoch": now}))
         else:
             create(path, canonical({"source_sha256": self.source, "last_epoch": now}))
+        return now
 
     def cancellation_tag(self):
         return {"authority": "reviewed-cancelled-unstarted-operator", "source_sha256": self.source,
@@ -432,7 +433,11 @@ class Recovery:
         require(checked(fence).read_bytes() == value, "Foreign persistent guard fence")
         path = self.inhibit_path(unit)
         if not path.parent.exists():
-            path.parent.mkdir(mode=0o755)
+            previous_mask = os.umask(0)
+            try:
+                path.parent.mkdir(mode=0o755)
+            finally:
+                os.umask(previous_mask)
             sync_directory(path.parent.parent)
         checked(path.parent, (0o755,), directory=True)
         data = f"[Unit]\nConditionPathExists=!{fence}\n".encode()
@@ -663,10 +668,16 @@ class Recovery:
                     intent["worker_evidence_sha256"] = sha(canonical(saved))
                     create(intent_path, canonical(intent))
                 require(any(row["resourceVersion"] == rv for row in self.intents()), "Exact valid intent absent")
-                require(self.evidence("worker-cancel") == worker, "Peer witness changed during local reproof")
                 self.state()
                 self.verify_inhibition()
                 require(self.lock()["metadata"]["resourceVersion"] == rv, "Lock changed before conditioned DELETE")
+                clock_epoch = self.clock()
+                authentication_started = time.time()
+                require(self.evidence("worker-cancel") == worker, "Peer witness changed during local reproof")
+                dispatched_epoch = time.time()
+                require(dispatched_epoch >= max(clock_epoch, authentication_started)
+                        and 0 <= dispatched_epoch - worker["observed_epoch"] < 120,
+                        "Worker evidence stale/clock rollback at conditioned DELETE")
                 # Native kubectl sends this DeleteOptions body, not an invented delete flag.
                 self.kube("DELETE", LOCK_URI, {"apiVersion": "v1", "kind": "DeleteOptions",
                                               "preconditions": {"uid": LOCK_UID, "resourceVersion": rv}})

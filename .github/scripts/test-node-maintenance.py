@@ -935,6 +935,7 @@ cold_tests = load("cold_regressions", "test-node-maintenance-cold.py")
 ColdTests = cold_tests.ColdTests
 recovery_tests = load("unstarted_regressions", "test-node-maintenance-cancel-unstarted.py")
 RecoveryTests = recovery_tests.RecoveryTests
+RecoveryPermissionTests = recovery_tests.RecoveryPermissionTests
 
 
 if __name__ == "__main__":

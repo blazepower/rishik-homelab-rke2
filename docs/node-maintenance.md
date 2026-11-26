@@ -877,6 +877,13 @@ run's non-actuating guard timer/service. It re-proves exact loaded units,
 source/fragment/drop-ins, idle PIDs/jobs/cgroups and zero mutations. The
 persistent condition prevents guard rearming after interruption; no coordinator,
 drain, APT, reboot or unrelated service is stopped.
+The new guard drop-in directory is created atomically as root-owned 0755 even
+under the helper's 0077 umask: only the single mkdir temporarily clears that
+process's mask, which is always restored. Interruption after mkdir leaves an
+already-correct empty directory that the same bound retry validates and reuses.
+Existing directories are never chmod-repaired: wrong ownership/mode, symlinks
+or foreign contents fail closed. In particular, an unproven old 0700 directory
+is not authority to change permissions or rebind an old installed helper.
 
 `worker-cancel` holds the original worker claim mutex. After authenticated
 controller fencing and repeated native standby/package/reboot/shutdown checks,
@@ -903,6 +910,12 @@ with a native `v1/DeleteOptions` stdin body carrying **both** `preconditions.uid
 and the freshly proven `preconditions.resourceVersion`. This is supported raw
 API transport, not an invented CLI precondition flag. It never clears
 finalizers or issues an unconditional/force delete.
+After every blocking host/systemd/API reproof and the operator-clock write,
+it re-authenticates the unchanged worker receipt and samples clock/freshness
+immediately before a new DELETE. Crossing the strict 120-second freshness
+boundary or rolling the clock backward during reproof/authentication retains
+the lock, even when the earlier receipt check passed. The passed original
+outage deadline still never becomes renewed maintenance authority.
 
 #### Failure, interruption and acceptance boundaries
 
@@ -933,6 +946,12 @@ availability or live preconditioned API retirement. Parent/operator review
 and acceptance own those checks and all execution. If any fail, retain the lock
 and report the exact blocker. Independent review is required before staging or
 running this helper.
+The permission regressions use actual root-owned project-local POSIX paths,
+umask, file modes, ownership and symlinks with no permission mocks. They are
+explicitly skipped on Windows/non-root runners, not simulated as passing.
+Run them on a suitable isolated local POSIX root test surface with
+`python3 -B .github/scripts/test-node-maintenance-cancel-unstarted.py RecoveryPermissionTests`;
+native commands remain intercepted and no host/cluster operation is executed.
 
 **Old peer cleanup remains separate.** Its immutable setup is not rebound to
 new host bytes. Old worker idle consumers still reject native empty Jobs;
