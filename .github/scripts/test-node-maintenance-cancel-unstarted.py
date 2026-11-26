@@ -1110,8 +1110,7 @@ class RecoveryPermissionTests(RecoveryFixture, unittest.TestCase):
 
     def test_real_old_0644_controller_mutexes_serialize_with_original_source_without_changes(self):
         with self.on(r.SERVER) as obj:
-            old = c.Journal.__new__(c.Journal)
-            old.directory = obj.original
+            old = c.Journal(obj.original)
             old.write = lambda state: None
             for name in ("recovery-mutex", "mutex"):
                 path = obj.original / name
@@ -1134,8 +1133,8 @@ class RecoveryPermissionTests(RecoveryFixture, unittest.TestCase):
                     self.assertFalse(entered.wait(0.1))
                 thread.join(3)
                 self.assertFalse(thread.is_alive())
+                self.assertEqual(errors, [], "Legacy " + name + " thread failed before callback")
                 self.assertTrue(entered.is_set())
-                self.assertEqual(errors, [])
                 after = path.lstat()
                 self.assertEqual((after.st_dev, after.st_ino, stat.S_IMODE(after.st_mode), after.st_size),
                                  (before.st_dev, before.st_ino, 0o644, 0))
