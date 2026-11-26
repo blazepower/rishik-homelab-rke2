@@ -18,6 +18,13 @@ manual-authentication-complete message, the workstation only observes.
 Do not pipe input or run either apply command
 through an assistant's noninteractive command runner.
 
+The core KEDA chart and all three core images are pinned to the native
+acceptance fixture in `apps\_shared\http-addon-owned\source.json`. Keep chart
+and image pins synchronized with that acceptance. A running multi-platform
+image index can differ from its pinned `linux/amd64` child digest; verify the
+hashed index-to-manifest relationship rather than treating that difference
+as a foreign image.
+
 Application downtime, including multiple applications together, is accepted.
 The maximum restoration budget is **12 hours**. The runner starts this clock
 conservatively at lock acquisition, before any drain, and persists the UTC start

@@ -126,6 +126,90 @@ class FakeApi:
 
 
 class CodecPolicyTests(unittest.TestCase):
+    def test_nyaa_scope_preserves_series_and_other_indexers_and_repairs_drift(self):
+        api = FakeApi()
+        api.indexers = [
+            {"id": 21, "name": "Nyaa.si (Prowlarr)", "implementation": "Torznab", "tags": [],
+             "fields": [{"name": "rejectBlocklistedTorrentHashesWhileGrabbing", "value": False},
+                        {"name": "apiKey", "value": "fixture-only-not-a-secret"}]},
+            {"id": 15, "name": "Other indexer", "implementation": "Newznab", "tags": [7], "fields": []},
+        ]
+        original_request = api.request
+
+        def request(path, method="GET", body=None):
+            if path == "indexer" and method == "GET":
+                return copy.deepcopy(api.indexers)
+            if path == "indexer/21" and method == "PUT":
+                api.writes.append((path, method, copy.deepcopy(body)))
+                api.indexers[0] = copy.deepcopy(body)
+                return
+            return original_request(path, method, body)
+
+        api.request = request
+        original_series = copy.deepcopy(api.series)
+        original_indexers = copy.deepcopy(api.indexers)
+        POLICY.reconcile_sonarr_indexers(api)
+        tag = next(item["id"] for item in api.tags if item["label"] == "gitops-anime-indexer")
+        for actual, before in zip(api.series, original_series):
+            expected = copy.deepcopy(before)
+            if before["seriesType"] == "anime":
+                expected["tags"] = sorted(before["tags"] + [tag])
+            self.assertEqual(actual, expected)
+        self.assertEqual(api.indexers[0]["tags"], [tag])
+        self.assertTrue(api.indexers[0]["fields"][0]["value"])
+        self.assertEqual(api.indexers[0]["fields"][1], original_indexers[0]["fields"][1])
+        self.assertEqual(api.indexers[1], original_indexers[1])
+        api.writes.clear()
+        POLICY.reconcile_sonarr_indexers(api)
+        self.assertEqual(api.writes, [])
+        api.series[2]["tags"].append(tag)
+        with self.assertRaisesRegex(RuntimeError, "non-anime"):
+            POLICY.reconcile_sonarr_indexers(api)
+        self.assertEqual(api.writes, [])
+
+    def test_prowlarr_safety_preserves_unmanaged_fields_and_rejects_missing_setting(self):
+        class ProwlarrApi:
+            def __init__(self):
+                self.resources = {
+                    "indexer": [
+                        {"id": 23, "name": "Nyaa.si", "fields": [
+                            {"name": "filter-id", "value": 0}, {"name": "baseUrl", "value": "unchanged"}]},
+                        {"id": 15, "name": "Other", "fields": []},
+                    ],
+                    "applications": [
+                        {"id": 2, "implementation": "Sonarr", "fields": [
+                            {"name": "syncRejectBlocklistedTorrentHashesWhileGrabbing", "value": False},
+                            {"name": "apiKey", "value": "fixture-only-not-a-secret"}]},
+                        {"id": 1, "implementation": "Radarr", "fields": []},
+                    ],
+                }
+                self.writes = []
+
+            def request(self, path, method="GET", body=None):
+                if method == "GET":
+                    return copy.deepcopy(self.resources[path])
+                self.writes.append(path)
+                collection = path.split("/")[0]
+                self.resources[collection] = [
+                    copy.deepcopy(body) if item["id"] == body["id"] else item
+                    for item in self.resources[collection]
+                ]
+
+        api = ProwlarrApi()
+        before = copy.deepcopy(api.resources)
+        POLICY.reconcile_prowlarr(api)
+        expected = copy.deepcopy(before)
+        expected["indexer"][0]["fields"][0]["value"] = 2
+        expected["applications"][0]["fields"][0]["value"] = True
+        self.assertEqual(api.resources, expected)
+        api.writes.clear()
+        POLICY.reconcile_prowlarr(api)
+        self.assertEqual(api.writes, [])
+        api.resources["applications"][0]["fields"].pop(0)
+        with self.assertRaisesRegex(RuntimeError, "required setting missing"):
+            POLICY.reconcile_prowlarr(api)
+        self.assertEqual(api.writes, [])
+
     def test_sab_retention_preserves_all_other_client_settings_and_repairs_drift(self):
         for completed_removal in (True, False):
             for auto_redownload in (True, False):
@@ -382,21 +466,30 @@ class CodecPolicyTests(unittest.TestCase):
             POLICY.reconcile_sonarr(api)
 
     def test_only_sonarr_main_runs_import_prevention(self):
-        for application in ("sonarr", "radarr"):
+        for application in ("sonarr", "radarr", "prowlarr"):
             with self.subTest(application=application):
                 with mock.patch.object(POLICY.sys, "argv", ["reconcile.py", application]), \
                         mock.patch.object(POLICY, "Api", return_value=FakeApi()) as constructor, \
                         mock.patch.object(POLICY, "reconcile") as codec, \
                         mock.patch.object(POLICY, "reconcile_sonarr_retention") as retention, \
-                        mock.patch.object(POLICY, "reconcile_sonarr") as prevention:
+                        mock.patch.object(POLICY, "reconcile_sonarr") as prevention, \
+                        mock.patch.object(POLICY, "reconcile_sonarr_indexers") as scope, \
+                        mock.patch.object(POLICY, "reconcile_prowlarr") as prowlarr:
                     POLICY.main()
-                codec.assert_called_once_with(constructor.return_value, application.capitalize())
+                if application == "prowlarr":
+                    codec.assert_not_called()
+                    prowlarr.assert_called_once_with(constructor.return_value)
+                else:
+                    codec.assert_called_once_with(constructor.return_value, application.capitalize())
+                    prowlarr.assert_not_called()
                 if application == "sonarr":
                     retention.assert_called_once_with(constructor.return_value)
                     prevention.assert_called_once_with(constructor.return_value)
+                    scope.assert_called_once_with(constructor.return_value)
                 else:
                     retention.assert_not_called()
                     prevention.assert_not_called()
+                    scope.assert_not_called()
 
     def test_title_detection(self):
         cases = {
@@ -460,11 +553,11 @@ class CodecPolicyTests(unittest.TestCase):
 
     def test_each_job_uses_only_its_own_application_affinity_and_volume(self):
         jobs = list(yaml.safe_load_all((ROOT / "apps/media-codec-policy/cronjob.yaml").read_text()))
-        self.assertEqual(len(jobs), 2)
+        self.assertEqual(len(jobs), 3)
         for job in jobs:
             spec = job["spec"]["jobTemplate"]["spec"]["template"]["spec"]
             application = spec["containers"][0]["command"][-1]
-            self.assertIn(application, ("sonarr", "radarr"))
+            self.assertIn(application, ("sonarr", "radarr", "prowlarr"))
             terms = spec["affinity"]["podAffinity"]["requiredDuringSchedulingIgnoredDuringExecution"]
             self.assertEqual(len(terms), 1)
             self.assertEqual(

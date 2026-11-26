@@ -3,3 +3,4 @@ kind: Kustomization
 resources:
   - traefik
   - metallb
+  - rke2-ingress-nginx.yaml

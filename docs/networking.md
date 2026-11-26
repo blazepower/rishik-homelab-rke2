@@ -4,6 +4,26 @@
 
 [Traefik](https://traefik.io/) is deployed as the default ingress controller for the cluster, providing HTTPS routing, load-balancing, middleware support, and TLS termination via cert-manager.
 
+### RKE2 bundled NGINX controller
+
+RKE2 also installs `rke2-ingress-nginx` independently of the Flux-managed
+Traefik release. Its controller exposes node ports 80 and 443 even when
+application Ingress resources select Traefik or Tailscale.
+
+`infrastructure/networking/rke2-ingress-nginx.yaml` supplies a Flux-managed
+`HelmChartConfig` that disables HTTP/2 on the bundled NGINX controller.
+This mitigates CVE-2026-123007 and CVE-2026-123633 without changing Traefik
+or restarting RKE2. The RKE2 Helm controller applies the chart values and
+NGINX reloads its generated configuration.
+
+This is a protocol mitigation, not a patched NGINX binary. Keep HTTP/2
+disabled until the deployed controller image has a vendor-confirmed fix
+(upstream NGINX 1.30.7 / 1.31.9 or an equivalent backport). Verify every
+controller's generated configuration and confirm that node HTTPS listeners
+do not negotiate `h2` before considering the mitigation effective.
+
+Reference: [CERT-EU advisory 2026-022](https://cert.europa.eu/publications/security-advisories/2026-022/).
+
 ### Configuration
 
 - Deployed via Helm chart from `https://traefik.github.io/charts`
