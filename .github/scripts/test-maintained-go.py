@@ -154,6 +154,18 @@ class SecurityOverlayTest(unittest.TestCase):
         with self.assertRaises(AssertionError):
             module.validate_security_proof(app, source, info, patch)
 
+    def test_requires_exact_reviewed_module_only_findings_when_declared(self):
+        app, source, info, patch = self.fixture()
+        reviewed = {"source": [], "binary": ["GO-reviewed"]}
+        app["security"]["reviewed_module_advisory_ids"] = reviewed
+        source["security"] = json.loads(json.dumps(app["security"]))
+        for mode, ids in reviewed.items():
+            source["advisory_scans"][mode]["module_advisory_ids"] = list(ids)
+        module.validate_security_proof(app, source, info, patch)
+        source["advisory_scans"]["binary"]["module_advisory_ids"].append("GO-unreviewed")
+        with self.assertRaises(AssertionError):
+            module.validate_security_proof(app, source, info, patch)
+
 
 class AdvisoryProtocolTest(unittest.TestCase):
     def test_retains_module_only_findings_without_claiming_universal_clearance(self):
@@ -163,11 +175,23 @@ class AdvisoryProtocolTest(unittest.TestCase):
         self.assertEqual(result["module_advisory_ids"], ["GO-fixture"])
 
     def test_rejects_symbol_or_wildcard_in_success_shaped_json(self):
-        for function in ("NewDict", "example/package/*"):
+        for function in ("NewDict", "example/package/*", "main"):
             text = json.dumps({"config": scanner_config("binary")}) + json.dumps(
                 {"finding": {"osv": "GO-fixture", "trace": [{"function": function}]}})
             with self.subTest(function=function), self.assertRaises(AssertionError):
                 build.advisory_summary(text, "binary", "v1.9.0")
+
+    def test_reviewed_module_id_does_not_exempt_cli_package_or_main_findings(self):
+        config = json.dumps({"config": scanner_config("binary")})
+        trace = {"module": "k8s.io/kubernetes", "version": "v1.36.6+dirty",
+                 "package": "k8s.io/kubernetes/cmd/kubectl"}
+        for advisory in ("GO-2025-3521", "GO-2025-3547"):
+            for finding_trace in (trace, {**trace, "function": "main"}):
+                with self.subTest(advisory=advisory, trace=finding_trace), self.assertRaises(AssertionError):
+                    build.advisory_summary(
+                        config + json.dumps({"finding": {"osv": advisory, "trace": [finding_trace]}}),
+                        "binary", "v1.9.0",
+                    )
 
     def test_rejects_package_only_matches_without_function_fields(self):
         for mode in ("source", "binary"):

@@ -5,6 +5,7 @@ on:
     paths:
       - 'apps/_shared/maintained-go/**'
       - '.github/scripts/verify-maintained-go.py'
+      - '.github/scripts/verify-maintained-kubectl-native.py'
       - '.github/scripts/test-maintained-go.py'
       - '.github/workflows/maintained-go-build.yaml'
   workflow_dispatch:
@@ -25,7 +26,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        app: [gluetun, stash]
+        app: [gluetun, stash, kubectl]
     permissions:
       contents: read
       packages: write

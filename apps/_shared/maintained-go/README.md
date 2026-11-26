@@ -4,13 +4,95 @@ These are user-owned rebuilds, not official vendor releases. No
 HelmRelease is changed here. Deployment remains a separate serial operation
 behind fresh storage/backup gates; retain all existing read-only CA guards.
 
-`sources.json` locks public source, original amd64 runtime, app version and the
+For Gluetun and Stash, `sources.json` locks public source, original amd64 runtime, app version and the
 Go 1.27.4 musl builder. The runtime inherits every vendor layer, configuration,
 entrypoint, user and healthcheck. Stash replaces only the application binary.
 Gluetun additionally has the explicit security overlay described below;
 license and corresponding-source/build evidence are added under
 `/usr/share/maintained-go`. Original upstream repositories and exact revisions
 provide corresponding source, with the compiler recipe maintained here.
+
+## Owned minimal kubectl client
+
+`kubectl.json` separately locks Kubernetes v1.36.6's exact public source,
+Go 1.27.4 and a dependency-only `go.mod`/`go.sum` patch, without changing the
+two application recipes. This client minor can span API servers 1.35 through
+1.37 under Kubernetes' one-minor kubectl skew policy; it is not a server upgrade.
+The shallow exact-revision fetch avoids downloading Kubernetes' full history.
+The official release tag is fetched separately and must resolve to that exact
+revision; the actual ELF must record `v1.36.6+dirty` as its main module version.
+Missing shallow-clone release metadata must not turn old, fixed version ranges
+into apparent current findings.
+`GOWORK=off` and readonly module mode are required: the monorepo's original
+workspace/vendor graph must not silently override the reviewed patch.
+
+The linked ELF must contain OTEL root/trace 1.42.0, x/net 0.62.0 and
+x/text 0.44.0. Other required graph updates are bound by both module-file hashes,
+not falsely asserted to be linked. The same source/binary symbol/wildcard gates
+apply. The two coarse binary-only records
+[GO-2025-3521](https://vuln.go.dev/ID/GO-2025-3521.json) and
+[GO-2025-3547](https://vuln.go.dev/ID/GO-2025-3547.json) are retained, not suppressed.
+The former concerns kubelet gitRepo volumes, absent from the CLI import graph;
+the latter concerns network-policy removal during namespace termination.
+Neither record supplies affected functions/packages. Compiler changes to a CLI
+do not remediate those cluster behaviors. Any change to the exact reviewed
+module-only advisory sets stops acceptance.
+
+**Blocked, not accepted:** the first Linux build failed the actual-binary
+advisory gate. Independent unstripped reproduction also expands the two
+whole-monorepo records above to `cmd/kubectl.main`. The earlier stripped
+cross-compile's module-only result was not proof of complete symbol analysis.
+The exact patched Linux import closure has 907 packages and its only
+`k8s.io/kubernetes` package is `cmd/kubectl`, but that assessment does not waive
+the binary gate. No symbol stripping, renamed module, alternate database,
+`main` exception or claim of zero binary findings is permitted to make this
+recipe pass. Release metadata correction is not remediation of these records.
+Native behavior, licensing, publication and deployment remain unaccepted until
+the remaining gate is resolved.
+
+The November 22 recheck retained the exact tagged source revision
+`1b2171b110bb2a2542e1322035c6583ec86eb976`, post-patch module hashes and
+unstripped Go 1.27.4 Linux/amd64 build flags. Windows-hosted cross-compilation
+succeeded; the four upstream get/exec/rollout/version short-test packages passed
+on Windows. The live govulncheck v1.9.0 database timestamp was
+`2026-11-11T02:51:11Z`: source analysis returned no findings, but binary analysis
+returned module, package and `main` findings for **both** records. The current
+master's stricter package-only rejection is preserved alongside the CLI-specific
+regression, not weakened to accept this artifact. These host checks do not
+substitute for Linux image/native-runtime acceptance.
+
+Neither current Go advisory record has a `fixed` version event or an affected
+package/function list. The latest available stable 1.36 source is already
+v1.36.6; 1.37 is outside supported skew for a 1.35 API server. Choosing another
+root-module release or updating unrelated CLI dependencies cannot leave these
+open-ended module ranges. The upstream
+[namespace-termination advisory](https://github.com/kubernetes/kubernetes/issues/126587)
+also states that no fixed version exists. A genuine accepted source/advisory
+resolution is still required; cluster-side mitigations, source-only clearance,
+renaming the main module or changing the scanner are not substitutes.
+
+Unlike the large `alpine/k8s` reference image, the owned runtime uses the pinned
+official Alpine 3.24.4 amd64 base and adds only kubectl and its source/licenses.
+The base's 16-package inventory is retained except the explicit, signed
+`zlib=1.4-r0` upgrade for CVE-2026-4738, available in the original stable
+[package index](https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/APKINDEX.tar.gz)
+and [security database](https://secdb.alpinelinux.org/v3.24/main.json).
+No auxiliary cloud/Kubernetes CLIs from the reference image are shipped.
+Complete package/version/architecture equality rejects undeclared mutations.
+The derivative retains Kubernetes' license, Go's license and licenses/notices
+for every actual linked module, not only the upgraded modules.
+
+Native CI independently hash-checks the official reference kubectl against the
+primary release checksum. Both reference and derivative must perform actual
+get/list, WebSocket exec output, nonzero exec error and rollout-restart PATCH
+operations against a disposable host-loopback synthetic API. No real kubeconfig,
+service-account token, cluster, private media or records are used. The derivative
+reports `v1.36.6+homelab.go1.27.4` and a dirty tree, never an official-build claim.
+Its actual public-CA bundle must exclude every currently blocked SPKI.
+Normal publication re-pulls and re-proves the exact ELF and complete runtime
+identity. Building/publishing does not change the mount-handler CronJob: its
+image/Renovate/provenance activation and natural scheduled acceptance are separate.
+No whole-image, auxiliary-reference-image or forensic clearance is implied.
 
 ## Declared Gluetun security overlay
 
