@@ -76,7 +76,8 @@ TEMP_PDBS = {
 }
 CROSS_PRODUCER = ("kube-system", "media-mount-handler")
 MEDIA_SCHEDULES = {("media", name) for name in
-                   ("hardcover-sync", "radarr-codec-policy", "sonarr-codec-policy", "sonarr-queue-cleanup")}
+                   ("hardcover-sync", "prowlarr-acquisition-policy", "radarr-codec-policy",
+                    "sonarr-codec-policy", "sonarr-queue-cleanup")}
 SCHEDULES = MEDIA_SCHEDULES | {CROSS_PRODUCER}
 IM_NAMES = {WORKER: "instance-manager-450c2767cbf12dc65f11345105b360d4",
             PEER: "instance-manager-ecde826c8c6fccf5ad1dae442d1de064"}
@@ -559,7 +560,8 @@ def build_plan(policy, api=None):
     require({(r["kind"], r["namespace"], r["name"]) for r in recon} == RECONCILIATION,
             "Unknown/missing reconciliation object; no arbitrary suspension")
     schedules = [suspend_binding(api.get("cronjobs", r["namespace"], r["name"])) for r in inventory["schedules"]]
-    require(len(schedules) == 4 and {(r["namespace"], r["name"]) for r in schedules} == MEDIA_SCHEDULES,
+    require(len(schedules) == len(MEDIA_SCHEDULES) and
+            {(r["namespace"], r["name"]) for r in schedules} == MEDIA_SCHEDULES,
             "Unexpected scheduled producer")
     handler = api.get("cronjobs", *CROSS_PRODUCER)
     mount_handler_contract(handler)
@@ -666,7 +668,7 @@ def check_plan(plan, approval, policy, api=None, age=True):
             "Malformed cold controller scope")
     require({(r["kind"], r["namespace"], r["name"]) for r in plan["reconciliation"]} == RECONCILIATION,
             "Malformed cold reconciliation scope")
-    require(len(plan["schedules"]) == 5 and
+    require(len(plan["schedules"]) == len(SCHEDULES) and
             {(r["kind"], r["namespace"], r["name"]) for r in plan["schedules"]}
             == {("CronJob", ns, name) for ns, name in SCHEDULES},
             "Malformed cold scheduled producer scope")

@@ -181,7 +181,9 @@ The source execution ordering is:
    protocol probes or insufficient fixed expiry blocks the first pause; never
    bypass trust or install a generic/root shell gateway, sudoers or privileged pod.
 3. Freeze exact Flux reconciliation and scheduled producers; require no
-   in-flight reconciliations or active Jobs. In addition to the four media schedules,
+   in-flight reconciliations or active Jobs. Bind all five media schedules:
+   `hardcover-sync`, `prowlarr-acquisition-policy`, `radarr-codec-policy`,
+   `sonarr-codec-policy`, and `sonarr-queue-cleanup`. In addition,
    explicitly bind `kube-system/media-mount-handler`: this five-minute,
    PVC-less job can exec into media/siloarr Pods and patch workload templates
    with rollout restarts. Its namespace is not part of the Longhorn application

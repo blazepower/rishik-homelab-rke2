@@ -348,7 +348,8 @@ def fixture(hpa_behavior=None, handler_suspend=False):
             if suffix == "-peer":
                 api.add("replicasets", rs)
     schedules = [api.add("cronjobs", obj("CronJob", "media", name, {"suspend": False}))
-                 for name in ("hardcover-sync", "radarr-codec-policy", "sonarr-codec-policy", "sonarr-queue-cleanup")]
+                 for name in ("hardcover-sync", "prowlarr-acquisition-policy", "radarr-codec-policy",
+                              "sonarr-codec-policy", "sonarr-queue-cleanup")]
     handler = api.add("cronjobs", obj("CronJob", "kube-system", "media-mount-handler", {
         "schedule": "*/5 * * * *", "concurrencyPolicy": "Forbid",
         "successfulJobsHistoryLimit": 1, "failedJobsHistoryLimit": 3,
@@ -2462,6 +2463,39 @@ class ColdTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "Active/new Job"):
             self.coordinator.producers_gated()
 
+    def test_prowlarr_policy_schedule_is_bound_gated_and_exactly_restored(self):
+        row = next(r for r in self.plan["schedules"] if
+                   (r["namespace"], r["name"]) == ("media", "prowlarr-acquisition-policy"))
+        cron = self.api.get("cronjobs", row["namespace"], row["name"])
+        original = copy.deepcopy(cron["spec"])
+        self.assertEqual(row["uid"], cron["metadata"]["uid"])
+        self.assertEqual(row["spec_sha256"], c.sha(c.canonical(original)))
+        for producer in self.plan["reconciliation"] + self.plan["schedules"]:
+            if producer != row:
+                self.coordinator.mutate(producer, "suspend", True)
+        with self.assertRaisesRegex(RuntimeError, "Scheduled producer"):
+            self.coordinator.producers_gated()
+        self.coordinator.mutate(row, "suspend", True)
+        self.coordinator.producers_gated()
+        self.coordinator.mutate(row, "suspend", row["original"]["suspend"], restoring=True)
+        self.assertEqual(cron["spec"], original)
+        c.assert_binding(cron, row)
+
+    def test_missing_duplicate_or_foreign_media_schedule_cannot_replace_prowlarr_binding(self):
+        for drift in ("missing", "duplicate", "foreign"):
+            changed = copy.deepcopy(self.plan)
+            index = next(i for i, row in enumerate(changed["schedules"]) if
+                         (row["namespace"], row["name"]) == ("media", "prowlarr-acquisition-policy"))
+            if drift == "missing":
+                del changed["schedules"][index]
+            elif drift == "duplicate":
+                changed["schedules"].append(copy.deepcopy(changed["schedules"][index]))
+            else:
+                changed["schedules"][index]["name"] = "foreign-producer"
+            with self.subTest(drift=drift), self.assertRaisesRegex(RuntimeError, "scheduled producer scope"):
+                c.check_plan(changed, c.sha(c.canonical(changed)), self.policy, self.api)
+        self.assertEqual(self.api.events, [])
+
     def test_cross_namespace_writer_is_captured_without_expanding_the_application_cohort(self):
         row = next(r for r in self.plan["schedules"] if (r["namespace"], r["name"]) == c.CROSS_PRODUCER)
         cron = self.api.get("cronjobs", *c.CROSS_PRODUCER)
@@ -2469,7 +2503,7 @@ class ColdTests(unittest.TestCase):
         self.assertEqual(row["uid"], cron["metadata"]["uid"])
         self.assertEqual(row["spec_sha256"], c.sha(c.canonical(cron["spec"])))
         self.assertEqual(row["original"], {"suspend_present": True, "suspend": False})
-        self.assertEqual(len(self.plan["schedules"]), 5)
+        self.assertEqual(len(self.plan["schedules"]), 6)
         self.assertNotIn("rollout restart", c.canonical(self.plan).decode())
         changed = copy.deepcopy(self.plan)
         changed["schedules"][-1]["name"] = "foreign-producer"
