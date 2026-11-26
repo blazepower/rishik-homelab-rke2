@@ -52,15 +52,16 @@ data:
 
 
     class Api:
-        def __init__(self, url, config_path):
+        def __init__(self, url, config_path, version="v3"):
             self.url = url
+            self.version = version
             self.key = ET.parse(config_path).findtext("ApiKey")
             if not self.key:
                 raise RuntimeError(f"ApiKey is missing from {config_path}")
 
         def request(self, path, method="GET", body=None):
             req = urllib.request.Request(
-                f"{self.url}/api/v3/{path}",
+                f"{self.url}/api/{self.version}/{path}",
                 data=None if body is None else json.dumps(body).encode(),
                 headers={"X-Api-Key": self.key, "Content-Type": "application/json"},
                 method=method,
@@ -338,19 +339,115 @@ data:
         print(f"Sonarr: import prevention verified for {len(plans)} installed series; provenance naming verified")
 
 
+    def updated_fields(resource, changes):
+        fields = resource.get("fields")
+        if not isinstance(fields, list) or any(
+            not isinstance(field, dict) or not isinstance(field.get("name"), str)
+            or not field["name"] for field in fields
+        ) or len({field["name"] for field in fields}) != len(fields):
+            raise RuntimeError("Acquisition policy: invalid settings fields")
+        if not changes.keys() <= {field["name"] for field in fields}:
+            raise RuntimeError("Acquisition policy: required setting missing")
+        return {
+            **resource,
+            "fields": [
+                {**field, "value": changes[field["name"]]} if field["name"] in changes else field
+                for field in fields
+            ],
+        }
+
+
+    def reconcile_sonarr_indexers(api):
+        indexers = resource_list(api, "indexer", {"id", "name", "implementation", "tags", "fields"})
+        matches = [item for item in indexers if item["name"] == "Nyaa.si (Prowlarr)"]
+        if not matches:
+            print("Sonarr: Nyaa not installed; skipping anime-only scope")
+            return
+        if len(matches) != 1 or matches[0]["implementation"] != "Torznab":
+            raise RuntimeError("Sonarr: ambiguous Nyaa indexer")
+        target = matches[0]
+        series = resource_list(api, "series", {"id", "seriesType", "tags"})
+        tags = resource_list(api, "tag", {"id", "label"})
+        if any(
+            type(item["id"]) is not int or not isinstance(item["tags"], list)
+            or any(type(tag) is not int for tag in item["tags"])
+            or item["seriesType"] not in ("anime", "standard", "daily")
+            for item in series
+        ) or not isinstance(target["tags"], list):
+            raise RuntimeError("Sonarr: invalid anime scope identities")
+        managed = [item for item in tags if item["label"] == "gitops-anime-indexer"]
+        if len(managed) > 1:
+            raise RuntimeError("Sonarr: duplicate anime indexer tag")
+        scope = set(target["tags"]) | {item["id"] for item in managed}
+        if any(scope.intersection(item["tags"]) for item in series if item["seriesType"] != "anime"):
+            raise RuntimeError("Sonarr: Nyaa tag is attached to non-anime series")
+        # Validate the indexer settings before making any scope changes.
+        updated_fields(target, {"rejectBlocklistedTorrentHashesWhileGrabbing": True})
+        tag = managed[0] if managed else api.request("tag", "POST", {"label": "gitops-anime-indexer"})
+        if type(tag.get("id")) is not int or tag.get("label") != "gitops-anime-indexer":
+            raise RuntimeError("Sonarr: invalid created anime indexer tag")
+        expected_series = []
+        for item in series:
+            desired = item
+            if item["seriesType"] == "anime" and tag["id"] not in item["tags"]:
+                desired = {**item, "tags": sorted(set(item["tags"]) | {tag["id"]})}
+                api.request(f"series/{item['id']}", "PUT", desired)
+            expected_series.append(desired)
+        desired = {**target, "tags": sorted(set(target["tags"]) | {tag["id"]})}
+        desired = updated_fields(desired, {"rejectBlocklistedTorrentHashesWhileGrabbing": True})
+        if desired != target:
+            api.request(f"indexer/{target['id']}", "PUT", desired)
+        if api.request("indexer") != [
+            desired if item["id"] == target["id"] else item for item in indexers
+        ] or api.request("series") != expected_series:
+            raise RuntimeError("Sonarr: anime indexer scope/preservation verification failed")
+        print("Sonarr: Nyaa restricted to anime-tagged series; other indexers and series settings preserved")
+
+
+    def reconcile_prowlarr(api):
+        indexers = resource_list(api, "indexer", {"id", "name", "fields"})
+        matches = [item for item in indexers if item["name"] == "Nyaa.si"]
+        applications = resource_list(api, "applications", {"id", "implementation", "fields"})
+        sonarr = [item for item in applications if item["implementation"] == "Sonarr"]
+        if len(matches) != 1 or len(sonarr) != 1:
+            raise RuntimeError("Prowlarr: expected one Nyaa indexer and one Sonarr application")
+        indexer = updated_fields(matches[0], {"filter-id": 2})
+        application = updated_fields(
+            sonarr[0], {"syncRejectBlocklistedTorrentHashesWhileGrabbing": True}
+        )
+        for path, current, desired in (
+            ("indexer", matches[0], indexer),
+            ("applications", sonarr[0], application),
+        ):
+            if current != desired:
+                api.request(f"{path}/{current['id']}", "PUT", desired)
+        if api.request("indexer") != [
+            indexer if item["id"] == indexer["id"] else item for item in indexers
+        ] or api.request("applications") != [
+            application if item["id"] == application["id"] else item for item in applications
+        ]:
+            raise RuntimeError("Prowlarr: acquisition settings/preservation verification failed")
+        print("Prowlarr: Nyaa trusted-only filter and Sonarr torrent hash rejection verified")
+
+
     def main():
         parser = argparse.ArgumentParser()
-        parser.add_argument("application", choices=("sonarr", "radarr"))
+        parser.add_argument("application", choices=("sonarr", "radarr", "prowlarr"))
         args = parser.parse_args()
         label, url = {
             "sonarr": ("Sonarr", "http://sonarr:8989"),
             "radarr": ("Radarr", "http://radarr:7878"),
+            "prowlarr": ("Prowlarr", "http://prowlarr:9696"),
         }[args.application]
-        api = Api(url, "/app-config/config.xml")
+        api = Api(url, "/app-config/config.xml", "v1" if args.application == "prowlarr" else "v3")
+        if args.application == "prowlarr":
+            reconcile_prowlarr(api)
+            return
         reconcile(api, label)
         if args.application == "sonarr":
             reconcile_sonarr_retention(api)
             reconcile_sonarr(api)
+            reconcile_sonarr_indexers(api)
 
 
     if __name__ == "__main__":

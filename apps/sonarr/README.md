@@ -204,6 +204,30 @@ Sonarr integrates with:
 - **SABnzbd**: For downloading content
 - **Plex**: For media library updates
 
+## Nyaa acquisition safety
+
+Nyaa is restricted in Sonarr to series of type **Anime** using the managed
+`gitops-anime-indexer` tag. The Sonarr policy job adds that tag to anime
+series without changing their other tags, quality profiles, or monitoring
+settings, and scopes only the Nyaa indexer to it. Prowlarr full sync retains
+these native Sonarr indexer tags. Do not attach this tag to non-anime series;
+the reconciler refuses to broaden its scope.
+
+The `prowlarr-acquisition-policy` job runs every six hours alongside Prowlarr
+and reads its config PVC read-only. It enforces Nyaa's **Trusted only**
+filter (`filter-id: 2`) and enables Sonarr's synced torrent-hash blocklist
+rejection. Other Prowlarr indexers and applications are preserved. Trusted
+status reduces exposure but is not a guarantee of safe file contents.
+
+qBittorrent's executable exclusion must remain enabled. An executable-only
+torrent can appear complete with all files skipped, while Sonarr reports
+"No files found are eligible for import" or a missing output path. This is
+not fixed by relaxing file exclusions, permissions, or forcing an import.
+After checking the torrent file list, blocklist the unusable release,
+remove only that download, and search for an eligible replacement. The
+existing superseded-download cleanup intentionally does not remove these
+warnings automatically.
+
 ## Superseded Download Cleanup
 
 The `sonarr-queue-cleanup` CronJob runs every 12 hours and removes completed
