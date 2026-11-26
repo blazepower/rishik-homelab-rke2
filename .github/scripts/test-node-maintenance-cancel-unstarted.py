@@ -65,7 +65,7 @@ class RecoveryFixture:
             self.stack.enter_context(patch.object(r, "checked", side_effect=exists))
             self.stack.enter_context(patch.object(r, "sync_directory"))
             self.stack.enter_context(patch.object(r.os, "fchmod", create=True))
-            def publication(name):
+            def publication(name, durable=False):
                 path = r.BASE / name
                 try:
                     meta = path.lstat()
@@ -224,6 +224,64 @@ class RecoveryFixture:
             destination.write_bytes(Path(str(src) + suffix).read_bytes())
             if self.real_metadata:
                 destination.chmod(0o444)
+
+    def assert_clock_double_interruption(self, obj, boundary):
+        path = r.BASE / "operator-clock.json"
+        pending = r.BASE / "operator-clock.json.updating"
+        archive = r.BASE / ("revision-from-" + r.PREVIOUS_HELPER_SHA)
+        original = (obj.original / "state.json").read_bytes()
+        archived_clock = (archive / "private/operator-clock.json").read_bytes()
+        self.now += 60
+        high = self.now
+        data = r.canonical({"source_sha256": obj.source, "last_epoch": high})
+        pending.write_bytes(data)
+        with pending.open("r+b") as stream:
+            os.fsync(stream.fileno())
+        r.sync_directory(r.BASE)
+        pending_inode = pending.lstat().st_ino
+        self.assertGreater(high, max(json.loads(path.read_bytes())["last_epoch"],
+                                   json.loads(archived_clock)["last_epoch"],
+                                   json.loads((archive / "manifest.json").read_bytes())["last_epoch"],
+                                   json.loads(original)["last_epoch"]))
+        replaced = False
+        original_replace, original_create, original_sync = r.os.replace, r.create, r.sync_directory
+        def replace(source, destination):
+            nonlocal replaced
+            if destination == path and boundary == "before-promotion":
+                raise Interrupted()
+            result = original_replace(source, destination)
+            if destination == path:
+                replaced = True
+                if boundary == "after-promotion":
+                    raise Interrupted()
+            return result
+        def create(destination, body, mode=0o600):
+            if destination == pending:
+                raise Interrupted()
+            return original_create(destination, body, mode)
+        def sync(directory):
+            if directory == r.BASE and replaced and boundary == "directory-durability":
+                raise Interrupted()
+            return original_sync(directory)
+        with patch.object(r.os, "replace", side_effect=replace), \
+                patch.object(r, "create", side_effect=create), \
+                patch.object(r, "sync_directory", side_effect=sync), self.assertRaises(Interrupted):
+            obj.stage_revision()
+        watermarks = [json.loads(p.read_bytes())["last_epoch"] for p in (path, pending) if p.exists()]
+        self.assertEqual(max(watermarks), high)
+        if replaced:
+            self.assertEqual(path.lstat().st_ino, pending_inode)
+        else:
+            self.assertEqual(pending.lstat().st_ino, pending_inode)
+        obj.stage_revision()
+        self.assertEqual(json.loads(path.read_bytes()), {"source_sha256": obj.source, "last_epoch": high})
+        self.assertFalse(pending.exists())
+        self.assertEqual((obj.original / "state.json").read_bytes(), original)
+        self.assertEqual((archive / "private/operator-clock.json").read_bytes(), archived_clock)
+        self.assertFalse((r.BASE / "authority.json").exists())
+        self.assertIsNotNone(self.lock_value)
+        self.assertFalse(any("delete" in args or "stop" in args or "daemon-reload" in args
+                             for _, args, _ in self.calls))
 
     def prepared(self):
         with self.on(r.WORKER) as worker:
@@ -848,6 +906,27 @@ class RecoveryTests(RecoveryFixture, unittest.TestCase):
                 obj.stage_revision()
                 self.assertEqual(json.loads((r.BASE / "operator-clock.json").read_bytes())["last_epoch"], self.now)
 
+    def double_interrupted_revision(self, boundary):
+        self.revision_fixture(r.WORKER)
+        with self.on(r.WORKER) as obj, patch.object(r, "__file__", str(r.BASE / "helper.next.py")):
+            original_replace = r.os.replace
+            def interruption(source, destination):
+                if destination == r.BASE / "operator-clock.json":
+                    raise Interrupted()
+                return original_replace(source, destination)
+            with patch.object(r.os, "replace", side_effect=interruption), self.assertRaises(Interrupted):
+                obj.stage_revision()
+            self.assert_clock_double_interruption(obj, boundary)
+
+    def test_revision_double_interruption_before_pending_promotion_preserves_higher_clock(self):
+        self.double_interrupted_revision("before-promotion")
+
+    def test_revision_double_interruption_after_pending_promotion_preserves_higher_clock(self):
+        self.double_interrupted_revision("after-promotion")
+
+    def test_revision_double_interruption_before_directory_sync_preserves_higher_clock(self):
+        self.double_interrupted_revision("directory-durability")
+
     def test_revision_malformed_foreign_or_unmanifested_pending_is_retained_without_publication(self):
         self.revision_fixture(r.WORKER)
         with self.on(r.WORKER) as obj, patch.object(r, "__file__", str(r.BASE / "helper.next.py")):
@@ -1192,6 +1271,42 @@ class RecoveryPermissionTests(RecoveryFixture, unittest.TestCase):
 
     def test_real_revision_helper_replace_interruption_resumes_without_permission_mocks(self):
         self.assert_real_pending_resume("helper.py")
+
+    def assert_real_double_interrupted_revision(self, boundary):
+        self.pending_revision_fixture("operator-clock.json")
+        with self.on(r.SERVER) as obj, patch.object(r, "__file__", str(r.BASE / "helper.next.py")):
+            self.assert_clock_double_interruption(obj, boundary)
+
+    def test_real_revision_double_interruption_before_promotion_keeps_higher_inode(self):
+        self.assert_real_double_interrupted_revision("before-promotion")
+
+    def test_real_revision_double_interruption_after_promotion_keeps_higher_inode(self):
+        self.assert_real_double_interrupted_revision("after-promotion")
+
+    def test_real_revision_double_interruption_before_directory_sync_keeps_higher_inode(self):
+        self.assert_real_double_interrupted_revision("directory-durability")
+
+    def test_real_revision_foreign_clock_during_durability_reproof_is_retained_without_promotion(self):
+        self.pending_revision_fixture("operator-clock.json")
+        with self.on(r.SERVER) as obj, patch.object(r, "__file__", str(r.BASE / "helper.next.py")):
+            path = r.BASE / "operator-clock.json"
+            pending = r.BASE / "operator-clock.json.updating"
+            clock = path.read_bytes()
+            original_sync = r.sync_directory
+            syncs = 0
+            def change_during_sync(directory):
+                nonlocal syncs
+                original_sync(directory)
+                if directory == r.BASE:
+                    syncs += 1
+                    if syncs == 2:
+                        pending.write_bytes(b"foreign clock after durability check")
+            with patch.object(r, "sync_directory", side_effect=change_during_sync), self.assertRaises(RuntimeError):
+                obj.stage_revision()
+            self.assertEqual(pending.read_bytes(), b"foreign clock after durability check")
+            self.assertEqual(path.read_bytes(), clock)
+            self.assertFalse((r.BASE / "authority.json").exists())
+            self.assertIsNotNone(self.lock_value)
 
     def test_real_revision_foreign_pending_mode_owner_link_type_and_inode_are_retained(self):
         self.pending_revision_fixture("operator-clock.json")

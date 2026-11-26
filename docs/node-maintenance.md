@@ -1032,6 +1032,11 @@ If interrupted inside clock/helper replacement, rerun **the same** candidate
 revision manifest, archived predecessor, root ownership, regular single-link
 file identity and exact candidate/clock payload. Both are re-proved before
 publication; the greatest pending/live/archived/original epoch is preserved.
+A higher/equal verified pending clock inode is fsynced and atomically promoted
+to the live clock, with directory durability before any further publication.
+It is never unlinked/recreated first. A higher live clock is likewise made
+durable before removing a lower pending copy. Successive interruptions before
+or after promotion therefore retain the maximum in pending or live storage.
 This also handles the mixed state where the operator clock already names the
 new source but `helper.py` still contains the predecessor. Do not run normal
 recovery commands until revision succeeds. Missing manifests, foreign payloads,

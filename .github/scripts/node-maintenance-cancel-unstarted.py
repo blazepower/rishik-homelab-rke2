@@ -195,9 +195,10 @@ def read_json(path, modes=(0o600,)):
     return json.loads(checked(path, modes).read_bytes())
 
 
-def revision_pending(name):
-    modes = {"operator-clock.json.updating": 0o600, "helper.py.updating": 0o444}
-    require(name in modes, "Only exact revision publication pending files permitted")
+def revision_pending(name, durable=False):
+    modes = {"operator-clock.json": 0o600, "operator-clock.json.updating": 0o600,
+             "helper.py.updating": 0o444}
+    require(name in modes, "Only exact revision clock/helper publication files permitted")
     path = BASE / name
     try:
         before = path.lstat()
@@ -215,12 +216,34 @@ def revision_pending(name):
                 and identity == (opened.st_dev, opened.st_ino),
                 "Revision pending ownership/type/mode/inode drift")
         data = stream.read()
+        if durable:
+            os.fsync(stream.fileno())
         current = path.lstat()
         require((current.st_dev, current.st_ino, current.st_mode, current.st_uid, current.st_gid,
                  current.st_nlink, current.st_size)
                 == (opened.st_dev, opened.st_ino, opened.st_mode, opened.st_uid, opened.st_gid,
                     opened.st_nlink, opened.st_size), "Revision pending changed during read")
+        if durable:
+            sync_directory(BASE)
     return data, identity
+
+
+def publish_revision_clock(source, floor, clock, pending):
+    path = BASE / "operator-clock.json"
+    require(revision_pending(path.name, durable=True) == clock
+            and revision_pending(path.name + ".updating", durable=True) == pending,
+            "Revision clock content/inode changed before durable publication")
+    require(revision_pending(path.name) == clock and revision_pending(path.name + ".updating") == pending,
+            "Revision clock content/inode changed after durability reproof")
+    if pending is not None and (clock is None
+                               or json.loads(pending[0])["last_epoch"] >= json.loads(clock[0])["last_epoch"]):
+        # Preserve the verified inode; never unlink the only higher watermark.
+        os.replace(path.with_name(path.name + ".updating"), path)
+        sync_directory(BASE)
+        clock, pending = pending, None
+    data = canonical({"source_sha256": source, "last_epoch": floor})
+    if pending is not None or clock is None or clock[0] != data:
+        atomic(path, data)
 
 
 def no_job(native):
@@ -775,8 +798,9 @@ class Recovery:
                 require(not self.lock()["metadata"].get("deletionTimestamp"), "Lock terminating during revision")
             floor = max(manifest["last_epoch"], pending_floor, state["last_epoch"])
             clock_path = BASE / "operator-clock.json"
-            if clock_path.exists():
-                clock = read_json(clock_path)
+            clock_record = revision_pending(clock_path.name)
+            if clock_record is not None:
+                clock = json.loads(clock_record[0])
                 require(set(clock) == {"source_sha256", "last_epoch"}
                         and clock["source_sha256"] in (PREVIOUS_HELPER_SHA, self.source)
                         and type(clock["last_epoch"]) in (int, float)
@@ -785,7 +809,7 @@ class Recovery:
             require(time.time() >= floor, "Revision clock rollback")
             require(all(revision_pending(name) == publications[name] for name in publication_names),
                     "Revision pending content/inode changed before publication")
-            atomic(clock_path, canonical({"source_sha256": self.source, "last_epoch": floor}))
+            publish_revision_clock(self.source, floor, clock_record, publications["operator-clock.json.updating"])
             require(sha(checked(BASE / "helper.py", (0o444,)).read_bytes()) in (PREVIOUS_HELPER_SHA, self.source)
                     and sha(checked(BASE / "helper.next.py", (0o444,)).read_bytes()) == self.source,
                     "Revision executable drift before installation")
