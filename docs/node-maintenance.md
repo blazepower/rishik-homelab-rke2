@@ -884,6 +884,17 @@ already-correct empty directory that the same bound retry validates and reuses.
 Existing directories are never chmod-repaired: wrong ownership/mode, symlinks
 or foreign contents fail closed. In particular, an unproven old 0700 directory
 is not authority to change permissions or rebind an old installed helper.
+The original controller's two inert mutex files are a narrowly separate
+layout: accepted cold source `Journal.transaction/recovery` uses `open("a")`
+without chmod, so its creation mode is 0666 subject to umask (natively 0644).
+Only these exact two names in the exact original run's root:root 0700 directory
+may be root:root regular **empty, single-link** 0600 or 0644 files. The helper
+verifies the original cold-source hash, opens them read-only without creation
+or symlink following, validates path/descriptor/directory inode identities,
+and flocks the same inode used by the old guard. Unsafe ownership, writable
+group/other modes, links, content, missing files or replacement fail closed.
+It never chmods or writes the original locks. The new operator mutex remains
+0600, and JSON/source files still require their unchanged private modes.
 
 `worker-cancel` holds the original worker claim mutex. After authenticated
 controller fencing and repeated native standby/package/reboot/shutdown checks,
@@ -961,6 +972,70 @@ the original cleanup cannot be claimed accepted unchanged: a separately
 reviewed cleanup-only path is needed after genuine terminal proof, worker2
 then controller. Never rewrite the old ledger or original source to make old
 cleanup believe maintenance succeeded.
+
+#### Reviewed pre-actuation revision of the already staged helper
+
+The only supported predecessor is raw SHA256
+`2a33fae1e1d17dc31908121ae2d20b918774eddc1b616c085b10ef087021d23a`.
+Do **not** overwrite its `helper.py`, delete/move its clock manually, or reuse
+its stale signed audit. After independent source review accepts the new bytes,
+transfer them through the original trusted Windows operator channel as
+`/home/rishik/.local/state/node-maintenance-operator-recovery/<run>/helper.next.py`.
+The old cold bundles, grant, keys, original clocks and peer setup remain untouched.
+
+On **each original authenticated root console**, use the existing `RUN`, `R`,
+`S` variables from the staging recipe and set `NEW_SHA` to the newly accepted
+raw-byte hash:
+
+```bash
+# Candidate only: leave the existing old helper.py untouched.
+(
+set -eu
+printf '%s  %s\n' "$NEW_SHA" "$S/helper.next.py" | sha256sum --check --status
+test "$(stat -c '%u:%g:%a' "$R")" = 0:0:700
+if test ! -e "$R/helper.next.py"; then
+    install -o root -g root -m 0444 "$S/helper.next.py" "$R/helper.next.py"
+fi
+test ! -L "$R/helper.next.py"
+test "$(stat -c '%u:%g:%a' "$R/helper.next.py")" = 0:0:444
+printf '%s  %s\n' "$NEW_SHA" "$R/helper.next.py" | sha256sum --check --status
+)
+/usr/bin/python3 -B "$R/helper.next.py" stage-revision --reviewed-source-sha256 "$NEW_SHA"
+```
+
+This new, finite command runs only from that exact root-owned candidate path.
+It acquires the existing operator and original node mutexes; verifies original
+source/plan/contract/boot/kernel/clock, unstarted state and actual native unit
+idleness; and on the controller independently reads the exact unchanged lock
+through its original approved client. It never stops a guard/finalizer or
+calls DELETE. It refuses any controller guard drop-in/inhibition, published
+fence/cancellation/terminal proof, authority, cancel/delete intent, mutation,
+claimed/started/cancelled host state, or unknown recovery-area artifact.
+Therefore it cannot revise a helper after an actuating fence or rebind existing
+new authority.
+
+Before installation it fsyncs exact predecessor helper bytes and old technical
+signing/inbox/public evidence and clock into the root-only, immutable
+`$R/revision-from-2a33fae1e1d17dc31908121ae2d20b918774eddc1b616c085b10ef087021d23a/`
+archive with a hash manifest bound to the accepted new source, node and run.
+It carries forward the maximum archived/current operator-clock watermark and
+original state epoch, never reducing a clock or changing the original outage
+budget. Only then does it atomically install the candidate as `helper.py`.
+No private host/peer key, kubeconfig, original ledger or grant is copied.
+Archives are never overwritten; interrupted archive/install attempts can
+resume only with the same reviewed candidate and no actuation. Drift retains
+the lock and rejects revision rather than inventing a receipt.
+
+Require exit zero with `outcome="pre-actuation-helper-revised"`,
+`actuation=false`, the exact accepted `source_sha256`, and
+`regenerate_signed_worker_audit=true`. Verify the installed raw SHA on both
+nodes. Then use `NEW_SHA` in the existing four-command recipe:
+**regenerate worker-audit first**, transfer its genuinely signed new-source pair,
+then controller-fence → worker-cancel → controller-retire. Old-source audit
+bytes remain archived (and may remain publicly visible until replaced), but
+new-source receipt checks reject them. Do not manufacture/relabel signatures
+or reset clocks to bypass rejection. This is staging-only authority for this
+single pre-actuation predecessor, not maintenance restart or peer cleanup.
 
 ```powershell
 python -B .github\scripts\test-node-maintenance.py

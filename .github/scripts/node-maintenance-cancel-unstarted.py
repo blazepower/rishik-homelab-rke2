@@ -39,6 +39,8 @@ HASHES = {
     "apps/_shared/http-addon-owned/source.json": "ab64729edfef1f6af76e2cf681ef7b54da4232b65251dda042525404d5d547e5",
 }
 BASE = Path("/var/lib/node-maintenance-operator-recovery") / RUN
+CONTROLLER_DIRECTORY = Path("/var/lib/node-maintenance-cold") / RUN
+PREVIOUS_HELPER_SHA = "2a33fae1e1d17dc31908121ae2d20b918774eddc1b616c085b10ef087021d23a"
 PUBLIC = Path("/var/lib/node-maintenance-operator-recovery-status") / RUN
 PEER = Path("/etc/node-maintenance-peer") / SETUP
 SYSTEM = Path("/etc/systemd/system")
@@ -134,6 +136,61 @@ def mutex(path):
         yield
 
 
+@contextmanager
+def controller_mutex(directory, name):
+    import fcntl
+    require(directory == CONTROLLER_DIRECTORY and name in ("mutex", "recovery-mutex"),
+            "Only exact original controller mutex names permitted")
+    checked(directory, (0o700,), directory=True)
+    require(sha(checked(directory / ".github/scripts/node-maintenance-cold.py").read_bytes())
+            == HASHES[".github/scripts/node-maintenance-cold.py"], "Original mutex source drift")
+    directory_meta = directory.lstat()
+    require(directory_meta.st_gid == 0, "Original controller directory group drift")
+    path = directory / name
+    before = path.lstat()
+    def valid(meta):
+        require(meta.st_uid == 0 and meta.st_gid == 0 and stat.S_ISREG(meta.st_mode)
+                and stat.S_IMODE(meta.st_mode) in (0o600, 0o644)
+                and meta.st_nlink == 1 and meta.st_size == 0,
+                "Original inert controller mutex ownership/type/mode drift")
+    valid(before)
+    directory_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        try:
+            identity = (before.st_dev, before.st_ino)
+            def reprove():
+                current_dir, opened_dir = directory.lstat(), os.fstat(directory_fd)
+                require(stat.S_ISDIR(current_dir.st_mode) and current_dir.st_uid == current_dir.st_gid == 0
+                        and stat.S_IMODE(current_dir.st_mode) == 0o700
+                        and (current_dir.st_dev, current_dir.st_ino)
+                        == (opened_dir.st_dev, opened_dir.st_ino)
+                        == (directory_meta.st_dev, directory_meta.st_ino),
+                        "Original mutex enclosing directory identity drift")
+                current, opened = path.lstat(), os.fstat(fd)
+                valid(current)
+                valid(opened)
+                require((current.st_dev, current.st_ino) == (opened.st_dev, opened.st_ino) == identity,
+                        "Original controller mutex inode drift")
+            reprove()
+            end = time.monotonic() + 90
+            while True:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    reprove()
+                    require(time.monotonic() < end, "Original controller mutex busy; no process kill")
+                    time.sleep(0.2)
+            reprove()
+            yield
+            reprove()
+        finally:
+            os.close(fd)
+    finally:
+        os.close(directory_fd)
+
+
 def read_json(path, modes=(0o600,)):
     return json.loads(checked(path, modes).read_bytes())
 
@@ -149,17 +206,17 @@ def pid(native, field):
 
 
 class Recovery:
-    def __init__(self, reviewed_sha):
+    def __init__(self, reviewed_sha, revision=False):
         self.node = socket.gethostname()
         require(os.geteuid() == 0 and self.node in IPS and platform.system() == "Linux"
                 and platform.machine() == "x86_64", "Original root console/node/platform required")
-        require(Path(__file__).resolve() == BASE / "helper.py"
-                and sha(checked(BASE / "helper.py", (0o444,)).read_bytes()) == reviewed_sha,
+        executable = BASE / ("helper.next.py" if revision else "helper.py")
+        require(Path(__file__).resolve() == executable
+                and sha(checked(executable, (0o444,)).read_bytes()) == reviewed_sha,
                 "Actual reviewed helper bytes/path required")
         self.source = reviewed_sha
         self.other = WORKER if self.node == SERVER else SERVER
-        self.original = Path("/var/lib/node-maintenance-cold" if self.node == SERVER
-                             else "/var/lib/node-maintenance-cold-worker") / RUN
+        self.original = CONTROLLER_DIRECTORY if self.node == SERVER else Path("/var/lib/node-maintenance-cold-worker") / RUN
         checked(self.original, (0o700,), directory=True)
         for name, digest in HASHES.items():
             require(sha(checked(self.original / name).read_bytes()) == digest, "Original bundle drift")
@@ -229,14 +286,15 @@ class Recovery:
         require(any(a.get("local") == IPS[self.node] for row in addresses for a in row["addr_info"]),
                 "Original local node IP absent")
 
-    def state(self):
+    def state(self, check_clock=True):
         self.verify_host()
         require(sha(canonical(read_json(self.original / "plan.json"))) == APPROVAL, "Original plan changed")
         for name, digest in HASHES.items():
             require(sha(checked(self.original / name).read_bytes()) == digest, "Original source drift")
         state = read_json(self.original / "state.json")
         require(time.time() >= state["last_epoch"] >= START, "Original clock rollback")
-        self.clock()
+        if check_clock:
+            self.clock()
         if self.node == SERVER:
             require(state["run_id"] == RUN and state["host_step_id"] == STEP and state["plan_sha256"] == APPROVAL
                     and state["started_epoch"] == START and state["deadline_epoch"] == DEADLINE
@@ -284,7 +342,7 @@ class Recovery:
     def locked(self):
         with mutex(BASE / "operator-mutex"):
             if self.node == SERVER:
-                with mutex(self.original / "recovery-mutex"), mutex(self.original / "mutex"):
+                with controller_mutex(self.original, "recovery-mutex"), controller_mutex(self.original, "mutex"):
                     yield
             else:
                 with mutex(self.original / "mutex"):
@@ -544,6 +602,148 @@ class Recovery:
                 "Signed evidence foreign/stale/source/clock drift")
         return body
 
+    def stage_revision(self):
+        require(Path(__file__).resolve() == BASE / "helper.next.py",
+                "Revision only from the separately reviewed exact candidate path")
+        with self.locked():
+            state = self.state(check_clock=False)
+            if self.node == SERVER:
+                for name in self.unit_bodies():
+                    self.actor(name, allow_running=name.endswith("-guard.timer") or name.endswith("-guard.service"))
+                lock = self.lock()
+                require(not lock["metadata"].get("deletionTimestamp"), "Revision original lock terminating")
+                guard = self.inhibit_path("node-maintenance-cold-" + RUN + "-guard.service").parent
+                require(not guard.exists() and not guard.is_symlink(), "Revision after/unknown guard inhibition")
+            else:
+                require(state["phase"] == "staged" and "operator_cancellation" not in state,
+                        "Revision after worker cancellation")
+                self.worker_idle()
+                for name in self.unit_bodies():
+                    if "-finalize." in name:
+                        self.actor(name, allow_running=True)
+            archive = BASE / ("revision-from-" + PREVIOUS_HELPER_SHA)
+            private_modes = {"helper.py": (0o444,), "operator-clock.json": (0o600,),
+                             "signing.json": (0o600,), "signing.json.sig": (0o600, 0o644),
+                             "allowed-signers": (0o600,), "local-signers": (0o600,)}
+            allowed = set(private_modes) | {"operator-mutex", "helper.next.py", "inbox", archive.name}
+            require(set(p.name for p in BASE.iterdir()) <= allowed,
+                    "Revision forbidden authority/fence/cancel/retirement/unknown artifact")
+            checked(BASE / "operator-mutex")
+            checked(BASE / "inbox", (0o700,), directory=True)
+            inbox_names = {"worker-audit.json", "worker-audit.json.sig"}
+            require(set(p.name for p in (BASE / "inbox").iterdir()) <= inbox_names,
+                    "Revision inbox contains actuating/unknown evidence")
+            public_names = inbox_names if self.node == WORKER else set()
+            checked(self.pub, (0o755,), directory=True)
+            require(set(p.name for p in self.pub.iterdir()) <= public_names,
+                    "Revision after published fence/cancellation/terminal evidence")
+            candidate = checked(BASE / "helper.next.py", (0o444,)).read_bytes()
+            require(sha(candidate) == self.source, "Revision candidate changed")
+            active = checked(BASE / "helper.py", (0o444,)).read_bytes()
+            require(sha(active) in (PREVIOUS_HELPER_SHA, self.source), "Unapproved predecessor helper")
+            manifest_path = archive / "manifest.json"
+            if manifest_path.exists():
+                checked(archive, (0o700,), directory=True)
+                manifest = read_json(manifest_path)
+                require(set(manifest) == {"protocol", "node", "run_id", "previous_source_sha256",
+                                         "source_sha256", "last_epoch", "files"}
+                        and manifest["protocol"] == "pre-actuation-helper-revision/v1"
+                        and manifest["node"] == self.node and manifest["run_id"] == RUN
+                        and manifest["previous_source_sha256"] == PREVIOUS_HELPER_SHA
+                        and manifest["source_sha256"] == self.source,
+                        "Foreign pre-actuation revision manifest")
+            else:
+                require(sha(active) == PREVIOUS_HELPER_SHA, "New helper without archived predecessor")
+                snapshots = {"private/helper.py": active}
+                for name, modes in private_modes.items():
+                    path = BASE / name
+                    if name != "helper.py" and path.exists():
+                        snapshots["private/" + name] = checked(path, modes).read_bytes()
+                for section, directory in (("inbox", BASE / "inbox"), ("public", self.pub)):
+                    for path in directory.iterdir():
+                        snapshots[section + "/" + path.name] = checked(path, (0o444,)).read_bytes()
+                floor = state["last_epoch"]
+                if "private/operator-clock.json" in snapshots:
+                    old_clock = json.loads(snapshots["private/operator-clock.json"])
+                    require(set(old_clock) == {"source_sha256", "last_epoch"}
+                            and old_clock["source_sha256"] == PREVIOUS_HELPER_SHA
+                            and type(old_clock["last_epoch"]) in (int, float)
+                            and math.isfinite(old_clock["last_epoch"])
+                            and START <= old_clock["last_epoch"] <= time.time(),
+                            "Revision predecessor clock unknown/rollback")
+                    floor = max(floor, old_clock["last_epoch"])
+                if not archive.exists():
+                    archive.mkdir(mode=0o700)
+                    sync_directory(BASE)
+                checked(archive, (0o700,), directory=True)
+                for section in ("private", "public", "inbox"):
+                    directory = archive / section
+                    if not directory.exists():
+                        directory.mkdir(mode=0o700)
+                        sync_directory(archive)
+                    checked(directory, (0o700,), directory=True)
+                for relative, data in snapshots.items():
+                    path = archive / relative
+                    if not path.exists():
+                        create(path, data)
+                    require(checked(path).read_bytes() == data, "Changed predecessor archive; no overwrite")
+                manifest = {"protocol": "pre-actuation-helper-revision/v1", "node": self.node, "run_id": RUN,
+                            "previous_source_sha256": PREVIOUS_HELPER_SHA, "source_sha256": self.source,
+                            "last_epoch": floor, "files": {k: sha(v) for k, v in snapshots.items()}}
+                create(manifest_path, canonical(manifest))
+            known_files = {"private/" + name for name in private_modes}
+            known_files |= {section + "/" + name for section in ("public", "inbox") for name in inbox_names}
+            require(isinstance(manifest["files"], dict) and set(manifest["files"]) <= known_files
+                    and "private/helper.py" in manifest["files"]
+                    and type(manifest["last_epoch"]) in (int, float)
+                    and START <= manifest["last_epoch"] <= time.time(), "Revision manifest scope/clock drift")
+            for path in archive.rglob("*"):
+                relative = path.relative_to(archive).as_posix()
+                if relative in ("private", "public", "inbox"):
+                    checked(path, (0o700,), directory=True)
+                else:
+                    permitted = set(manifest["files"]) | {k + ".creating" for k in manifest["files"]}
+                    permitted |= {"manifest.json", "manifest.json.creating"}
+                    require(relative in permitted, "Unknown revision archive artifact")
+                    checked(path)
+            for relative, digest in manifest["files"].items():
+                require(sha(checked(archive / relative).read_bytes()) == digest, "Revision archived evidence drift")
+            require(sha(checked(archive / "private/helper.py").read_bytes()) == PREVIOUS_HELPER_SHA,
+                    "Revision archived predecessor source drift")
+            # Neither original-clock writes nor authority creation are part of revision.
+            state = self.state(check_clock=False)
+            require(set(p.name for p in BASE.iterdir()) <= allowed
+                    and set(p.name for p in self.pub.iterdir()) <= public_names
+                    and set(p.name for p in (BASE / "inbox").iterdir()) <= inbox_names,
+                    "Actuation/unknown evidence appeared during revision")
+            if self.node == WORKER:
+                self.worker_idle()
+                for name in self.unit_bodies():
+                    if "-finalize." in name:
+                        self.actor(name, allow_running=True)
+            else:
+                for name in self.unit_bodies():
+                    self.actor(name, allow_running=name.endswith("-guard.timer") or name.endswith("-guard.service"))
+                require(not self.lock()["metadata"].get("deletionTimestamp"), "Lock terminating during revision")
+            floor = max(manifest["last_epoch"], state["last_epoch"])
+            clock_path = BASE / "operator-clock.json"
+            if clock_path.exists():
+                clock = read_json(clock_path)
+                require(set(clock) == {"source_sha256", "last_epoch"}
+                        and clock["source_sha256"] in (PREVIOUS_HELPER_SHA, self.source)
+                        and type(clock["last_epoch"]) in (int, float)
+                        and START <= clock["last_epoch"] <= time.time(), "Revision current clock drift")
+                floor = max(floor, clock["last_epoch"])
+            require(time.time() >= floor, "Revision clock rollback")
+            atomic(clock_path, canonical({"source_sha256": self.source, "last_epoch": floor}))
+            require(sha(checked(BASE / "helper.py", (0o444,)).read_bytes()) in (PREVIOUS_HELPER_SHA, self.source)
+                    and sha(checked(BASE / "helper.next.py", (0o444,)).read_bytes()) == self.source,
+                    "Revision executable drift before installation")
+            atomic(BASE / "helper.py", candidate, 0o444)
+            return {"outcome": "pre-actuation-helper-revised", "source_sha256": self.source,
+                    "previous_source_sha256": PREVIOUS_HELPER_SHA, "actuation": False,
+                    "regenerate_signed_worker_audit": True}
+
     def worker_audit(self):
         require(self.node == WORKER, "Worker console only")
         with self.locked():
@@ -699,7 +899,8 @@ class Recovery:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("operation", choices=("worker-audit", "controller-fence", "worker-cancel", "controller-retire"))
+    parser.add_argument("operation", choices=("worker-audit", "controller-fence", "worker-cancel", "controller-retire",
+                                             "stage-revision"))
     parser.add_argument("--reviewed-source-sha256", required=True)
     args = parser.parse_args()
     require(re.fullmatch("[a-f0-9]{64}", args.reviewed_source_sha256), "Reviewed source digest required")
@@ -714,7 +915,7 @@ def main():
             path.mkdir(mode=0o755)
             path.chmod(0o755)
         checked(path, (0o755,), directory=True)
-    recovery = Recovery(args.reviewed_source_sha256)
+    recovery = Recovery(args.reviewed_source_sha256, revision=args.operation == "stage-revision")
     result = getattr(recovery, args.operation.replace("-", "_"))()
     print(json.dumps({"run_id": RUN, "authority": "reviewed-operator-recovery-only",
                       "operation": args.operation, "maintenance_success": False, "result": result}))

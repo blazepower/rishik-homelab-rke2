@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import stat
+import threading
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -47,7 +48,9 @@ class RecoveryFixture:
             "uid": r.LOCK_UID, "resourceVersion": "435298222", "creationTimestamp": "2026-11-25T06:34:05Z"},
             "data": {"run_id": r.RUN, "host_step_id": r.STEP, "plan_sha256": "",
                      "started_epoch": str(r.START), "deadline_epoch": str(r.DEADLINE)}}
-        hashes = {"source.py": r.sha(b"original source")}
+        cold_source = (DIRECTORY / "node-maintenance-cold.py").read_bytes()
+        hashes = {"source.py": r.sha(b"original source"),
+                  ".github/scripts/node-maintenance-cold.py": r.sha(cold_source)}
         plan = {"source_bindings": hashes, "bindings": {
             node: {"boot_id": node + "-original-boot", "kernel": "7.0.0-38"} for node in (r.SERVER, r.WORKER)}}
         approval = r.sha(r.canonical(plan))
@@ -66,6 +69,8 @@ class RecoveryFixture:
         self.stack.enter_context(patch.object(r, "run", side_effect=self.native))
         if not self.real_metadata:
             self.stack.enter_context(patch.object(r, "mutex", side_effect=self.mutex))
+            self.stack.enter_context(patch.object(r, "controller_mutex",
+                                                 side_effect=lambda directory, name: self.mutex(directory / name)))
         self.lock_value["data"]["plan_sha256"] = approval
         for node in (r.SERVER, r.WORKER):
             base = self.root / node
@@ -88,6 +93,8 @@ class RecoveryFixture:
             obj.local_key = obj.other_key = "ssh-ed25519 fixture-public-key"
             obj.verify_host = lambda: None
             (obj.original / "source.py").write_bytes(b"original source")
+            (obj.original / ".github/scripts").mkdir(parents=True)
+            (obj.original / ".github/scripts/node-maintenance-cold.py").write_bytes(cold_source)
             (obj.original / "plan.json").write_bytes(r.canonical(plan))
             state = {"last_epoch": r.START}
             if node == r.SERVER:
@@ -101,8 +108,15 @@ class RecoveryFixture:
                 state.update(contract=contract, contract_sha256=r.CONTRACT_SHA, phase="staged", pid=0)
             (obj.original / "state.json").write_bytes(r.canonical(state))
             if self.real_metadata:
-                for path in obj.original.iterdir():
-                    path.chmod(0o600)
+                for path in obj.original.rglob("*"):
+                    path.chmod(0o700 if path.is_dir() else 0o600)
+                if node == r.SERVER:
+                    for name in ("mutex", "recovery-mutex"):
+                        (obj.original / name).write_bytes(b"")
+                        (obj.original / name).chmod(0o644)
+                else:
+                    (obj.original / "mutex").write_bytes(b"")
+                    (obj.original / "mutex").chmod(0o600)
             units = {}
             for name, body in obj.unit_bodies().items():
                 path = base / "system" / name
@@ -136,6 +150,7 @@ class RecoveryFixture:
         base = self.nodes[node]["base"]
         with patch.multiple(r, BASE=base / "base", PUBLIC=base / "public", SYSTEM=base / "system",
                             RUNTIME_SYSTEM=base / "system", CGROUP=base / "cgroup", MOUNTINFO=base / "mountinfo",
+                            CONTROLLER_DIRECTORY=self.nodes[r.SERVER]["object"].original,
                             PROC_LOCKS=base / "proc-locks",
                             PACKAGE_LOCKS=tuple(base / ("package-lock-" + str(i)) for i in range(4))), \
                 patch.object(r.os, "major", create=True, return_value=0), \
@@ -694,6 +709,105 @@ class RecoveryTests(RecoveryFixture, unittest.TestCase):
         self.assertIsNotNone(self.lock_value)
         self.assertFalse(any("delete" in args for _, args, _ in self.calls))
 
+    def revision_fixture(self, node):
+        previous = b"previous-reviewed-helper-fixture"
+        candidate = b"new-reviewed-helper-fixture"
+        self.stack.enter_context(patch.object(r, "PREVIOUS_HELPER_SHA", r.sha(previous)))
+        with self.on(node) as obj:
+            obj.source = r.sha(candidate)
+            (r.BASE / "helper.py").write_bytes(previous)
+            (r.BASE / "helper.next.py").write_bytes(candidate)
+            (r.BASE / "operator-mutex").write_bytes(b"")
+            (r.BASE / "operator-clock.json").write_bytes(r.canonical(
+                {"source_sha256": r.PREVIOUS_HELPER_SHA, "last_epoch": self.now - 1}))
+        return previous, candidate
+
+    def test_pre_actuation_revision_archives_predecessor_and_carries_clock_without_old_writes(self):
+        for node in (r.SERVER, r.WORKER):
+            previous, candidate = self.revision_fixture(node)
+            with self.on(node) as obj, patch.object(r, "__file__", str(r.BASE / "helper.next.py")):
+                old_clock = (r.BASE / "operator-clock.json").read_bytes()
+                original = (obj.original / "state.json").read_bytes()
+                result = obj.stage_revision()
+                archive = r.BASE / ("revision-from-" + r.PREVIOUS_HELPER_SHA)
+                self.assertEqual((archive / "private/helper.py").read_bytes(), previous)
+                self.assertEqual((archive / "private/operator-clock.json").read_bytes(), old_clock)
+                self.assertEqual((r.BASE / "helper.py").read_bytes(), candidate)
+                clock = json.loads((r.BASE / "operator-clock.json").read_bytes())
+                self.assertEqual(clock["source_sha256"], obj.source)
+                self.assertGreaterEqual(clock["last_epoch"], json.loads(old_clock)["last_epoch"])
+                self.assertEqual((obj.original / "state.json").read_bytes(), original)
+                self.assertFalse(result["actuation"])
+                self.assertFalse((r.BASE / "authority.json").exists())
+                obj.stage_revision()
+        self.assertFalse(any("delete" in args or "stop" in args or "daemon-reload" in args
+                             for _, args, _ in self.calls))
+
+    def test_revision_never_rebinds_authority_or_actuating_evidence(self):
+        self.revision_fixture(r.SERVER)
+        with self.on(r.SERVER) as obj, patch.object(r, "__file__", str(r.BASE / "helper.next.py")):
+            for name in ("authority.json", "guard-inhibited", "worker-cancel-intent.json",
+                         "delete-intent-435298222.json", "controller-state-original.json"):
+                path = r.BASE / name
+                path.write_bytes(b"existing authority preserved")
+                before = (r.BASE / "helper.py").read_bytes()
+                with self.subTest(name=name), self.assertRaises(RuntimeError):
+                    obj.stage_revision()
+                self.assertEqual(path.read_bytes(), b"existing authority preserved")
+                self.assertEqual((r.BASE / "helper.py").read_bytes(), before)
+                path.unlink()
+            (obj.pub / "controller-fence.json").write_bytes(b"existing fence")
+            with self.assertRaises(RuntimeError):
+                obj.stage_revision()
+
+    def test_revision_interrupted_clock_migration_or_helper_install_restarts_without_reset(self):
+        self.revision_fixture(r.WORKER)
+        with self.on(r.WORKER) as obj, patch.object(r, "__file__", str(r.BASE / "helper.next.py")):
+            original_atomic = r.atomic
+            def interruption(path, data, mode=0o600):
+                if path == r.BASE / "helper.py":
+                    raise Interrupted()
+                return original_atomic(path, data, mode)
+            with patch.object(r, "atomic", side_effect=interruption), self.assertRaises(Interrupted):
+                obj.stage_revision()
+            clock = (r.BASE / "operator-clock.json").read_bytes()
+            archive = r.BASE / ("revision-from-" + r.PREVIOUS_HELPER_SHA)
+            manifest = (archive / "manifest.json").read_bytes()
+            obj.stage_revision()
+            self.assertEqual((archive / "manifest.json").read_bytes(), manifest)
+            self.assertEqual((r.BASE / "operator-clock.json").read_bytes(), clock)
+            self.assertEqual((obj.original / "state.json").read_bytes(), self.original_worker)
+
+    def test_revision_retains_old_signed_audit_but_requires_genuinely_regenerated_new_source(self):
+        self.revision_fixture(r.WORKER)
+        with self.on(r.WORKER) as worker, patch.object(r, "__file__", str(r.BASE / "helper.next.py")):
+            new_source = worker.source
+            worker.source = r.PREVIOUS_HELPER_SHA
+            worker.worker_audit()
+            old = (worker.pub / "worker-audit.json").read_bytes()
+            worker.source = new_source
+            worker.stage_revision()
+            archive = r.BASE / ("revision-from-" + r.PREVIOUS_HELPER_SHA)
+            self.assertEqual((archive / "public/worker-audit.json").read_bytes(), old)
+            self.assertEqual((worker.pub / "worker-audit.json").read_bytes(), old)
+            proof = worker.worker_audit()
+            self.assertEqual(proof["source_sha256"], new_source)
+            self.assertNotEqual((worker.pub / "worker-audit.json").read_bytes(), old)
+
+    def test_revision_rollback_or_predecessor_source_drift_cannot_overwrite_helper(self):
+        self.revision_fixture(r.WORKER)
+        with self.on(r.WORKER) as worker, patch.object(r, "__file__", str(r.BASE / "helper.next.py")):
+            (r.BASE / "helper.py").write_bytes(b"unreviewed predecessor")
+            with self.assertRaises(RuntimeError):
+                worker.stage_revision()
+            self.assertEqual((r.BASE / "helper.py").read_bytes(), b"unreviewed predecessor")
+            (r.BASE / "helper.py").write_bytes(b"previous-reviewed-helper-fixture")
+            (r.BASE / "operator-clock.json").write_bytes(r.canonical(
+                {"source_sha256": r.PREVIOUS_HELPER_SHA, "last_epoch": self.now + 1}))
+            with self.assertRaises(RuntimeError):
+                worker.stage_revision()
+            self.assertEqual((r.BASE / "helper.py").read_bytes(), b"previous-reviewed-helper-fixture")
+
 
 @unittest.skipUnless(os.name == "posix" and getattr(os, "geteuid", lambda: -1)() == 0,
                      "Actual POSIX root ownership/umask filesystem required; no permission mocks")
@@ -785,6 +899,121 @@ class RecoveryPermissionTests(RecoveryFixture, unittest.TestCase):
             self.assertTrue(directory.is_symlink())
             self.assertEqual(stat.S_IMODE(target.lstat().st_mode), 0o700)
         self.assertIsNotNone(self.lock_value)
+
+    def test_real_old_0644_controller_mutexes_serialize_with_original_source_without_changes(self):
+        with self.on(r.SERVER) as obj:
+            old = c.Journal.__new__(c.Journal)
+            old.directory = obj.original
+            old.write = lambda state: None
+            for name in ("recovery-mutex", "mutex"):
+                path = obj.original / name
+                before = path.lstat()
+                entered, attempting = threading.Event(), threading.Event()
+                errors = []
+                def legacy():
+                    try:
+                        attempting.set()
+                        if name == "recovery-mutex":
+                            old.recovery(entered.set)
+                        else:
+                            old.transaction(lambda state: entered.set())
+                    except Exception as error:
+                        errors.append(error)
+                with r.controller_mutex(obj.original, name):
+                    thread = threading.Thread(target=legacy)
+                    thread.start()
+                    self.assertTrue(attempting.wait(2))
+                    self.assertFalse(entered.wait(0.1))
+                thread.join(3)
+                self.assertFalse(thread.is_alive())
+                self.assertTrue(entered.is_set())
+                self.assertEqual(errors, [])
+                after = path.lstat()
+                self.assertEqual((after.st_dev, after.st_ino, stat.S_IMODE(after.st_mode), after.st_size),
+                                 (before.st_dev, before.st_ino, 0o644, 0))
+            with obj.locked():
+                self.assertEqual(stat.S_IMODE((r.BASE / "operator-mutex").stat().st_mode), 0o600)
+            (obj.original / "state.json").chmod(0o644)
+            with self.assertRaises(RuntimeError):
+                obj.state()
+
+    def test_real_old_mutex_unsafe_mode_owner_type_link_and_missing_identity_rejected(self):
+        with self.on(r.SERVER) as obj:
+            path = obj.original / "mutex"
+            for mode in (0o666, 0o664, 0o640, 0o444):
+                path.chmod(mode)
+                with self.subTest(mode=mode), self.assertRaises(RuntimeError):
+                    with r.controller_mutex(obj.original, "mutex"):
+                        self.fail("Unsafe lock accepted")
+            path.chmod(0o644)
+            os.chown(path, 65534, -1)
+            with self.assertRaises(RuntimeError):
+                with r.controller_mutex(obj.original, "mutex"):
+                    self.fail("Foreign owner accepted")
+            os.chown(path, 0, -1)
+            path.write_bytes(b"unexpected lock data")
+            with self.assertRaises(RuntimeError):
+                with r.controller_mutex(obj.original, "mutex"):
+                    self.fail("Non-inert lock accepted")
+            path.write_bytes(b"")
+            linked = obj.original / "unexpected-hardlink"
+            os.link(path, linked)
+            with self.assertRaises(RuntimeError):
+                with r.controller_mutex(obj.original, "mutex"):
+                    self.fail("Extra lock link accepted")
+            linked.unlink()
+            path.unlink()
+            path.symlink_to(obj.original / "recovery-mutex")
+            with self.assertRaises(RuntimeError):
+                with r.controller_mutex(obj.original, "mutex"):
+                    self.fail("Symlink accepted")
+            path.unlink()
+            with self.assertRaises(FileNotFoundError):
+                with r.controller_mutex(obj.original, "mutex"):
+                    self.fail("Missing old lock created")
+            self.assertFalse(path.exists())
+
+    def test_real_old_mutex_inode_replacement_and_nonprivate_directory_rejected(self):
+        with self.on(r.SERVER) as obj:
+            path = obj.original / "mutex"
+            original_open = r.os.open
+            def replace(target, flags, *args, **kwargs):
+                if target == path:
+                    path.rename(obj.original / "saved-original-mutex")
+                    path.write_bytes(b"")
+                    path.chmod(0o644)
+                return original_open(target, flags, *args, **kwargs)
+            with patch.object(r.os, "open", side_effect=replace), self.assertRaises(RuntimeError):
+                with r.controller_mutex(obj.original, "mutex"):
+                    self.fail("Replaced inode accepted")
+            obj.original.chmod(0o755)
+            with self.assertRaises(RuntimeError):
+                with r.controller_mutex(obj.original, "mutex"):
+                    self.fail("Nonprivate enclosing directory accepted")
+            obj.original.chmod(0o700)
+
+    def test_real_pre_actuation_revision_preserves_old_bytes_modes_and_clock_floor(self):
+        previous, candidate = b"old-reviewed-fixture", b"new-reviewed-fixture"
+        with patch.object(r, "PREVIOUS_HELPER_SHA", r.sha(previous)), self.on(r.SERVER) as obj:
+            obj.source = r.sha(candidate)
+            for name, data, mode in (
+                ("helper.py", previous, 0o444), ("helper.next.py", candidate, 0o444),
+                ("operator-clock.json", r.canonical({"source_sha256": r.PREVIOUS_HELPER_SHA,
+                                                    "last_epoch": self.now - 1}), 0o600)):
+                (r.BASE / name).write_bytes(data)
+                (r.BASE / name).chmod(mode)
+            original = (obj.original / "state.json").read_bytes()
+            old_clock = (r.BASE / "operator-clock.json").read_bytes()
+            with patch.object(r, "__file__", str(r.BASE / "helper.next.py")):
+                obj.stage_revision()
+            archive = r.BASE / ("revision-from-" + r.PREVIOUS_HELPER_SHA)
+            self.assertEqual((archive / "private/helper.py").read_bytes(), previous)
+            self.assertEqual((archive / "private/operator-clock.json").read_bytes(), old_clock)
+            self.assertEqual((obj.original / "state.json").read_bytes(), original)
+            self.assertEqual(stat.S_IMODE((r.BASE / "helper.py").stat().st_mode), 0o444)
+            self.assertEqual(stat.S_IMODE((r.BASE / "operator-mutex").stat().st_mode), 0o600)
+            self.assertEqual(stat.S_IMODE((obj.original / "mutex").stat().st_mode), 0o644)
+            self.assertFalse((r.BASE / "authority.json").exists())
 
 
 if __name__ == "__main__":
