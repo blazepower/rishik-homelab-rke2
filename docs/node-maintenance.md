@@ -1062,5 +1062,88 @@ CI tests unsupported minor jumps, approval tampering/expiry/context,
 zero-budget PDB detection, capacity/placement constraints, two-copy storage,
 snapshot corruption, package drift, preserved server services and fail-stop
 behavior, including storage/health drift after a successful drain. They do not
-execute privileged maintenance or claim a live reboot
-rehearsal.
+execute privileged maintenance or claim a live reboot rehearsal.
+
+#### Separately authorized cancelled-unstarted peer cleanup
+
+`node-maintenance-peer-terminal-cleanup.py` is a separate, exact-setup consumer,
+not a replacement for the original peer module. **Source-only until independent
+review and isolated Linux-root acceptance pass.** It supports only setup
+`582d351db706417aab8492d945598f2d` after genuinely signed terminal cancellation
+of run `53a3a0a510054a5dbca6bccb677d3148`. Cleanup requires separate operator
+authorization; terminal cancellation alone does not authorize it.
+
+Stage only accepted raw bytes on both original nodes as root-owned `0444`
+`/var/lib/node-maintenance-operator-peer-cleanup/<setup>/helper.py`, under
+root-only `0700` directories. Create its `inbox` with the same ownership/mode.
+The retained accepted recovery helper must remain raw SHA256
+`320751e5bca62a283352b312f4ede5752d6f6b8f54367b8feec61731da1734aa`;
+the original installed peer module, host module, bundles, plan, grant, journals,
+host keys, recovery clock and deadlines are not replaced or rewritten.
+Transfer only the accepted public `controller-terminal.json(.sig)` and
+`worker-cancel.json(.sig)` into each inbox as root-owned `0444`. Never transfer
+private identities, host keys, tokens, original private state or kubeconfigs.
+
+Run the isolated test file outside every actual run/recovery/setup directory.
+Its Windows cases simulate filesystem behavior; only its explicitly gated
+`NativeCheckpointTests` exercises real POSIX ownership and durability as root.
+Tests never invoke SSH, package, Kubernetes or host-maintenance commands.
+
+Use the original authenticated root consoles and the exact independently
+accepted physical-byte SHA, without changing its line endings:
+
+```bash
+C=/var/lib/node-maintenance-operator-peer-cleanup/582d351db706417aab8492d945598f2d
+# Set CLEANUP_SHA to the independently accepted raw-byte source SHA.
+/usr/bin/python3 -I -B "$C/helper.py" audit --reviewed-source-sha256 "$CLEANUP_SHA"
+```
+
+Audit both nodes before any revocation. Audit is non-actuating and does not
+require a worker-cleanup receipt on the controller. Actual cleanup always
+requires fresh native idle proofs; the controller also requires absent
+maintenance lock, persistent original guard inhibition and a genuine,
+same-source worker-cleanup receipt less than 120 seconds old.
+
+Execute **worker2 first**, then independently verify ordinary trusted Windows
+SSH still works. Transfer its genuinely signed public
+`worker-peer-cleanup.json(.sig)` from
+`/var/lib/node-maintenance-operator-peer-cleanup-status/<setup>/rishik-worker2/`
+to the controller inbox with root `0444` files. Run controller cleanup only
+while that receipt remains fresh:
+
+```bash
+/usr/bin/python3 -I -B "$C/helper.py" cleanup --reviewed-source-sha256 "$CLEANUP_SHA"
+```
+
+The immutable original revoker has no post-validation freshness callback.
+The separate consumer therefore preserves its activated-only authorization
+checks and exact file payloads, while checking the verified worker-proof age
+immediately before each marker write, SSH/private-file unlink, pointer removal
+and SSH reload. Blocking native validation cannot spend the remaining proof
+lifetime and silently authorize a later mutation. Original module bytes and
+completion gates remain unchanged.
+
+This command removes only the exact owned incoming key/drop-in, private
+`identity`, `identity.pub`, `known_hosts`, their empty private directory and
+matching current pointer. It reuses original SSH syntax/effective-policy
+validation and PID-stable **reload**, never an SSH restart. Original public
+config/grant/source/authorization records remain; owned revocation records and
+new signed cleanup evidence are retained. Require outcome
+`OWNED-PEER-SETUP-CLEANED` and `maintenance_success=false` on each node, verify
+normal SSH continuity, original host fingerprints and absence of owned access.
+
+Interruption retries use the same reviewed helper and retained intent/inode
+proofs. Pending phase records and content-addressed proof history are fsynced,
+reproved and atomically promoted without unlink/recreation, preserving clock
+watermarks even across repeated interruptions. A replacement pointer, foreign
+identity/inode, unknown history artifact, malformed record, source drift,
+native job, lock or SSH-policy drift stops cleanup and preserves the remaining
+files. Do not manufacture a receipt, edit old completion/ACK fields, remove
+evidence, restore temporary access or reset a clock. After verifying a completed
+worker cleanup, rerunning that same helper can obtain a fresh native signed
+worker proof if the previous receipt expired; it does not extend a maintenance
+deadline. Drift still fails closed.
+
+No drain, package transaction, reboot, renewed outage window, controller
+uncordon, Kured activation or Sure migration is authorized by this cleanup.
+Fresh maintenance requires its own eligible, approved plan after both cleanups.

@@ -936,6 +936,9 @@ ColdTests = cold_tests.ColdTests
 recovery_tests = load("unstarted_regressions", "test-node-maintenance-cancel-unstarted.py")
 RecoveryTests = recovery_tests.RecoveryTests
 RecoveryPermissionTests = recovery_tests.RecoveryPermissionTests
+peer_cleanup_tests = load("peer_cleanup_regressions", "test-node-maintenance-peer-terminal-cleanup.py")
+PeerCleanupTests = peer_cleanup_tests.CleanupTests
+PeerCleanupNativeCheckpointTests = peer_cleanup_tests.NativeCheckpointTests
 
 
 if __name__ == "__main__":
