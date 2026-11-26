@@ -528,6 +528,8 @@ or executor unit start failure instead revokes the slot and requests the guard
 itself, without another workstation authentication.
 
 **Already-bound pre-fix runs:** native Job-format correction is not retroactive.
+The separately authorized recovery-only helper below is specific to this
+cancelled, never-started historical run; it does not retrofit that fix.
 The old exact standby code can acknowledge irrevocable revocation under its
 worker mutex without the finalizer self-check, if invoked through its existing
 bound authority and the original source/peer/boot/clock checks succeed. That
@@ -773,6 +775,173 @@ maintenance directories/backups is an explicit retention task, never broad
 recursive deletion.
 
 ## Verification
+
+### Separately authorized cancelled-unstarted recovery
+
+`node-maintenance-cancel-unstarted.py` is **source-only pending independent
+review and native acceptance**, not a replacement installed bundle or a general
+unlock command. Its only scope is run `53a3a0a510054a5dbca6bccb677d3148`,
+host step `627bb24ba72a4e17accbbf4a012b16b5`, original commit
+`66a10ed8c8a959009ff2f39549d8637d383ff79c`, and ConfigMap UID
+`98379fb1-bf6d-4536-9a1a-d630a0333a30`. The approval, six original source
+hashes, worker contract, peer setup, start `1795588445.0377986` and deadline
+`1795631645.0377986` are pinned in the helper. None can be supplied as arguments,
+rebound, extended or interpreted as renewed maintenance authority.
+
+This is new explicit **operator terminal cancellation authority**, not a
+fabricated acknowledgment from the original broken finalizer. It never starts
+the standby/OS payload, restores/scales applications, changes storage/PDBs,
+cordons/uncordons nodes, enables Kured, modifies SSH, or deletes original
+artifacts. Successful retirement is `FAILED/CANCELLED-UNSTARTED`, with
+`maintenance_success=false`; the original controller ledger still has
+`completed=false`. Its initial and post-quiescence proofs reject any host
+start/authorization, prior standby readiness/claim/PID, finalizer ACK, drain
+marker, nonempty mutation ledger, original source/plan/contract/boot/kernel
+drift, malformed/missing native fields, queued jobs or populated exact cgroups.
+Present empty native `Job=` and legacy `Job=0` both mean no job. Timers never
+require invented service PID/cgroup properties. The authoritative absent work
+units are `node-maintenance-<step>-os.service` and
+`node-maintenance-reboot-<step>.service/.timer`, not alternate diagnostic names.
+It also rejects active/queued native apt-daily services and kernel-held/queued
+locks on the four fixed dpkg/APT lock files, including package work launched
+outside the maintenance service. These are technical metadata-only reads; no
+package lock is acquired or package process stopped. Missing lock files,
+malformed `/proc/locks`, cgroup subtree/bind-mount ambiguity or active children
+block terminal evidence.
+
+#### Trust, staging and execution order
+
+Use the **original authenticated operator root consoles on both nodes**. Do
+not expand the old forced-command channel: it cannot transport these new
+receipts or execute recovery. Verify identical reviewed helper bytes on the
+workstation and both nodes. Stage only this helper outside the old bundles:
+
+```text
+/var/lib/node-maintenance-operator-recovery/53a3a0a510054a5dbca6bccb677d3148/helper.py
+```
+
+Its directory and future `inbox` are root-owned 0700; `helper.py` is root-owned
+0444. Transfer reviewed bytes using the already authenticated Windows operator
+SSH path and visible root authentication, then `install -o root -g root -m 0444`
+into the exact path. Do not normalize CRLF/LF during transfer: use the actual
+reviewed **raw-byte SHA256**, not the Git blob hash. Never overwrite anything
+under the original cold/worker/peer directories. No new key, SSH trust entry,
+sudoers rule, listener or host package is needed.
+
+Each console requires native OpenSSH `ssh-keygen -Y sign/verify`. It signs
+technical evidence using its **existing local Ed25519 host key**, which must
+match the original approved peer fingerprints. Native signing uses the
+root-owned 0600 private key locally; the helper neither reads its bytes into
+Python nor exports/prints/copies it. It immediately verifies its own signature
+against the pinned public identity. The counterpart verifies the signature,
+fixed namespace, helper SHA, run/step/approval/contract/UID, original boot/kernel,
+immutable clocks, role, challenge and exact finite evidence schema. An
+unchecked JSON assertion is never evidence. Host-key signing capability and
+actual ownership/mode/layout must be independently accepted before execution;
+failure is a blocker, not authority to generate/rotate keys or alter SSH.
+
+Run the following **only after review**, replacing `<reviewed-raw-sha256>`:
+
+```text
+# Worker2 original root console:
+python3 -B /var/lib/node-maintenance-operator-recovery/53a3a0a510054a5dbca6bccb677d3148/helper.py worker-audit --reviewed-source-sha256 <reviewed-raw-sha256>
+# Controller original root console, after receiving worker-audit:
+python3 -B /var/lib/node-maintenance-operator-recovery/53a3a0a510054a5dbca6bccb677d3148/helper.py controller-fence --reviewed-source-sha256 <reviewed-raw-sha256>
+# Worker2 original root console, after receiving controller-fence:
+python3 -B /var/lib/node-maintenance-operator-recovery/53a3a0a510054a5dbca6bccb677d3148/helper.py worker-cancel --reviewed-source-sha256 <reviewed-raw-sha256>
+# Controller original root console, after receiving worker-cancel:
+python3 -B /var/lib/node-maintenance-operator-recovery/53a3a0a510054a5dbca6bccb677d3148/helper.py controller-retire --reviewed-source-sha256 <reviewed-raw-sha256>
+```
+
+Between commands, transfer **both** `<kind>.json` and `<kind>.json.sig` from:
+
+```text
+/var/lib/node-maintenance-operator-recovery-status/<run>/<producing-node>/
+```
+
+through Windows' original authenticated SSH/SCP path into the receiving node's
+operator staging directory. In its original root console install only these
+public technical files, root-owned 0444, at the fixed
+`/var/lib/node-maintenance-operator-recovery/<run>/inbox/` filenames. Do not
+transfer original private state, keys, application records or kubeconfig.
+Signatures make workstation assertions/torn transfers fail closed. Fresh
+cross-node proofs are valid for less than 120 seconds, with future observations
+rejected. Root-only authority nonce and monotonic operator-clock artifacts are
+durable; no retry resets the original outage clock.
+
+`controller-fence` holds the original `recovery-mutex` and `mutex`, preserves
+the controller ledger snapshot, adds only a new run-specific guard-service
+drop-in with `ConditionPathExists=!<recovery-directory>/guard-inhibited`,
+validates it with native systemd, reloads unit metadata, and stops only that
+run's non-actuating guard timer/service. It re-proves exact loaded units,
+source/fragment/drop-ins, idle PIDs/jobs/cgroups and zero mutations. The
+persistent condition prevents guard rearming after interruption; no coordinator,
+drain, APT, reboot or unrelated service is stopped.
+
+`worker-cancel` holds the original worker claim mutex. After authenticated
+controller fencing and repeated native standby/package/reboot/shutdown checks,
+it snapshots the original worker ledger and stops only the exact non-actuating
+finalizer timer/service. It then durably changes the worker's phase from
+`staged` to `cancelled`, with honest separate `operator_cancellation` provenance.
+All original bindings/clocks and other fields remain intact, and the exact
+original bytes remain in the separate snapshot. It does **not** create an old
+`finalizer_ack`/verified epoch or edit the old public status to impersonate
+original finalizer evidence. The monotonic terminal state, shared claim mutex
+and already-cancelled controller slot prevent late OS launch. The new signed
+receipt, not a stale old public projection, is the operator terminal proof.
+
+`controller-retire` requires genuine worker terminal evidence, persistent
+controller inhibition and fresh native exact-name API reads. It uses the
+original pinned controller-local kubectl and existing kubeconfig without
+reading/exporting either credential content. Its only API mutation is:
+
+```text
+kubectl ... delete --raw=/api/v1/namespaces/kube-system/configmaps/operator-node-maintenance -f -
+```
+
+with a native `v1/DeleteOptions` stdin body carrying **both** `preconditions.uid`
+and the freshly proven `preconditions.resourceVersion`. This is supported raw
+API transport, not an invented CLI precondition flag. It never clears
+finalizers or issues an unconditional/force delete.
+
+#### Failure, interruption and acceptance boundaries
+
+Owned writes are fsynced and atomically published; existing original files are
+not lost during interrupted evidence publication. Worker terminal cancellation
+and controller inhibition survive retries. Root-owned per-resourceVersion
+delete intents retain cryptographically verified worker witnesses before any
+DELETE. A changed RV requires a fresh audit/fence/cancel round; a native
+precondition conflict is not retried unconditionally. Signature/source/clock
+drift or unknown native/API evidence retains the lock and emits no terminal
+success. Failed fencing/stopping leaves the old cancelled slot and lock intact.
+
+If DELETE is accepted but its response is lost, repeat `controller-retire`
+using the saved exact-UID intent/witness: it independently reads the API,
+never deletes a replacement UID, and publishes a new signed
+`controller-terminal` only after the original UID is absent. Existing
+finalizers yield explicit `finalizers-pending`, not a terminal receipt.
+Completion after finalizer removal can use durable witnesses; no expired
+receipt grants a new DELETE. Interruption before deletion requires fresh
+worker evidence again. If fresh evidence expires, repeat audit/fence/cancel
+while the original lock is non-terminating. Do not remove inhibition, reset
+authority, fabricate ACKs, replace original source or force-clear a stuck lock.
+
+**Remaining native acceptance:** source simulations do not establish actual
+host-key signing, root modes, old source bytes, exact native unit fragments,
+timer/condition behavior, cgroup mount namespace, original root-console
+availability or live preconditioned API retirement. Parent/operator review
+and acceptance own those checks and all execution. If any fail, retain the lock
+and report the exact blocker. Independent review is required before staging or
+running this helper.
+
+**Old peer cleanup remains separate.** Its immutable setup is not rebound to
+new host bytes. Old worker idle consumers still reject native empty Jobs;
+controller cleanup has an old Job comparison and expects old
+`completed=true`. This helper deliberately leaves that field false. Therefore
+the original cleanup cannot be claimed accepted unchanged: a separately
+reviewed cleanup-only path is needed after genuine terminal proof, worker2
+then controller. Never rewrite the old ledger or original source to make old
+cleanup believe maintenance succeeded.
 
 ```powershell
 python -B .github\scripts\test-node-maintenance.py
