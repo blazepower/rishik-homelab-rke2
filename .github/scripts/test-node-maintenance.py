@@ -407,17 +407,19 @@ class MaintenanceTests(unittest.TestCase):
     def test_plan_cannot_be_replayed_or_tampered(self):
         plan = {
             "created_epoch": 100, "cluster_uid": "cluster", "action": "os",
+            "outage_budget": m.outage_budget(json.loads(m.POLICY.read_text())),
             "policy_sha256": m.sha(m.POLICY.read_bytes()),
             "runner_sha256": m.sha(Path(m.__file__).read_bytes()),
             "host_sha256": m.sha(m.HOST.read_bytes()), "blockers": [],
         }
         approval = m.sha(m.canonical(plan))
         m.check_plan(plan, approval, "cluster", now=101)
+        m.check_plan(plan, approval, "cluster", now=100 + 7 * 86400)
         for field, value in [("blockers", ["unsafe drain"]), ("cluster_uid", "other")]:
             changed = {**plan, field: value}
             with self.subTest(field=field), self.assertRaises(RuntimeError):
                 m.check_plan(changed, approval, "cluster", now=101)
-        for now, context in [(15000, "cluster"), (101, "other"), (99, "cluster")]:
+        for now, context in [(101, "other"), (99, "cluster")]:
             with self.subTest(now=now), self.assertRaises(RuntimeError):
                 m.check_plan(plan, approval, context, now=now)
         blocked = {**plan, "blockers": ["unsafe drain"]}
@@ -431,6 +433,7 @@ class MaintenanceTests(unittest.TestCase):
         worker = next(n for n in policy["nodes"] if n["name"] == "rishik-worker2")
         plan = {
             "created_epoch": 100, "cluster_uid": "cluster", "action": "os",
+            "outage_budget": m.outage_budget(policy),
             "policy_sha256": m.sha(m.POLICY.read_bytes()),
             "runner_sha256": m.sha(Path(m.__file__).read_bytes()),
             "host_sha256": m.sha(m.HOST.read_bytes()), "blockers": [],
@@ -443,6 +446,42 @@ class MaintenanceTests(unittest.TestCase):
             changed = {**plan, **change}
             with self.subTest(change=change), self.assertRaises(RuntimeError):
                 m.check_plan(changed, m.sha(m.canonical(changed)), "cluster", now=101)
+
+    def test_operation_budget_has_no_outage_expiry_but_rejects_clock_rollback(self):
+        with patch.object(m.time, "time", return_value=100), patch.object(m.time, "monotonic", return_value=100):
+            budget = m.OutageBudget({"maintenance_timing": "operation"})
+        with patch.object(m.time, "time", return_value=100 + 7 * 86400), \
+                patch.object(m.time, "monotonic", return_value=100 + 7 * 86400):
+            budget.before_disruption()
+            self.assertIsNone(budget.remaining())
+            self.assertIsNone(budget.deadline_epoch)
+        with patch.object(m.time, "time", return_value=99), self.assertRaisesRegex(RuntimeError, "backwards"):
+            budget.before_disruption()
+
+    def test_bounded_legacy_plan_still_expires_and_timing_cannot_be_forged(self):
+        import tempfile
+        policy = json.loads(m.POLICY.read_text())
+        policy["maintenance_timing"] = "bounded"
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "policy.json"
+            path.write_bytes(m.canonical(policy))
+            with patch.object(m, "POLICY", path):
+                plan = {"created_epoch": 100, "cluster_uid": "cluster", "action": "os",
+                        "outage_budget": m.outage_budget(policy), "policy_sha256": m.sha(path.read_bytes()),
+                        "runner_sha256": m.sha(Path(m.__file__).read_bytes()),
+                        "host_sha256": m.sha(m.HOST.read_bytes()), "blockers": []}
+                approval = m.sha(m.canonical(plan))
+                m.check_plan(plan, approval, "cluster", now=101)
+                with self.assertRaisesRegex(RuntimeError, "expired"):
+                    m.check_plan(plan, approval, "cluster", now=15000)
+                changed = {**plan, "outage_budget": {"maximum_seconds": None, "recovery_reserve_seconds": 0}}
+                with self.assertRaisesRegex(RuntimeError, "timing policy"):
+                    m.check_plan(changed, m.sha(m.canonical(changed)), "cluster", now=101)
+        for budget in ({"maximum_seconds": None, "recovery_reserve_seconds": False},
+                       {"maximum_seconds": 43200.0, "recovery_reserve_seconds": 7200},
+                       {"maximum_seconds": None, "recovery_reserve_seconds": 7200}):
+            with self.subTest(budget=budget), self.assertRaisesRegex(RuntimeError, "outage budget"):
+                m.deadline_for(100, budget)
 
     def storage(self, state="attached"):
         volume = {"metadata": {"name": "vol"}, "spec": {"numberOfReplicas": 2},

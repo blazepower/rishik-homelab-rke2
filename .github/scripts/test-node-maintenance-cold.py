@@ -292,8 +292,9 @@ class FakeAPI:
                 "unit_sha256": self.worker_unit_sha256, "finalizer": copy.deepcopy(self.finalizer)}
 
 
-def fixture(hpa_behavior=None, handler_suspend=False):
+def fixture(hpa_behavior=None, handler_suspend=False, timing="bounded"):
     policy = json.loads(c.m.POLICY.read_text())
+    policy["maintenance_timing"] = timing
     api = FakeAPI(policy)
     sts = {"plex-plex-media-server", "alertmanager-kube-prometheus-stack-alertmanager", "loki",
            "prometheus-kube-prometheus-stack-prometheus", "paperless-paperless-ngx-postgresql",
@@ -504,7 +505,7 @@ def fixture(hpa_behavior=None, handler_suspend=False):
     for index, node in enumerate((c.SERVER, c.WORKER)):
         peer_scope[node] = {"node": node, "peer": c.WORKER if node == c.SERVER else c.SERVER,
                             "setup_id": "3" * 32, "started_epoch": peer_started,
-                            "expires_epoch": peer_started + 86400,
+                            "expires_epoch": None if timing == "operation" else peer_started + 86400,
                             "source_sha256": {name: c.sha((DIRECTORY / name).read_bytes()) for name in peer_source.SOURCES},
                             "original_boot_id": baseline["bindings"][node]["boot_id"],
                             "original_kernel": baseline["bindings"][node]["kernel"],
@@ -524,14 +525,16 @@ def fixture(hpa_behavior=None, handler_suspend=False):
     approval = c.sha(c.canonical(plan))
     api.plan = plan
     start = time.time()
-    state = {"run_id": "1" * 32, "plan_sha256": approval, "started_epoch": start, "deadline_epoch": start + 43200,
+    deadline = c.m.deadline_for(start, plan["outage_budget"])
+    state = {"run_id": "1" * 32, "plan_sha256": approval, "started_epoch": start, "deadline_epoch": deadline,
              "last_epoch": start, "guard_registered": True, "mode": "disrupting", "phase": "registered",
              "mutations": {}, "completed": False, "host_step_id": "2" * 32, "host_started": False, "host_complete": False,
              "worker_ready_verified": True}
-    contract = c.worker_contract(plan, policy, state["run_id"], state["host_step_id"], start, start + 43200)
+    contract = c.worker_contract(plan, policy, state["run_id"], state["host_step_id"], start, deadline)
     state.update(worker_contract=contract, worker_contract_sha256=c.sha(c.canonical(contract)))
     api.add("configmap", {**obj("ConfigMap", "kube-system", c.m.LOCK, {}), "data": {
-        "run_id": state["run_id"], "plan_sha256": approval, "started_epoch": str(start), "deadline_epoch": str(start + 43200)}})
+        "run_id": state["run_id"], "plan_sha256": approval, "started_epoch": str(start),
+        "deadline_epoch": c.m.deadline_text(deadline)}})
     api.get("configmap", "kube-system", c.m.LOCK)["data"]["host_step_id"] = state["host_step_id"]
     api.journal = MemoryJournal(state)
     api.worker = MemoryJournal({
@@ -565,6 +568,149 @@ class ColdTests(unittest.TestCase):
         self.addCleanup(self.get_patch.stop)
         self.coordinator = c.Coordinator(self.plan, self.approval, self.policy, self.journal, self.api)
         self.coordinator.wait = lambda fn, **kwargs: fn()
+
+    def operation_fixture(self):
+        self.get_patch.stop()
+        self.policy, self.api, self.plan, self.approval, self.journal = fixture(timing="operation")
+        self.get_patch = patch.object(c.m, "get", side_effect=self.api.get)
+        self.get_patch.start()
+        self.addCleanup(self.get_patch.stop)
+        self.coordinator = c.Coordinator(self.plan, self.approval, self.policy, self.journal, self.api)
+        self.coordinator.wait = lambda fn, **kwargs: fn()
+
+    def test_operation_approval_can_wait_without_expiry_but_scope_and_future_time_still_fail(self):
+        self.operation_fixture()
+        with patch.object(c.time, "time", return_value=self.plan["created_epoch"] + 7 * 86400):
+            c.check_plan(self.plan, self.approval, self.policy, self.api)
+        changed = copy.deepcopy(self.plan)
+        changed["created_epoch"] = time.time() + 1000
+        with self.assertRaisesRegex(RuntimeError, "future"):
+            c.check_plan(changed, c.sha(c.canonical(changed)), self.policy, self.api)
+        changed = copy.deepcopy(self.plan)
+        changed["nodes"][0]["name"] = c.PEER
+        with self.assertRaisesRegex(RuntimeError, "worker2 OS ONLY"):
+            c.check_plan(changed, c.sha(c.canonical(changed)), self.policy, self.api)
+        changed = copy.deepcopy(self.plan)
+        changed["outage_budget"]["recovery_reserve_seconds"] = False
+        with self.assertRaisesRegex(RuntimeError, "deadline/reserve"):
+            c.check_plan(changed, c.sha(c.canonical(changed)), self.policy, self.api)
+
+    def test_operation_runtime_can_exceed_twelve_hours_without_changing_or_inventing_deadline(self):
+        self.operation_fixture()
+        self.coordinator.now = lambda: self.journal.read()["started_epoch"] + 2 * 86400
+        self.coordinator.mutate(self.plan["schedules"][0], "suspend", True)
+        self.assertIsNone(self.journal.read()["deadline_epoch"])
+        self.assertEqual(self.api.get("configmap", "kube-system", c.m.LOCK)["data"]["deadline_epoch"], "null")
+        changed = self.journal.read()
+        changed["deadline_epoch"] = changed["started_epoch"] + 10 * 86400
+        with self.assertRaisesRegex(RuntimeError, "deadline changed"):
+            self.coordinator.gate(changed)
+
+    def test_operation_standby_still_requires_fresh_live_controller_launch_heartbeat(self):
+        self.operation_fixture()
+        contract = self.journal.read()["worker_contract"]
+        peer = self.standby_peer(authorized=True)
+        now = contract["started_epoch"] + 2 * 86400
+        with self.assertRaisesRegex(RuntimeError, "stale"):
+            h.standby_peer(contract, peer, now, launching=True)
+        peer.update(last_epoch=now, host_native_gate_epoch=now)
+        self.assertEqual(h.standby_peer(contract, peer, now, launching=True), "claim")
+        self.assertIsNone(contract["deadline_epoch"])
+        self.assertEqual(contract["os_payload"]["recovery_reserve_seconds"], 0)
+        with self.assertRaisesRegex(RuntimeError, "timed reserve"):
+            h.within_deadline(None, 7200, now)
+
+    def test_operation_peer_access_has_no_waiting_expiry_and_old_finite_scope_still_expires(self):
+        self.operation_fixture()
+        value = self.peer_config()
+        with patch.object(peer_source, "public_key", return_value="fixture"):
+            entry = peer_source.authorized_entry(value, value["peer_host_key"])
+        self.assertNotIn("expiry-time", entry)
+        self.assertIn('from="192.168.1.12",restrict,command="', entry)
+        with patch.object(peer_source.time, "time", return_value=value["started_epoch"] + 7 * 86400):
+            self.assertTrue(peer_source.scope_current(value))
+            finite = {**value, "expires_epoch": value["started_epoch"] + 86400}
+            self.assertFalse(peer_source.scope_current(finite))
+
+    def test_operation_guard_revokes_stalled_or_stopped_executor_without_process_killing(self):
+        for reason in ("stalled", "stopped"):
+            with self.subTest(reason=reason):
+                self.operation_fixture()
+                now = self.journal.read()["started_epoch"] + 2 * 86400
+                self.coordinator.now = lambda: now
+                self.journal.transaction(lambda s: s.update(
+                    phase="consumers-stopped", last_epoch=now - (901 if reason == "stalled" else 1)))
+                unit = "node-maintenance-cold-" + self.journal.read()["run_id"] + ".service"
+                native = {"LoadState": "loaded", "ActiveState": "activating", "MainPID": "1337",
+                          "FragmentPath": "/etc/systemd/system/" + unit}
+                with patch.object(c, "load_runtime", return_value=self.coordinator), \
+                        patch.object(c.h, "worker_unit_status", return_value=native), \
+                        patch.object(c.Path, "read_text", return_value="1337 (python3) " + ("T" if reason == "stopped" else "S")), \
+                        patch.object(c.time, "time", return_value=now), \
+                        patch.object(self.coordinator, "recover") as recover, patch.object(c.os, "kill") as kill:
+                    c.guard("source-fixture")
+                self.assertTrue(self.journal.read()["host_slot_cancelled"])
+                self.assertEqual(self.journal.read()["mode"], "recovering")
+                recover.assert_called_once_with()
+                kill.assert_not_called()
+
+    def test_operation_guard_keeps_live_progress_and_registered_human_waiting_without_outage_cap(self):
+        self.operation_fixture()
+        now = self.journal.read()["started_epoch"] + 2 * 86400
+        self.journal.transaction(lambda s: s.update(phase="awaiting-host", last_epoch=now - 1))
+        unit = "node-maintenance-cold-" + self.journal.read()["run_id"] + ".service"
+        native = {"LoadState": "loaded", "ActiveState": "activating", "MainPID": "1337",
+                  "FragmentPath": "/etc/systemd/system/" + unit}
+        with patch.object(c, "load_runtime", return_value=self.coordinator), \
+                patch.object(c.h, "worker_unit_status", return_value=native), \
+                patch.object(c.Path, "read_text", return_value="1337 (python3) S"), \
+                patch.object(c.time, "time", return_value=now), patch.object(self.coordinator, "recover") as recover:
+            c.guard("source-fixture")
+        recover.assert_not_called()
+        self.journal.transaction(lambda s: s.update(mode="registered", last_epoch=s["started_epoch"]))
+        with patch.object(c, "load_runtime", return_value=self.coordinator), \
+                patch.object(c, "cold_storage"), patch.object(c, "native_gate"), \
+                patch.object(c.time, "time", return_value=now), patch.object(c.h, "worker_unit_status") as native_read:
+            c.guard("source-fixture")
+        native_read.assert_not_called()
+        self.assertEqual(self.journal.read()["guard_verified_epoch"], now)
+
+    def test_operation_prehost_waiting_refuses_stale_progress_at_exact_watchdog_threshold(self):
+        self.operation_fixture()
+        contract = self.journal.read()["worker_contract"]
+        now = contract["started_epoch"] + 2 * 86400
+        peer = self.standby_peer()
+        peer.update(mode="disrupting", phase="consumers-stopped", last_epoch=now - 899)
+        self.assertEqual(h.standby_peer(contract, peer, now), "waiting")
+        peer["last_epoch"] = now - 900
+        with self.assertRaisesRegex(RuntimeError, "stale controller progress"):
+            h.standby_peer(contract, peer, now)
+
+    def test_peer_grant_timing_must_match_immutable_scope_mode(self):
+        self.operation_fixture()
+        contract = self.journal.read()["worker_contract"]
+        grant = {k: contract[k] for k in ("run_id", "host_step_id", "started_epoch", "deadline_epoch")}
+        with patch.object(peer_source, "public_json", return_value=grant):
+            peer_source.bound_grant(Path("."), grant["run_id"], grant["host_step_id"], None)
+            with self.assertRaisesRegex(RuntimeError, "deadline"):
+                peer_source.bound_grant(Path("."), grant["run_id"], grant["host_step_id"], grant["started_epoch"] + 86400)
+        finite = {**grant, "deadline_epoch": grant["started_epoch"] + 43200}
+        with patch.object(peer_source, "public_json", return_value=finite), self.assertRaisesRegex(RuntimeError, "deadline"):
+            peer_source.bound_grant(Path("."), grant["run_id"], grant["host_step_id"], None)
+
+    def test_operation_coordinator_restores_original_state_without_a_wall_clock_deadline(self):
+        self.operation_fixture()
+        self.successful_hooks()
+        with patch.object(c.m, "health", return_value={}), patch.object(c.m.urllib.request, "urlopen") as url, \
+                patch.object(c.time, "sleep"):
+            url.return_value.__enter__.return_value.status = 200
+            self.coordinator.execute()
+        state = self.journal.read()
+        self.assertTrue(state["completed"])
+        self.assertEqual(state["phase"], "accepted")
+        self.assertIsNone(state["deadline_epoch"])
+        self.assertEqual(self.api.get("deployments", "paperless", "paperless-paperless-ngx")["spec"]["replicas"], 0)
+        self.assertFalse(any(e[0] == "patch" and "storage/" in e[1] for e in self.api.events))
 
     def freeze_mount_handler(self):
         root = next(r for r in self.plan["reconciliation"] if
@@ -935,7 +1081,8 @@ class ColdTests(unittest.TestCase):
         self.coordinator.mutate(app, "replicas", 0)
         self.api.worker_native.update(ActiveState="failed", MainPID="0", ControlGroup="")
         deadline = self.journal.read()["deadline_epoch"]
-        with patch.object(c, "load_runtime", return_value=self.coordinator), patch.object(c.m, "run", return_value="failed"), \
+        with patch.object(c, "load_runtime", return_value=self.coordinator), \
+                patch.object(c.h, "worker_unit_status", return_value={"LoadState": "loaded", "ActiveState": "failed"}), \
                 patch.object(c.m, "health", return_value={}), patch.object(c.m.urllib.request, "urlopen") as url, \
                 patch.object(c.time, "sleep"):
             url.return_value.__enter__.return_value.status = 200
@@ -2014,6 +2161,13 @@ class ColdTests(unittest.TestCase):
             self.assertTrue((env.directory / "authorization.cleaned.json").exists())
 
     def test_full_explicit_peer_cleanup_removes_only_owned_policy_and_private_identity_without_reading_key(self):
+        self.full_explicit_peer_cleanup()
+
+    def test_operation_peer_closure_revokes_access_and_removes_only_owned_identity(self):
+        self.operation_fixture()
+        self.full_explicit_peer_cleanup()
+
+    def full_explicit_peer_cleanup(self):
         with self.peer_policy_environment() as env:
             for name in peer_source.SOURCES:
                 (env.directory / name).write_bytes((DIRECTORY / name).read_bytes())
@@ -3017,7 +3171,7 @@ class ColdTests(unittest.TestCase):
             now = deadline - 7200 if cause == "reserve" else time.time()
             self.coordinator.now = lambda: now
             with patch.object(c, "load_runtime", return_value=self.coordinator), \
-                    patch.object(c.m, "run", return_value="active" if cause == "reserve" else "failed"), \
+                    patch.object(c.h, "worker_unit_status", return_value={"LoadState": "loaded", "ActiveState": "failed"}), \
                     patch.object(c.time, "time", return_value=now), patch.object(c.time, "sleep"), \
                     patch.object(c.m, "health", return_value={}), patch.object(c.m.urllib.request, "urlopen") as url:
                 url.return_value.__enter__.return_value.status = 200
@@ -3111,7 +3265,7 @@ class ColdTests(unittest.TestCase):
                 now = deadline - 7200 if cause == "reserve" else time.time()
                 coordinator.now = lambda: now
                 with patch.object(c, "load_runtime", return_value=coordinator), \
-                        patch.object(c.m, "run", return_value="active" if cause == "reserve" else "failed"), \
+                        patch.object(c.h, "worker_unit_status", return_value={"LoadState": "loaded", "ActiveState": "failed"}), \
                         patch.object(c.time, "time", return_value=now), patch.object(c.time, "sleep"), \
                         patch.object(c.m, "health", return_value={}), patch.object(c.m.urllib.request, "urlopen") as url:
                     url.return_value.__enter__.return_value.status = 200

@@ -23,6 +23,9 @@ DIRECTORY = Path(__file__).resolve().parent
 spec = importlib.util.spec_from_file_location("cold_maintenance", DIRECTORY / "node-maintenance.py")
 m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
+host_spec = importlib.util.spec_from_file_location("cold_maintenance_host", DIRECTORY / "node-maintenance-host.py")
+h = importlib.util.module_from_spec(host_spec)
+host_spec.loader.exec_module(h)
 require, sha, canonical = m.require, m.sha, m.canonical
 WORKER = "rishik-worker2"
 PEER = "rishik-worker1"
@@ -343,8 +346,12 @@ def check_peer_scope(plan, starting=True):
                 and re.fullmatch("[a-f0-9]{32}", proof["setup_id"])
                 and proof["setup_id"] == other["setup_id"]
                 and proof["started_epoch"] == other["started_epoch"]
-                and proof["expires_epoch"] == proof["started_epoch"] + 86400 == other["expires_epoch"]
-                and proof["started_epoch"] <= time.time() < proof["expires_epoch"] - (43200 if starting else 0)
+                and proof["expires_epoch"] == other["expires_epoch"]
+                and proof["started_epoch"] <= time.time()
+                and ((plan["outage_budget"]["maximum_seconds"] is None and proof["expires_epoch"] is None)
+                     or (plan["outage_budget"]["maximum_seconds"] == 43200
+                         and proof["expires_epoch"] == proof["started_epoch"] + 86400
+                         and time.time() < proof["expires_epoch"] - (43200 if starting else 0)))
                 and proof["source_sha256"] == {name: plan["source_bindings"][".github/scripts/" + name]
                                                for name in ("node-maintenance-peer.py", "node-maintenance-host.py")}
                 and proof["original_boot_id"] == plan["bindings"][node]["boot_id"]
@@ -357,7 +364,8 @@ def check_peer_scope(plan, starting=True):
 
 def worker_contract(plan, policy, run_id, step_id, started, deadline):
     require(re.fullmatch("[a-f0-9]{32}", run_id) and re.fullmatch("[a-f0-9]{32}", step_id)
-            and run_id != step_id and deadline == started + 43200, "Invalid exact worker standby slot")
+            and run_id != step_id and deadline == m.deadline_for(started, plan["outage_budget"]),
+            "Invalid exact worker standby slot")
     return {
         "run_id": run_id, "host_step_id": step_id, "plan_sha256": sha(canonical(plan)),
         "source_bindings": plan["source_bindings"], "bindings": plan["bindings"],
@@ -367,7 +375,8 @@ def worker_contract(plan, policy, run_id, step_id, started, deadline):
             "operation": "os", "run_id": step_id, "cold_run_id": run_id, "name": WORKER, "role": "agent",
             "boot_id": plan["bindings"][WORKER]["boot_id"], "ubuntu_lts": policy["ubuntu_lts"],
             "pending_packages": plan["bindings"][WORKER]["pending_packages"], "kernel": policy["kernel"],
-            "kernel_package": policy["kernel_package"], "deadline_epoch": deadline, "recovery_reserve_seconds": 7200,
+            "kernel_package": policy["kernel_package"], "deadline_epoch": deadline,
+            "recovery_reserve_seconds": plan["outage_budget"]["recovery_reserve_seconds"],
         },
     }
 
@@ -628,7 +637,7 @@ def build_plan(policy, api=None):
         "controller_client": controller_client,
         "peer_scope": {n["name"]: m.remote(n, {"operation": "cold-peer-proof"})
                        for n in policy["nodes"] if n["name"] in (SERVER, WORKER)},
-        "outage_budget": {"maximum_seconds": 43200, "recovery_reserve_seconds": 7200},
+        "outage_budget": m.outage_budget(policy),
         "controllers": sorted(controllers, key=key), "parents": sorted(parents, key=key),
         "claims": claims, "storage": volume_records, "autoscalers": autoscalers, "hpas": inventory["hpas"],
         "storage_users": inventory["storage_users"],
@@ -652,7 +661,7 @@ def check_plan(plan, approval, policy, api=None, age=True):
     require(plan.get("action") == ACTION and plan.get("worker2_only") is True
             and plan.get("release") is None and plan.get("nodes") == [n for n in policy["nodes"] if n["name"] == WORKER]
             and len(plan["nodes"]) == 1 and plan["nodes"][0]["role"] == "agent", "Cold mode is worker2 OS ONLY")
-    require(plan.get("outage_budget") == {"maximum_seconds": 43200, "recovery_reserve_seconds": 7200},
+    require(canonical(plan.get("outage_budget")) == canonical(m.outage_budget(policy)),
             "Cold deadline/reserve is not approved")
     require(plan["source_bindings"] == source_bindings() and plan["policy_sha256"] == sha(m.POLICY.read_bytes()),
             "Cold source/policy changed after approval")
@@ -662,7 +671,9 @@ def check_plan(plan, approval, policy, api=None, age=True):
             "Runner/host byte binding drift")
     require(plan["cluster_uid"] == api.get("namespace", name="kube-system")["metadata"]["uid"], "Wrong cold cluster")
     require(not plan["blockers"], "Cold plan has unresolved native/scheduling blockers")
-    require(not age or 0 <= time.time() - plan["created_epoch"] < 4 * 3600, "Expired/future cold approval")
+    require(not age or (time.time() >= plan["created_epoch"] and
+                       (plan["outage_budget"]["maximum_seconds"] is None
+                        or time.time() - plan["created_epoch"] < 4 * 3600)), "Expired/future cold approval")
     require({(r["namespace"], r["name"]) for r in plan["controllers"]}
             == {(ns, name) for ns, names in ALLOWED.items() for name in names} | {k for k in OPERATORS if k[0] == "keda"},
             "Malformed cold controller scope")
@@ -979,7 +990,7 @@ class Coordinator:
 
     def gate(self, state, disrupting=False):
         require(sha(canonical(self.plan)) == self.approval and state["plan_sha256"] == self.approval
-                and state["deadline_epoch"] == state["started_epoch"] + 43200,
+                and state["deadline_epoch"] == m.deadline_for(state["started_epoch"], self.plan["outage_budget"]),
                 "Journal approval/deadline changed; never reset or extend clock")
         require(self.now() >= state["last_epoch"] >= state["started_epoch"], "Clock rollback; protection retained")
         state["live_source_bindings"] = source_bindings()
@@ -989,12 +1000,14 @@ class Coordinator:
         lock = self.api.get("configmap", "kube-system", m.LOCK)
         require(lock["data"]["run_id"] == state["run_id"] and lock["data"]["plan_sha256"] == self.approval
                 and float(lock["data"]["started_epoch"]) == state["started_epoch"]
-                and float(lock["data"]["deadline_epoch"]) == state["deadline_epoch"]
+                and lock["data"]["deadline_epoch"] == m.deadline_text(state["deadline_epoch"])
                 and lock["data"].get("host_step_id") == state["host_step_id"], "Maintenance lock ownership/deadline/host-slot drift")
         require(self.plan["cluster_uid"] == self.api.get("namespace", name="kube-system")["metadata"]["uid"],
                 "Recovery context drift")
         if disrupting:
-            require(state["mode"] == "disrupting" and self.now() < state["deadline_epoch"] - 7200,
+            require(state["mode"] == "disrupting" and
+                    (state["deadline_epoch"] is None or
+                     self.now() < state["deadline_epoch"] - self.plan["outage_budget"]["recovery_reserve_seconds"]),
                     "Recovery reserve/request reached; no further disruption")
             require(state.get("worker_ready_verified") is True, "Exact live worker standby required BEFORE first pause")
 
@@ -1579,7 +1592,8 @@ class Coordinator:
 
     def complete(self, state, success):
         self.gate(state)
-        require(self.now() < state["deadline_epoch"], "Restoration exceeded 12h: report failure, keep protection/lock")
+        require(state["deadline_epoch"] is None or self.now() < state["deadline_epoch"],
+                "Restoration exceeded 12h: report failure, keep protection/lock")
         self.original_state()
         self.full_health()
         self.api.kube("-n", "kube-system", "delete", "configmap", m.LOCK)
@@ -1634,22 +1648,44 @@ def load_runtime(directory):
     return Coordinator(plan, approval, policy, journal, api)
 
 
+def executor_problem(state, now):
+    unit = "node-maintenance-cold-" + state["run_id"] + ".service"
+    native = h.worker_unit_status(unit)
+    if (native["LoadState"] != "loaded" or native["ActiveState"] not in ("active", "activating")
+            or native.get("FragmentPath") != "/etc/systemd/system/" + unit
+            or not native["MainPID"].isdigit() or int(native["MainPID"]) <= 0):
+        return "executor-loss"
+    try:
+        process = Path("/proc") / native["MainPID"] / "stat"
+        process_state = process.read_text().rsplit(")", 1)[1].split()[0]
+    except FileNotFoundError:
+        return "executor-loss"
+    require(process_state in ("R", "S", "D", "T", "t", "Z", "X", "I"), "Unknown native executor process state")
+    if process_state in ("T", "t", "Z", "X"):
+        return "executor-stopped"
+    require(now >= state["last_epoch"] >= state["started_epoch"], "Clock rollback; protection retained")
+    if now - state["last_epoch"] >= h.CONTROLLER_CHECKPOINT_MAX_AGE_SECONDS:
+        return "executor-progress-stalled"
+    return None
+
+
 def guard(directory, force=False):
     c = load_runtime(directory)
     state = c.journal.read()
     if state.get("completed"):
         return
-    if state["mode"] == "registered" and not force and time.time() < state["deadline_epoch"] - 7200:
+    reserve_reached = (state["deadline_epoch"] is not None and
+                       time.time() >= state["deadline_epoch"] - c.plan["outage_budget"]["recovery_reserve_seconds"])
+    if state["mode"] == "registered" and not force and not reserve_reached:
         cold_storage(c.plan, c.policy, c.api)
         native_gate(c.plan, c.policy, c.api)
         c.journal.transaction(lambda s: s.update(guard_verified_epoch=time.time(),
                                                  live_source_bindings=source_bindings()))
         return
-    unit = "node-maintenance-cold-" + state["run_id"] + ".service"
-    active = m.run(["systemctl", "show", unit, "-p", "ActiveState", "--value"])
-    due = force or state["mode"] == "recovering" or time.time() >= state["deadline_epoch"] - 7200 or active in ("inactive", "failed")
+    problem = None if force or state["mode"] == "recovering" or reserve_reached else executor_problem(state, time.time())
+    due = force or state["mode"] == "recovering" or reserve_reached or problem is not None
     if due:
-        c.request_recovery("explicit-recovery" if force else "reserve-or-executor-loss")
+        c.request_recovery("explicit-recovery" if force else problem or "reserve-or-executor-loss")
         try:
             c.recover()
         except Exception as error:
@@ -1666,7 +1702,8 @@ def controller_payload(plan, policy, run_id, operation, started, deadline):
     return {
         "operation": operation, "run_id": run_id, "name": SERVER, "role": "server",
         "boot_id": plan["bindings"][SERVER]["boot_id"], "ubuntu_lts": policy["ubuntu_lts"],
-        "deadline_epoch": deadline, "recovery_reserve_seconds": 7200, "started_epoch": started,
+        "deadline_epoch": deadline, "recovery_reserve_seconds": plan["outage_budget"]["recovery_reserve_seconds"],
+        "started_epoch": started,
     }
 
 
@@ -1680,7 +1717,8 @@ def request_recovery(run_id, policy):
     # path has a separate reserve-free recovery branch below.
     payload = {"operation": "cold-recover", "run_id": run_id, "name": SERVER, "role": "server",
                "boot_id": host["boot_id"], "ubuntu_lts": policy["ubuntu_lts"],
-               "deadline_epoch": status["deadline_epoch"], "recovery_reserve_seconds": 7200}
+               "deadline_epoch": status["deadline_epoch"],
+               "recovery_reserve_seconds": status["worker_contract"]["os_payload"]["recovery_reserve_seconds"]}
     m.remote(server, payload, privileged=True)
 
 
@@ -1707,11 +1745,11 @@ def apply(plan, approval, policy, recovery_directory, token_confirmed):
             .get("off_node_directory_verified") is True, "Protected controller recovery mount not verified")
     run_id, step_id = uuid.uuid4().hex, uuid.uuid4().hex
     started = time.time()
-    deadline = started + 43200
+    deadline = m.deadline_for(started, plan["outage_budget"])
     base = controller_payload(plan, policy, run_id, "cold-register", started, deadline)
     m.kube("-n", "kube-system", "create", "configmap", m.LOCK,
            "--from-literal=run_id=" + run_id, "--from-literal=plan_sha256=" + approval,
-           "--from-literal=started_epoch=" + str(started), "--from-literal=deadline_epoch=" + str(deadline),
+           "--from-literal=started_epoch=" + str(started), "--from-literal=deadline_epoch=" + m.deadline_text(deadline),
            "--from-literal=host_step_id=" + step_id)
     print("Cold lock acquired; run_id=" + run_id + "; recovery deadline=" + str(deadline), flush=True)
     try:

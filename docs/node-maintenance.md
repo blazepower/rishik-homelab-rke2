@@ -26,20 +26,28 @@ hashed index-to-manifest relationship rather than treating that difference
 as a foreign image.
 
 Application downtime, including multiple applications together, is accepted.
-The maximum restoration budget is **12 hours**. The runner starts this clock
-conservatively at lock acquisition, before any drain, and persists the UTC start
-and deadline in the non-expiring lock and local technical evidence. It reserves
-the final two hours for recovery instead of starting another disruptive step.
-Wall-clock and monotonic elapsed time are both checked; clock rollback cannot
-extend a running batch. A failed/interrupted run cannot reset the clock by
-starting another run because its lock remains held.
+The current policy uses **operation-based timing**: new approvals and restricted
+peer preparation do not expire while the operator is away, and new maintenance
+has no 12-hour downtime cap. New plans bind `maximum_seconds: null` and
+`recovery_reserve_seconds: 0`; their immutable run/lock deadline is JSON `null`,
+never a far-future timestamp. Lifecycle completion and explicit native-verified
+temporary-access cleanup end the operation. No general shell or privileged RPC
+is granted by the non-expiring read-only peer scope.
 
-Ordinary serial `apply` recovery waits and each host's pre-mutation gate honor
-this deadline. Reaching
-the reserve stops new disruption; it does not kill an in-progress package
-manager, forcibly reboot a host, or perform an automatic restore. This is a
-fail-stop recovery budget, not an unconditional guarantee after hardware
-failure. Do not start without a credible recovery path inside the limit.
+Legacy bounded policy and already-issued scopes/contracts keep their original
+four-hour approval, 24-hour peer and 12-hour outage limits, including the
+two-hour recovery reserve. They cannot be renewed or converted in place.
+Wall-clock rollback, native executor loss, source/identity drift, heartbeat
+freshness and individual connection/resource-check timeouts remain enforced.
+A failed/interrupted run retains its lock; removing an outage cap is not
+permission to run overlapping maintenance or abandon recovery.
+Once disruption starts, a stopped/missing native executor or 15 minutes without
+a controller progress checkpoint revokes the host slot and requests protected
+recovery. Registered pre-start waiting is exempt; normal resource-wait loops
+refresh checkpoints, and the native drain retains its ten-minute timeout.
+The watchdog never kills a drain/package process or bypasses native idle/storage
+proofs. A stopped process holding a mutex or an in-flight drain can still block
+safe recovery; retain the lock and report that blocker rather than force cleanup.
 Application downtime consent does not bypass PDB, storage or locality gates:
 those still require exact workload-specific maintenance design.
 
@@ -90,7 +98,10 @@ Get-Content "$env:TEMP\homelab-os-plan.json"
 
 `plan` is read-only and prints the plan's SHA256, blast radius and blockers.
 It binds approval to the cluster UID, code/policy bytes, boot IDs, source
-versions, actual kubectl/API versions and simulated package candidates. Plans expire after four hours.
+versions, actual kubectl/API versions and simulated package candidates.
+Operation-based plans have no human-waiting expiry, but `apply` still requires
+fresh exact live-state/source/package revalidation and rejects future timestamps.
+Legacy bounded-policy plans expire after four hours.
 Store plans outside Git; they contain technical metadata, not records,
 credentials or raw workload logs.
 
@@ -148,7 +159,8 @@ The source execution ordering is:
 
 1. Rebuild the exact plan and recheck host/packages, code/client and metadata.
    Verify the controller recovery mount.
-   Acquire a new non-expiring lock with its own immutable 12h deadline; never
+   Acquire a new non-expiring lock with its own immutable policy-bound deadline
+   (`null` for operation-based timing); never
    overwrite/reuse the expired November 16 ledger.
 2. Install the approved source bundle and root-owned fsynced restoration journal
    on the unchanged controller using existing SSH/interactive sudo. Enable a
@@ -178,7 +190,8 @@ The source execution ordering is:
    reads use only its dedicated identity, authoritative scoped host trust and
    finite forced-command protocol. Ordinary Windows SSH/interactive sudo is
    unchanged. Missing scoped trust/authentication, source drift, absent actual
-   protocol probes or insufficient fixed expiry blocks the first pause; never
+   protocol probes or a peer scope inconsistent with the approved timing policy
+   blocks the first pause; never
    bypass trust or install a generic/root shell gateway, sudoers or privileged pod.
 3. Freeze exact Flux reconciliation and scheduled producers; require no
    in-flight reconciliations or active Jobs. Bind all five media schedules:
@@ -304,7 +317,9 @@ key crosses the original trusted Windows channels.
 Incoming authorization is one exact restricted entry in a **separate root-owned
 0444 key file**, `/etc/node-maintenance-peer/<setup-id>/incoming_authorized_keys`;
 the original user `authorized_keys` files are never read, rewritten or replaced:
-`from="<exact-peer-IP>",restrict,command="<fixed isolated Python read script>",expiry-time="<immutable UTC expiry>"`.
+`from="<exact-peer-IP>",restrict,command="<fixed isolated Python read script>"`.
+Only legacy finite scopes append `expiry-time="<immutable UTC expiry>"`.
+Operation-based scopes omit that option but retain every other restriction.
 There is no PTY, shell, user rc, agent/X11/port forwarding, caller-supplied
 executable/path/Python/JSON or privileged RPC. Only finite `proof`, `audit`,
 `controller-status`, `worker-status` (including the bound technical receipt),
@@ -359,7 +374,9 @@ rollback of someone else's SSH policy.
 **Operator-only preparation, before any pause (not performed here):**
 
 1. In Windows choose one fresh 32-lowercase-hex setup ID and one integer UTC
-   start epoch; expiry must be **exactly start + 86400 seconds** on both nodes.
+   start epoch. For current operation-based policy set `expires_epoch: null`
+   on both nodes. Legacy bounded preparation instead requires expiry
+   **exactly start + 86400 seconds**.
    No existing scope/identity may be overwritten or renewed. Capture each
    authoritative Ed25519 host fingerprint using the already trusted Windows
    SSH connection; supply its matching public host key, not unverified scan
@@ -379,7 +396,7 @@ rollback of someone else's SSH policy.
      "peer": "rishik-worker2",
      "operator_ip": "<verified-Windows-source-IPv4>",
      "started_epoch": 1795584000,
-     "expires_epoch": 1795670400,
+     "expires_epoch": null,
      "peer_host_key": "ssh-ed25519 <verified-public-host-key>",
      "peer_host_fingerprint": "SHA256:<authoritative-Windows-verified-fingerprint>",
      "source_sha256": {
@@ -398,7 +415,9 @@ rollback of someone else's SSH policy.
    sudo /usr/bin/python3 -I -B /home/rishik/.local/state/node-maintenance-peer/<setup-id>/node-maintenance-peer.py prepare --setup-id <setup-id>
    ```
 
-   `prepare` must occur within 15 minutes of the fixed start. Retrieve only
+   Operation-based `prepare` has no human-waiting limit; future start epochs
+   are rejected. Legacy finite preparation must occur within 15 minutes.
+   Retrieve only
    `/etc/node-maintenance-peer/<setup-id>/public-key.txt` over original Windows
    SSH; stage it as the **other** node's
    `/home/rishik/.local/state/node-maintenance-peer/<setup-id>/peer-public-key.txt`.
@@ -417,8 +436,11 @@ rollback of someone else's SSH policy.
    privileged setup calls remain before first pause, and grant exactly one
    approved plan/run/step; no replacement payload or second run is permitted.
 
-The immutable peer expiry must outlive the original complete 12h outage
-deadline. It is not reset by polling, guard retries, setup failure or recovery.
+Operation-based cold plans require a newly prepared operation-based peer scope:
+both peer expiry and outage deadline must be `null`. A finite scope cannot be
+silently promoted to that policy. Legacy peer expiry must outlive its original
+complete 12h outage deadline. Neither form is reset by polling, guard retries,
+setup failure or recovery.
 An interrupted setup retains ownership records and fails closed, never silently
 rotates credentials/replaces expiry. Expiry or unavailable channels during a
 blocked recovery remain a **runtime blocker**: retain the original lock and use
@@ -434,8 +456,10 @@ performs a validated reload before removing that host-local identity/trust file:
 sudo /usr/bin/python3 -I -B /etc/node-maintenance-peer/<setup-id>/node-maintenance-peer.py cleanup --setup-id <setup-id>
 ```
 
-While the scope is valid, worker cleanup also reads actual controller terminal
-completion before removing a still-working channel. After expiry it still
+For an operation-based scope, worker cleanup always requires actual controller
+terminal completion before removing a still-working channel; clock rollback
+cannot waive that proof. For a finite scope, the same applies while it is valid.
+After legacy expiry it still
 requires its exact terminal local record and native idle proofs; cleanup cannot
 restore or renew an expired channel. Controller cleanup disables only its exact **completed** run's guard timer,
 after proving executor/guard services inactive. Worker cleanup never stops
@@ -450,7 +474,7 @@ cleanup success. The same bounded cleanup may retry after the native blocker is
 resolved; it never rewrites original keys/config or resets the fixed expiry.
 
 **Native acceptance still required:** both approved operator root setups,
-actual OpenSSH expiry/restrict/forced-command behavior, authoritative fingerprints,
+actual OpenSSH timing-policy/restrict/forced-command behavior, authoritative fingerprints,
 the original/candidate/restored `sshd -t/-T -C` policies and standard reload/PID,
 non-root public-read permissions, both strict protocol probes, real systemd
 timer/service/cgroup shapes, then fresh guard/standby/start proofs. No live setup
@@ -555,8 +579,10 @@ blocker requires a separate operator decision, not authority added by this fix.
 Unsafe/degraded storage, identity drift, lost native peers, a busy package
 transaction or unavailable worker2 can block restoration. The timer retries and
 records a blocked phase; lock and data protection remain. Recovery can restore
-original state after the 12h deadline but cannot report success or release the
-lock as if it met the budget. Hardware failure, loss of the sole API/controller,
+original state after a legacy 12h deadline but cannot report success or release
+the lock as if it met that budget. Operation-based recovery has no outage
+deadline but retains the same native safety and restoration requirements.
+Hardware failure, loss of the sole API/controller,
 broken existing SSH and controller disk failure cannot be guaranteed away.
 No force eviction, single-replica write, salvage, volume manipulation or
 controller/worker1 repair is a fallback.

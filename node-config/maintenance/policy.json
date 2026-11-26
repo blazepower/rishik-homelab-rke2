@@ -1,4 +1,5 @@
 {
+  "maintenance_timing": "operation",
   "ubuntu_lts": "26.04",
   "kernel_package": "linux-generic",
   "kernel": "7.0.0-44-generic",

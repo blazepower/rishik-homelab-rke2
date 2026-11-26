@@ -129,6 +129,11 @@ def known_host(config):
     return (NODES[config["peer"]] + " " + config["peer_host_key"] + "\n").encode()
 
 
+def scope_current(value):
+    now = time.time()
+    return value["started_epoch"] <= now and (value["expires_epoch"] is None or now < value["expires_epoch"])
+
+
 def config():
     checked(PUBLIC, 0o755, directory=True)
     setup_id = identifier(public_json(PUBLIC / "current.json")["setup_id"])
@@ -136,8 +141,8 @@ def config():
     value = public_json(directory / "config.json")
     require(value["setup_id"] == setup_id and value["node"] in NODES
             and value["peer"] == next(n for n in NODES if n != value["node"])
-            and value["expires_epoch"] == value["started_epoch"] + 86400
-            and value["started_epoch"] <= time.time() < value["expires_epoch"], "Maintenance scope expired/clock/role drift")
+            and (value["expires_epoch"] is None or value["expires_epoch"] == value["started_epoch"] + 86400)
+            and scope_current(value), "Maintenance scope expired/clock/role drift")
     host_identity(value["node"])
     for name in SOURCES:
         require(sha(checked(directory / name, 0o444).read_bytes()) == value["source_sha256"][name],
@@ -171,7 +176,7 @@ def local_proof(require_probe=True):
     if require_probe:
         probe = public_json(directory / "probe.json")
         require(probe["config_sha256"] == sha(canonical(value))
-                and value["started_epoch"] <= probe["verified_epoch"] <= time.time() < value["expires_epoch"],
+                and value["started_epoch"] <= probe["verified_epoch"] <= time.time() and scope_current(value),
                 "Actual restricted read protocol probe missing/stale")
         proof["probe"] = probe
     return proof
@@ -199,9 +204,17 @@ def register_run(plan, run_id, step_id, started, deadline):
     require(os.geteuid() == 0, "Run authorization requires visible operator root setup")
     identifier(run_id)
     identifier(step_id)
-    require(run_id != step_id and deadline == started + 43200, "Exact cold run/step/deadline required")
+    budget = canonical(plan["outage_budget"])
+    operation_based = budget == canonical({"maximum_seconds": None, "recovery_reserve_seconds": 0})
+    require(operation_based or budget == canonical({"maximum_seconds": 43200, "recovery_reserve_seconds": 7200}),
+            "Invalid approved maintenance timing policy")
+    require(run_id != step_id and
+            ((operation_based and deadline is None) or (not operation_based and deadline == started + 43200)),
+            "Exact cold run/step/deadline required")
     proof = plan_scope(plan)
-    require(time.time() >= started and deadline < proof["expires_epoch"],
+    require(time.time() >= started and
+            ((operation_based and proof["expires_epoch"] is None)
+             or (not operation_based and proof["expires_epoch"] is not None and deadline < proof["expires_epoch"])),
             "Peer setup expires before immutable outage deadline; block BEFORE pause")
     _, directory = config()
     grant = {"run_id": run_id, "host_step_id": step_id, "plan_sha256": sha(canonical(plan)),
@@ -221,11 +234,13 @@ def parse_request(text, value):
     return operation, run_id, step_id
 
 
-def bound_grant(directory, run_id, step_id):
+def bound_grant(directory, run_id, step_id, expiry):
     grant = public_json(directory / "run.json")
     require(grant["run_id"] == run_id and grant["host_step_id"] == step_id
             and grant["started_epoch"] <= time.time()
-            and grant["deadline_epoch"] == grant["started_epoch"] + 43200, "Foreign/replayed run/step/deadline")
+            and (grant["deadline_epoch"] is None if expiry is None
+                 else grant["deadline_epoch"] == grant["started_epoch"] + 43200),
+            "Foreign/replayed run/step/deadline")
     return grant
 
 
@@ -260,7 +275,7 @@ def dispatch(text):
     h = helper(value, directory)
     if operation == "audit":
         return h.audit()
-    grant = bound_grant(directory, run_id, step_id)
+    grant = bound_grant(directory, run_id, step_id, value["expires_epoch"])
     if operation == "worker-idle":
         return idle(h, run_id, step_id)
     if operation == "worker-status":
@@ -292,7 +307,7 @@ def request(operation, run_id=None, step_id=None):
         grant = public_json(directory / "run.json")
         run_id = run_id or grant["run_id"]
         step_id = step_id or grant["host_step_id"]
-        bound_grant(directory, run_id, step_id)
+        bound_grant(directory, run_id, step_id, value["expires_epoch"])
     text = PROTOCOL + " " + value["setup_id"] + " " + operation
     if run_id is not None:
         text += " " + identifier(run_id) + " " + identifier(step_id)
@@ -311,7 +326,7 @@ def request(operation, run_id=None, step_id=None):
             "-o", "ControlMaster=no", "-o", "ControlPath=none", "-o", "ProxyCommand=none",
             "-o", "ProxyJump=none", "-o", "ConnectTimeout=10", "rishik@" + NODES[value["peer"]], text]
     result = json.loads(execute(args))
-    require(time.time() < value["expires_epoch"], "Peer scope expired during response")
+    require(scope_current(value), "Peer scope expired during response")
     return result
 
 
@@ -320,9 +335,11 @@ def authorized_entry(value, key):
     require(value["peer"] in NODES and value["node"] in NODES and value["peer"] != value["node"],
             "Exact authorized peer pair required")
     public_key(key)
-    expiry = datetime.datetime.fromtimestamp(value["expires_epoch"], datetime.timezone.utc).strftime("%Y%m%d%H%M%SZ")
+    expiry = (datetime.datetime.fromtimestamp(value["expires_epoch"], datetime.timezone.utc).strftime("%Y%m%d%H%M%SZ")
+              if value["expires_epoch"] is not None else None)
     command = f"/usr/bin/python3 -I -B {PUBLIC}/{value['setup_id']}/{SOURCES[0]} serve"
-    return (f'from="{NODES[value["peer"]]}",restrict,command="{command}",expiry-time="{expiry}" '
+    expiry_option = f',expiry-time="{expiry}"' if expiry is not None else ""
+    return (f'from="{NODES[value["peer"]]}",restrict,command="{command}"{expiry_option} '
             f'{key} node-maintenance-peer:{value["setup_id"]}:{value["peer"]}')
 
 
@@ -540,9 +557,11 @@ def prepare_input(setup_id):
                            "peer_host_key", "peer_host_fingerprint", "source_sha256", "operator_ip"}
             and value["setup_id"] == setup_id and value["node"] in NODES
             and value["peer"] == next(n for n in NODES if n != value["node"])
-            and isinstance(value["started_epoch"], int) and isinstance(value["expires_epoch"], int)
-            and value["expires_epoch"] == value["started_epoch"] + 86400
-            and 0 <= time.time() - value["started_epoch"] < 900
+            and isinstance(value["started_epoch"], int)
+            and (value["expires_epoch"] is None or
+                 (isinstance(value["expires_epoch"], int) and value["expires_epoch"] == value["started_epoch"] + 86400))
+            and time.time() >= value["started_epoch"]
+            and (value["expires_epoch"] is None or time.time() - value["started_epoch"] < 900)
             and set(value["source_sha256"]) == set(SOURCES), "Exact fresh immutable 24h setup scope required")
     require(str(ipaddress.IPv4Address(value["operator_ip"])) == value["operator_ip"]
             and value["operator_ip"] not in NODES.values(), "Exact distinct trusted Windows source IP required")
@@ -556,7 +575,8 @@ def prepare_input(setup_id):
 
 def prepare(setup_id, validated=None):
     value, sources = validated or prepare_input(setup_id)
-    require(0 <= time.time() - value["started_epoch"] < 900, "Setup expired while waiting for original root lock")
+    require(scope_current(value) and (value["expires_epoch"] is None or time.time() - value["started_epoch"] < 900),
+            "Setup expired while waiting for original root lock")
     host_identity(value["node"])
     if not PUBLIC.exists():
         PUBLIC.mkdir(mode=0o755)
@@ -598,7 +618,7 @@ def authorize():
     original_paths = record["policy"]["profiles"][next(iter(ssh_contexts(value)))]["authorized_keys"]
     write_new(dropin, dropin_text(value, original_paths), 0o644)
     reload_policy(value, record, installed=True)
-    require(time.time() < value["expires_epoch"], "Scope expired during native SSH setup")
+    require(scope_current(value), "Scope expired during native SSH setup")
     write_new(keyfile, (entry + "\n").encode())
     validate_policy(value, record, installed=True)
     record["activated"] = True
@@ -660,7 +680,7 @@ def cleanup(setup_id):
             status = h.worker_status(grant["run_id"])["record"]
             require(status["phase"] in ("cancelled", "failed", "packages-complete")
                     and all(status["contract"][k] == grant[k] for k in grant), "Live/foreign worker run; retain channel")
-            if time.time() < value["expires_epoch"]:
+            if value["expires_epoch"] is None or time.time() < value["expires_epoch"]:
                 controller = request("controller-status", grant["run_id"], grant["host_step_id"])
                 require(controller["completed"] is True and controller["plan_sha256"] == grant["plan_sha256"],
                         "Controller recovery not terminal; retain still-valid peer channel")

@@ -4,6 +4,7 @@
 import base64
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import platform
@@ -25,6 +26,7 @@ HEADLESS_UNITS = (
     "bluetooth.service", "avahi-daemon.service", "avahi-daemon.socket",
     "ModemManager.service",
 )
+CONTROLLER_CHECKPOINT_MAX_AGE_SECONDS = 900
 
 
 def require(condition, message):
@@ -192,8 +194,16 @@ def os_upgrade(payload):
             "headless": True, "package_removals": False}
 
 
+def within_deadline(deadline, reserve_seconds=0, now=None):
+    require(type(reserve_seconds) is int and reserve_seconds >= 0, "Invalid restoration reserve")
+    require(deadline is None or (type(deadline) in (int, float) and math.isfinite(deadline)),
+            "Invalid maintenance deadline")
+    require(deadline is not None or reserve_seconds == 0, "Unbounded operation cannot carry a timed reserve")
+    return deadline is None or deadline - (time.time() if now is None else now) > reserve_seconds
+
+
 def reserve(payload):
-    require(payload["deadline_epoch"] - time.time() > payload["recovery_reserve_seconds"],
+    require(within_deadline(payload["deadline_epoch"], payload["recovery_reserve_seconds"]),
             "Host reached restoration reserve; no new disruption/reboot")
     if payload.get("cold_run_id"):
         require(payload["name"] == "rishik-worker2" and payload["operation"] in ("os", "reboot"),
@@ -281,7 +291,8 @@ def standby_peer_binding(contract, peer):
 
 def standby_peer(contract, peer, now, launching=False):
     standby_peer_binding(contract, peer)
-    require(now >= contract["started_epoch"] and now < contract["deadline_epoch"] - 7200,
+    require(now >= contract["started_epoch"] and
+            within_deadline(contract["deadline_epoch"], contract["os_payload"]["recovery_reserve_seconds"], now),
             "Standby clock/reserve/expiry revoked")
     if peer.get("host_slot_cancelled") or peer["mode"] == "recovering" or peer["completed"]:
         return "cancelled"
@@ -289,6 +300,8 @@ def standby_peer(contract, peer, now, launching=False):
             "Standby independent guard unavailable")
     epoch = peer["guard_verified_epoch"] if peer["mode"] == "registered" else peer["last_epoch"]
     require(contract["started_epoch"] <= epoch <= now, "Standby stale/rolled-back controller clock")
+    require(peer["mode"] == "registered" or now - epoch < CONTROLLER_CHECKPOINT_MAX_AGE_SECONDS,
+            "Standby stale controller progress; launch revoked")
     if peer["mode"] == "registered" or launching or peer["host_started"]:
         require(now - epoch < 60, "Standby stale controller launch slot")
     if peer["mode"] == "registered":
@@ -518,7 +531,8 @@ def cold_worker_finalize(run_id):
 def standby_clock(state, contract, previous):
     now = time.time()
     require(now >= previous >= state["last_epoch"] >= contract["started_epoch"], "Standby local clock rollback")
-    require(now < contract["deadline_epoch"] - 7200, "Standby clock/reserve/expiry revoked")
+    require(within_deadline(contract["deadline_epoch"], contract["os_payload"]["recovery_reserve_seconds"], now),
+            "Standby clock/reserve/expiry revoked")
     return now
 
 
@@ -706,8 +720,9 @@ def cold_register(payload):
                              payload["started_epoch"], payload["deadline_epoch"])
     state.update(worker_contract=contract, worker_contract_sha256=cold_module.sha(cold_module.canonical(contract)),
                  worker_ready_verified=False)
-    require(state["deadline_epoch"] == state["started_epoch"] + 43200
-            and state["deadline_epoch"] - time.time() > 7200, "Invalid or spent guard deadline")
+    require(state["deadline_epoch"] == cold_module.m.deadline_for(state["started_epoch"], payload["plan"]["outage_budget"])
+            and within_deadline(state["deadline_epoch"], payload["plan"]["outage_budget"]["recovery_reserve_seconds"]),
+            "Invalid or spent guard deadline")
     with (directory / "state.json").open("x") as output:
         os.fchmod(output.fileno(), 0o600)
         output.write(json.dumps(state))
@@ -763,7 +778,8 @@ def cold_start(c, cold, payload):
     load_peer().plan_scope(c.plan)
     def ready(state):
         c.gate(state)
-        require(state["mode"] == "registered" and time.time() < state["deadline_epoch"] - 7200,
+        require(state["mode"] == "registered" and
+                within_deadline(state["deadline_epoch"], c.plan["outage_budget"]["recovery_reserve_seconds"]),
                 "Cold execution already started or reserve reached")
         timer = "node-maintenance-cold-" + payload["run_id"] + "-guard.timer"
         require(command(["systemctl", "is-active", timer]) == "active"
@@ -959,7 +975,7 @@ def main(payload):
         guard.unlink()
         command(["systemctl", "daemon-reload"])
         return
-    require(payload["deadline_epoch"] - time.time() > payload["recovery_reserve_seconds"],
+    require(within_deadline(payload["deadline_epoch"], payload["recovery_reserve_seconds"]),
             "Host reached restoration reserve; do not start a disruptive step")
     directory = Path("/var/lib/node-maintenance") / payload["run_id"]
     directory.mkdir(mode=0o700, parents=True, exist_ok=False)
@@ -972,7 +988,7 @@ def main(payload):
         },
     }))
     recovery = backup(payload, directory) if payload["role"] == "server" else None
-    require(payload["deadline_epoch"] - time.time() > payload["recovery_reserve_seconds"],
+    require(within_deadline(payload["deadline_epoch"], payload["recovery_reserve_seconds"]),
             "Backup/preflight consumed the restoration reserve; do not change host services")
     if operation == "os":
         if payload.get("contract_sha256"):

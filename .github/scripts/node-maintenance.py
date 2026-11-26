@@ -40,22 +40,45 @@ def canonical(value):
     return json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
 
 
+def outage_budget(policy):
+    mode = policy.get("maintenance_timing", "bounded")
+    require(mode in ("bounded", "operation"), "Unknown maintenance timing policy")
+    return {"maximum_seconds": None, "recovery_reserve_seconds": 0} if mode == "operation" else {
+        "maximum_seconds": MAX_OUTAGE_SECONDS, "recovery_reserve_seconds": RECOVERY_RESERVE_SECONDS}
+
+
+def deadline_for(started, budget):
+    require(canonical(budget) in (canonical({"maximum_seconds": None, "recovery_reserve_seconds": 0}),
+                                 canonical({"maximum_seconds": MAX_OUTAGE_SECONDS,
+                                            "recovery_reserve_seconds": RECOVERY_RESERVE_SECONDS})),
+            "Invalid approved outage budget")
+    return None if budget["maximum_seconds"] is None else started + budget["maximum_seconds"]
+
+
+def deadline_text(deadline):
+    return canonical(deadline).decode()
+
+
 class OutageBudget:
-    def __init__(self):
+    def __init__(self, policy=None):
         self.started_epoch = time.time()
         self.started_monotonic = time.monotonic()
-        self.deadline_epoch = self.started_epoch + MAX_OUTAGE_SECONDS
+        self.budget = outage_budget(policy or {})
+        self.deadline_epoch = deadline_for(self.started_epoch, self.budget)
 
     def remaining(self):
         wall_elapsed = time.time() - self.started_epoch
         require(wall_elapsed >= 0, "Workstation clock moved backwards; stop new work and inspect recovery")
         elapsed = max(wall_elapsed, time.monotonic() - self.started_monotonic)
-        remaining = MAX_OUTAGE_SECONDS - elapsed
+        if self.budget["maximum_seconds"] is None:
+            return None
+        remaining = self.budget["maximum_seconds"] - elapsed
         require(remaining > 0, "12-hour outage budget exhausted; restore services, do not continue upgrades")
         return remaining
 
     def before_disruption(self):
-        require(self.remaining() > RECOVERY_RESERVE_SECONDS,
+        remaining = self.remaining()
+        require(remaining is None or remaining > self.budget["recovery_reserve_seconds"],
                 "Recovery reserve reached; restore services instead of starting another disruptive step")
 
 
@@ -549,7 +572,8 @@ def stable_health(policy, budget=None):
             require(state["managers"] == previous, "Longhorn manager identity/restarts changed during stability window")
         previous = state["managers"]
         if index < 2:
-            time.sleep(min(30, budget.remaining()) if budget else 30)
+            remaining = budget.remaining() if budget else None
+            time.sleep(min(30, remaining) if remaining is not None else 30)
     if budget:
         budget.remaining()
 
@@ -822,7 +846,7 @@ def build_plan(policy, action, minor, inventory, worker2_only=False):
         "policy_sha256": sha(POLICY.read_bytes()), "runner_sha256": sha(Path(__file__).read_bytes()),
         "host_sha256": sha(HOST.read_bytes()), "action": action, "release": release,
         "worker2_only": worker2_only,
-        "outage_budget": {"maximum_seconds": MAX_OUTAGE_SECONDS, "recovery_reserve_seconds": RECOVERY_RESERVE_SECONDS},
+        "outage_budget": outage_budget(policy),
         "nodes": order, "bindings": bindings, "kubectl": client, "quarantine": protected, "blockers": sorted(set(blockers)),
         "reviewed_csi_sockets": sockets,
         "reviewed_plex_downtime": pending_reviews,
@@ -837,9 +861,13 @@ def build_plan(policy, action, minor, inventory, worker2_only=False):
 def check_plan(plan, approval, cluster_uid, now=None):
     require(sha(canonical(plan)) == approval, "Approval does not match the complete plan")
     age = (time.time() if now is None else now) - plan["created_epoch"]
-    require(0 <= age < 4 * 3600, "Plan is expired or has a future timestamp")
+    policy = json.loads(POLICY.read_text())
+    require(age >= 0 and (outage_budget(policy)["maximum_seconds"] is None or age < 4 * 3600),
+            "Plan is expired or has a future timestamp")
     require(plan["cluster_uid"] == cluster_uid, "Kubernetes context points at a different cluster")
     require(plan["action"] in ("os", "rke2"), "Unsupported maintenance operation")
+    require(canonical(plan.get("outage_budget")) == canonical(outage_budget(policy)),
+            "Unapproved maintenance timing policy")
     require(isinstance(plan.get("worker2_only", False), bool), "Invalid maintenance scope")
     if plan.get("worker2_only"):
         expected = [n for n in json.loads(POLICY.read_text())["nodes"]
@@ -862,7 +890,8 @@ def wait_for(check, seconds=900, budget=None):
             result = check()
         except Exception as current:
             error = current
-            time.sleep(min(10, budget.remaining()) if budget else 10)
+            remaining = budget.remaining() if budget else None
+            time.sleep(min(10, remaining) if remaining is not None else 10)
         else:
             if budget:
                 budget.remaining()
@@ -954,19 +983,20 @@ def apply(plan, approval, policy, recovery_directory, token_confirmed, compatibi
     require(protection.get("off_node_directory_verified") is True, "Controller recovery directory was not verified")
     run_id = uuid.uuid4().hex
     evidence_directory = Path(tempfile.mkdtemp(prefix="homelab-maintenance-"))
-    budget = OutageBudget()
+    budget = OutageBudget(policy)
     # An unexpired lease could be stolen while a sole server is offline. This lock
     # deliberately never expires; an interrupted run needs human investigation.
     kube("-n", "kube-system", "create", "configmap", LOCK, "--from-literal=run_id=" + run_id,
          "--from-literal=plan_sha256=" + approval,
          "--from-literal=started_epoch=" + str(budget.started_epoch),
-         "--from-literal=deadline_epoch=" + str(budget.deadline_epoch))
+         "--from-literal=deadline_epoch=" + deadline_text(budget.deadline_epoch))
     (evidence_directory / "maintenance.json").write_text(json.dumps({
         "run_id": run_id, "plan_sha256": approval, "started_epoch": budget.started_epoch,
-        "deadline_epoch": budget.deadline_epoch, "recovery_reserve_seconds": RECOVERY_RESERVE_SECONDS,
+        "deadline_epoch": budget.deadline_epoch, "recovery_reserve_seconds": budget.budget["recovery_reserve_seconds"],
     }, indent=2), encoding="utf-8")
     print("Maintenance lock acquired. Failure retains lock and the current node cordon.", flush=True)
-    print(f"Restoration deadline (Unix UTC): {budget.deadline_epoch}; stop new disruption within the recovery reserve.",
+    print("Operation-based maintenance; no outage deadline." if budget.deadline_epoch is None else
+          f"Restoration deadline (Unix UTC): {budget.deadline_epoch}; stop new disruption within the recovery reserve.",
           flush=True)
     for node in plan["nodes"]:
         check_plan(plan, approval, get("namespace", name="kube-system")["metadata"]["uid"])
@@ -989,7 +1019,7 @@ def apply(plan, approval, policy, recovery_directory, token_confirmed, compatibi
             "kernel_package": policy["kernel_package"], "release": plan["release"],
             "source_version": binding["source_version"], "etcdutl": etcd_tool(policy),
             "recovery_directory": recovery_directory,
-            "deadline_epoch": budget.deadline_epoch, "recovery_reserve_seconds": RECOVERY_RESERVE_SECONDS,
+            "deadline_epoch": budget.deadline_epoch, "recovery_reserve_seconds": budget.budget["recovery_reserve_seconds"],
         }
         evidence = capture_evidence(name)
         (evidence_directory / (name + "-before.json")).write_text(json.dumps(evidence, indent=2), encoding="utf-8")
