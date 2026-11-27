@@ -141,6 +141,20 @@ fleet and ordinary worker2-only behavior is unchanged. This is **held source
 only**. No merge, deployment, drain, sudo execution, reboot or native acceptance
 is implied by its local tests.
 
+Planning server-dry-runs every controller scale, reconciler/CronJob suspension,
+selected autoscaler annotation and allowed temporary budget change. The complete
+resource specification must contain only the requested change; original restore
+candidates must retain the original specification hash. These proofs are bound
+into the new plan and repeated before the first real pause. Each actual pause
+and restoration patch also gets its own UID/resourceVersion-tested server dry
+run before its write intention is journaled. Admission errors or unrequested
+defaults stop the operation; they are not accepted as harmless hash drift.
+Dry runs do not persist intermediate objects: the early restoration preview
+uses the live original `oldObject`, not a fictitious paused one. The exact
+restoration patch is therefore checked again against the real paused object
+when recovery runs. No previously issued bundle, plan, journal or grant is
+updated by this future-source improvement.
+
 The only application cohort is the 32 reviewed controllers in AdGuard, Homebox,
 Kaneo, media, monitoring, Paperless, Siloarr and Sure. Four exact KEDA/HTTP
 operator/scaler/interceptor Deployments are additionally bound. Claims,

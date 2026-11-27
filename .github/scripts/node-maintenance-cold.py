@@ -196,6 +196,93 @@ def assert_binding(obj, row, mutable=()):
     require(sha(canonical(spec)) == row["spec_sha256"], key(row) + ": specification drift")
 
 
+def mutation_patch(row, obj, field, value, restoring=False):
+    expected = copy.deepcopy(obj)
+    spec, changes = expected["spec"], []
+    if field in ("replicas", "suspend"):
+        present = not restoring or row["original"].get(field + "_present", True)
+        if present:
+            changes.append({"op": "add", "path": "/spec/" + field, "value": value})
+            spec[field] = value
+        elif field in spec:
+            changes.append({"op": "remove", "path": "/spec/" + field})
+            del spec[field]
+    elif field == "pause":
+        annotations = expected["metadata"].get("annotations", {})
+        require(not any(k in annotations for k in FULL_PAUSE), "Foreign full KEDA pause appeared")
+        if "annotations" not in expected["metadata"]:
+            changes.append({"op": "add", "path": "/metadata/annotations", "value": {}})
+            expected["metadata"]["annotations"] = annotations
+        for name in PAUSE:
+            path = "/metadata/annotations/" + name.replace("/", "~1")
+            original = row["original"]["pause_annotations"]
+            if restoring and name not in original:
+                if name in annotations:
+                    changes.append({"op": "remove", "path": path})
+                    del annotations[name]
+            else:
+                target = original[name] if restoring else "true"
+                changes.append({"op": "add", "path": path, "value": target})
+                annotations[name] = target
+    else:
+        require(field == "budget" and row["kind"] == "PodDisruptionBudget"
+                and (row["namespace"], row["name"]) in TEMP_PDBS, "No native budget write path")
+        require((spec.get("minAvailable") == "50%" and "maxUnavailable" not in spec)
+                or ("minAvailable" not in spec and type(spec.get("maxUnavailable")) is int
+                    and spec["maxUnavailable"] == 1), "Foreign PDB availability state; no overwrite")
+        removed, added, target = (("maxUnavailable", "minAvailable", "50%") if restoring
+                                  else ("minAvailable", "maxUnavailable", 1))
+        if removed in spec:
+            changes.append({"op": "remove", "path": "/spec/" + removed})
+            del spec[removed]
+        changes.append({"op": "add", "path": "/spec/" + added, "value": target})
+        spec[added] = target
+    return changes, expected
+
+
+def assert_admission(actual, expected, row):
+    require(actual["kind"] == expected["kind"] and identity(actual) == identity(expected)
+            and actual["metadata"]["uid"] == row["uid"]
+            and not actual["metadata"].get("deletionTimestamp")
+            and actual["metadata"].get("ownerReferences", []) == expected["metadata"].get("ownerReferences", [])
+            and actual["spec"] == expected["spec"]
+            and all(actual["metadata"].get(field, {}) == expected["metadata"].get(field, {})
+                    for field in ("annotations", "labels")),
+            key(row) + ": admission changed an unrequested field; no mutation permitted")
+
+
+def admission_preflight(plan, api, checkpoint=None):
+    proof = {}
+    for field, rows, value in (
+            ("replicas", plan["controllers"], 0),
+            ("suspend", plan["reconciliation"] + plan["schedules"], True),
+            ("pause", plan["autoscalers"], True),
+            ("budget", plan["temporary_pdbs"], 1)):
+        for row in rows:
+            if checkpoint is not None:
+                checkpoint()
+            original = api.get(RESOURCES[row["kind"]], row["namespace"], row["name"])
+            assert_binding(original, row)
+            changes, expected = mutation_patch(row, original, field, value)
+            paused = api.patch(row, original, changes, dry_run=True) if changes else original
+            assert_admission(paused, expected, row)
+            restore_value = row["original"][field] if field in ("replicas", "suspend") else value
+            _, restored = mutation_patch(row, paused, field, restore_value, restoring=True)
+            # Dry runs cannot persist the paused oldObject. Preview the restored
+            # candidate on the live original; real restoration also gets its own exact patch preview.
+            restore_changes = [{"op": "replace", "path": "/spec", "value": restored["spec"]}]
+            if field == "pause":
+                restore_changes.append({"op": "add", "path": "/metadata/annotations",
+                                        "value": restored["metadata"]["annotations"]})
+            admitted = api.patch(row, original, restore_changes, dry_run=True)
+            assert_admission(admitted, restored, row)
+            assert_binding(admitted, row)
+            require(key(row) not in proof, "Ambiguous admission preflight scope")
+            proof[key(row)] = {"field": field, "paused_spec_sha256": sha(canonical(paused["spec"])),
+                               "restored_spec_sha256": sha(canonical(admitted["spec"]))}
+    return proof
+
+
 def ha_binding(controller, pods, sets):
     require(identity(controller) in HA and controller["spec"].get("replicas") == 2,
             "Only four exact two-replica HA Deployments are eligible")
@@ -446,15 +533,17 @@ class API:
     items = staticmethod(m.items)
     kube = staticmethod(m.kube)
 
-    def patch(self, row, obj, changes):
+    def patch(self, row, obj, changes, dry_run=False):
         require(row["kind"] != "PodDisruptionBudget"
                 or (row["namespace"], row["name"]) in TEMP_PDBS,
                 "Native/storage/CSI/Kyverno PDB writes are prohibited")
         operations = [{"op": "test", "path": "/metadata/uid", "value": row["uid"]},
                       {"op": "test", "path": "/metadata/resourceVersion",
                        "value": obj["metadata"]["resourceVersion"]}, *changes]
-        self.kube("-n", row["namespace"], "patch", RESOURCES[row["kind"]], row["name"], "--type=json",
-                  "-p", json.dumps(operations))
+        arguments = ("-n", row["namespace"], "patch", RESOURCES[row["kind"]], row["name"], "--type=json",
+                     "-p", json.dumps(operations))
+        output = self.kube(*arguments, *(("--dry-run=server", "-o", "json") if dry_run else ()))
+        return json.loads(output) if dry_run else output
 
     def host_audit(self, policy, name):
         require(name == WORKER, "Cold peer host audit is worker2 only")
@@ -652,6 +741,7 @@ def build_plan(policy, api=None):
     }
     plan["blockers"] = cold_scheduling(plan, policy, api)
     plan["migration"] = migration_snapshot(plan, policy, api)
+    plan["admission"] = admission_preflight(plan, api)
     return plan
 
 
@@ -686,6 +776,9 @@ def check_plan(plan, approval, policy, api=None, age=True):
     require({(r["namespace"], r["name"]) for r in plan["ha"]} == HA
             and {(r["namespace"], r["name"]) for r in plan["temporary_pdbs"]} == TEMP_PDBS,
             "Malformed cold HA/PDB scope")
+    require(set(plan.get("admission", {})) == {
+        key(row) for name in ("controllers", "reconciliation", "schedules", "autoscalers", "temporary_pdbs")
+        for row in plan[name]}, "Missing/incomplete admission preflight binding")
 
 
 def storage_snapshot(policy, api):
@@ -1056,44 +1149,14 @@ class Coordinator:
                 require(obj["spec"].get(field, 1 if field == "replicas" else False)
                         in (row["original"][field], 0 if field == "replicas" else True),
                         "Original or coordinator-owned state required; no foreign drift overwrite")
-            entry = state["mutations"].setdefault(key(row), {"row": row, "fields": []})
-            if field not in entry["fields"]:
-                entry["fields"].append(field)
-            # Persist intention BEFORE the Kubernetes patch, including an ambiguous API response.
-            self.journal.write(state)
-            spec = obj["spec"]
-            if field in ("replicas", "suspend"):
-                present = not restoring or row["original"].get(field + "_present", True)
-                changes = ([{"op": "add", "path": "/spec/" + field, "value": value}] if present else
-                           [{"op": "remove", "path": "/spec/" + field}] if field in spec else [])
-            elif field == "pause":
-                annotations = obj["metadata"].get("annotations", {})
-                require(not any(k in annotations for k in FULL_PAUSE), "Foreign full KEDA pause appeared")
-                changes = []
-                if "annotations" not in obj["metadata"]:
-                    changes.append({"op": "add", "path": "/metadata/annotations", "value": {}})
-                for name in PAUSE:
-                    path = "/metadata/annotations/" + name.replace("/", "~1")
-                    original = row["original"]["pause_annotations"]
-                    if restoring and name not in original:
-                        if name in annotations:
-                            changes.append({"op": "remove", "path": path})
-                    else:
-                        changes.append({"op": "add", "path": path,
-                                        "value": original[name] if restoring else "true"})
-            else:
-                require(field == "budget" and (row["namespace"], row["name"]) in TEMP_PDBS,
-                        "No native budget write path")
-                require((spec.get("minAvailable") == "50%" and "maxUnavailable" not in spec)
-                        or ("minAvailable" not in spec and type(spec.get("maxUnavailable")) is int
-                            and spec["maxUnavailable"] == 1), "Foreign PDB availability state; no overwrite")
-                if restoring:
-                    changes = ([{"op": "remove", "path": "/spec/maxUnavailable"}] if "maxUnavailable" in spec else [])
-                    changes.append({"op": "add", "path": "/spec/minAvailable", "value": "50%"})
-                else:
-                    changes = ([{"op": "remove", "path": "/spec/minAvailable"}] if "minAvailable" in spec else [])
-                    changes.append({"op": "add", "path": "/spec/maxUnavailable", "value": 1})
+            changes, expected = mutation_patch(row, obj, field, value, restoring)
             if changes:
+                assert_admission(self.api.patch(row, obj, changes, dry_run=True), expected, row)
+                entry = state["mutations"].setdefault(key(row), {"row": row, "fields": []})
+                if field not in entry["fields"]:
+                    entry["fields"].append(field)
+                # Persist intention BEFORE the real patch, including an ambiguous API response.
+                self.journal.write(state)
                 self.api.patch(row, obj, changes)
         self.journal.transaction(action)
 
@@ -1233,6 +1296,10 @@ class Coordinator:
                 assert_binding(self.api.get(RESOURCES[row["kind"]], row["namespace"], row["name"]), row)
             cold_storage(self.plan, self.policy, self.api)
             native_gate(self.plan, self.policy, self.api)
+            require(admission_preflight(
+                self.plan, self.api,
+                lambda: self.journal.transaction(lambda state: self.gate(state, True))) == self.plan["admission"],
+                "Admission preflight drifted BEFORE first pause")
             state = self.journal.read()
             worker_ready(self.api.worker_status(self.policy, state["run_id"]), state["worker_contract"], self.now())
             for row in sorted(self.plan["reconciliation"], key=lambda r: (

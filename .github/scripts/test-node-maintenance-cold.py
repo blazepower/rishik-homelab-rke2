@@ -190,7 +190,21 @@ class FakeAPI:
             self.resources["configmap"] = []
         return ""
 
-    def patch(self, row, value, operations):
+    def patch(self, row, value, operations, dry_run=False):
+        if dry_run:
+            result = copy.deepcopy(value)
+            for op in operations:
+                segments = [s.replace("~1", "/").replace("~0", "~") for s in op["path"].split("/")[1:]]
+                target = result
+                for segment in segments[:-1]:
+                    target = target[segment]
+                if op["op"] == "remove":
+                    del target[segments[-1]]
+                elif op["op"] == "test":
+                    assert target[segments[-1]] == op["value"]
+                else:
+                    target[segments[-1]] = copy.deepcopy(op["value"])
+            return result
         previous_replicas = value["spec"].get("replicas", 1)
         if row["kind"] in ("Deployment", "StatefulSet") and c.identity(value) not in c.OPERATORS:
             desired = next((op["value"] for op in operations if op["path"] == "/spec/replicas" and op["op"] == "add"),
@@ -767,6 +781,70 @@ class ColdTests(unittest.TestCase):
             self.coordinator.mutate(self.plan["schedules"][0], "suspend", True)
         self.assertEqual(self.api.events, [])
         self.assertEqual(self.journal.read()["mutations"], {})
+
+    def test_admission_preflight_covers_pause_and_restore_without_writes(self):
+        resources = copy.deepcopy(self.api.resources)
+        with patch.object(self.api, "patch", wraps=self.api.patch) as preview:
+            proof = c.admission_preflight(self.plan, self.api)
+        self.assertEqual(proof, self.plan["admission"])
+        self.assertEqual(self.api.resources, resources)
+        self.assertEqual(self.api.events, [])
+        self.assertEqual(preview.call_count, 2 * len(proof))
+        self.assertTrue(all(call.kwargs == {"dry_run": True} for call in preview.call_args_list))
+        self.assertEqual({entry["field"] for entry in proof.values()}, {"replicas", "suspend", "pause", "budget"})
+
+    def test_admission_added_template_field_stops_before_any_shutdown(self):
+        native = self.api.patch
+        def mutate(row, value, changes, dry_run=False):
+            result = native(row, value, changes, dry_run)
+            if dry_run and row["kind"] == "Deployment" and row["name"] == "homebox":
+                result["spec"]["template"]["spec"]["topologySpreadConstraints"] = [{"unrequested": True}]
+            return result
+        with patch.object(self.api, "patch", side_effect=mutate), \
+                patch.object(self.coordinator, "recover") as recover, \
+                self.assertRaisesRegex(RuntimeError, "admission changed"):
+            self.coordinator.execute()
+        self.assertEqual(self.api.events, [])
+        self.assertEqual(self.journal.read()["mutations"], {})
+        self.assertFalse(self.journal.read()["host_started"])
+        recover.assert_called_once()
+
+    def test_restoration_candidate_admission_and_real_restoration_patch_are_checked(self):
+        native = self.api.patch
+        row = next(r for r in self.plan["controllers"] if r["name"] == "homebox")
+        def mutate(row, value, changes, dry_run=False):
+            result = native(row, value, changes, dry_run)
+            if dry_run and row["name"] == "homebox" and result["spec"]["replicas"] == 1:
+                result["spec"]["template"]["spec"]["containers"][0]["securityContext"] = {"unrequested": True}
+            return result
+        with patch.object(self.api, "patch", side_effect=mutate), \
+                self.assertRaisesRegex(RuntimeError, "admission changed"):
+            c.admission_preflight(self.plan, self.api)
+        self.assertEqual(self.api.events, [])
+        current = self.api.get("deployments", row["namespace"], row["name"])
+        current["spec"]["replicas"] = 0
+        self.journal.state["producer_warmup_complete"] = True
+        with patch.object(self.api, "patch", side_effect=mutate), \
+                self.assertRaisesRegex(RuntimeError, "admission changed"):
+            self.coordinator.mutate(row, "replicas", 1, restoring=True)
+        self.assertEqual(current["spec"]["replicas"], 0)
+        self.assertEqual(self.journal.read()["mutations"], {})
+
+    def test_admission_preview_uses_server_dry_run_and_uid_resource_version_tests(self):
+        row = self.plan["controllers"][0]
+        current = self.api.get(c.RESOURCES[row["kind"]], row["namespace"], row["name"])
+        changes, expected = c.mutation_patch(row, current, "replicas", 0)
+        api = c.API()
+        with patch.object(api, "kube", return_value=json.dumps(expected)) as kube:
+            self.assertEqual(api.patch(row, current, changes, dry_run=True), expected)
+        args = kube.call_args.args
+        self.assertEqual(args[-3:], ("--dry-run=server", "-o", "json"))
+        operations = json.loads(args[args.index("-p") + 1])
+        self.assertEqual(operations[:2], [
+            {"op": "test", "path": "/metadata/uid", "value": row["uid"]},
+            {"op": "test", "path": "/metadata/resourceVersion", "value": current["metadata"]["resourceVersion"]}])
+        with self.assertRaisesRegex(RuntimeError, "prohibited"):
+            api.patch(self.plan["native"][c.WORKER]["pdb"], self.api.original_im_pdb, [], dry_run=True)
 
     def standby_peer(self, authorized=False):
         peer = self.journal.read()
