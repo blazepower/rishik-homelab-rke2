@@ -266,12 +266,17 @@ the ingress address changes and record the actual installed mapping receipt.
 
 `node-config\maintenance\controller-health-ca.crt` is the public homelab CA
 certificate for those checks, not a private key. Its certificate SHA-256 is
-`85b06ce09a7b08562edf04a70c72dc9993043a73db7bd52c59a850b3d3c926db`.
+`0bcbd6bb0fefd8bebc6306220cb1f397c7296f64f51cb9ca29a5d0aa5a2c3b7b`.
 It retains the original signing-key SPKI SHA-256
 `6bcb766795d8ca81aafe83d4bbe33c6e5100e1cc0b995c10da2429e140d1319e`.
 The corrected certificate includes critical CA certificate-signing and
 CRL-signing Key Usage; Python 3.14 strict verification rejected the older
 certificate without that extension even when explicitly trusted.
+The original Subject/Authority Key Identifiers and validity interval are
+preserved too. A same-key native reissue initially changed the identifier,
+which prevented existing leaf certificates from building their issuer chain.
+Only the public certificate leaves the cluster; signing-key material is never
+exported or written to a file by this repair.
 
 Install only this verified public certificate in the controller's local CA
 directory, preserve existing CA selections and refresh the system trust
