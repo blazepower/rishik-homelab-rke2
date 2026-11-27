@@ -264,6 +264,28 @@ The repository fragment is node-configuration source, not a Kubernetes
 manifest or an automatic Flux host-file deployment. Revalidate it whenever
 the ingress address changes and record the actual installed mapping receipt.
 
+`node-config\maintenance\controller-health-ca.crt` is the public homelab CA
+certificate for those checks, not a private key. Its certificate SHA-256 is
+`85b06ce09a7b08562edf04a70c72dc9993043a73db7bd52c59a850b3d3c926db`.
+It retains the original signing-key SPKI SHA-256
+`6bcb766795d8ca81aafe83d4bbe33c6e5100e1cc0b995c10da2429e140d1319e`.
+The corrected certificate includes critical CA certificate-signing and
+CRL-signing Key Usage; Python 3.14 strict verification rejected the older
+certificate without that extension even when explicitly trusted.
+
+Install only this verified public certificate in the controller's local CA
+directory, preserve existing CA selections and refresh the system trust
+bundle. Verify the actual URLs with the controller's default Python TLS
+context before pausing applications. Do not disable strict verification or
+export CA private keys. The matching SealedSecret source changes only its
+encrypted public `tls.crt` value; its encrypted `tls.key` remains unchanged.
+The existing manually created CA Secret is not adopted by Sealed Secrets
+during this repair. For one-shot cert-manager reissuance, verify the genuine
+CSR uses the existing key before enabling its temporary issuer. Orphan-delete
+the temporary Certificate, then confirm garbage collection removed only its
+owner reference and preserved the original CA Secret UID. Do not use ordinary
+cascading deletion: it could delete the signing key.
+
 ## Verification
 
 ```powershell
