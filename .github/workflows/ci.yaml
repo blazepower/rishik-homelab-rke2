@@ -77,6 +77,9 @@ jobs:
       - name: Test explicit false and missing escalation settings
         run: python3 -B .github/scripts/test-kyverno-escalation-policy.py --kyverno ./kyverno
 
+      - name: Test CREATE defaults and maintenance-safe template mutation
+        run: python3 -B .github/scripts/test-kyverno-mutation-policy.py --kyverno ./kyverno
+
   node-maintenance-test:
     name: Node Maintenance Safeguards
     runs-on: ubuntu-latest
