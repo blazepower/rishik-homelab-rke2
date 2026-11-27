@@ -110,10 +110,8 @@ def cases():
             elif scenario in ("scale", "existing-defaults") and kind in ("Deployment", "StatefulSet"):
                 current["spec"]["replicas"] = 0
             expected = deepcopy(current)
-            if scenario == "create" or (scenario == "template" and kind != "Pod"):
+            if scenario == "create":
                 add_defaults(expected)
-            elif scenario == "template-metadata":
-                add_topology_defaults(expected)
             yield current, None if scenario == "create" else old, expected
 
         for explicit in (False, True):

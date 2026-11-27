@@ -8,8 +8,8 @@ metadata:
     policies.kyverno.io/severity: low
     policies.kyverno.io/description: >-
       Automatically inject standard topologySpreadConstraints for Deployments
-      on CREATE or intentional template updates, never on scaling or unrelated
-      metadata updates, to spread workloads across nodes in the RKE2 cluster.
+      on CREATE only, never on any UPDATE, to spread workloads across nodes in
+      the RKE2 cluster. Declare topology changes to existing Deployments in Git.
 spec:
   background: false
   rules:
@@ -21,7 +21,6 @@ spec:
                 - Deployment
               operations:
                 - CREATE
-                - UPDATE
       exclude:
         any:
           - resources:
@@ -33,9 +32,6 @@ spec:
                 - kyverno
       preconditions:
         all:
-          - key: "{{ request.operation == 'CREATE' || (request.operation == 'UPDATE' && request.object.spec.template != request.oldObject.spec.template) }}"
-            operator: Equals
-            value: true
           - key: "{{ request.object.spec.template.spec.topologySpreadConstraints || '' | length(@) }}"
             operator: Equals
             value: 0
