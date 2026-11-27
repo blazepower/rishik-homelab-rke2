@@ -243,6 +243,27 @@ Successful fleet completion releases its owned lock. Cleanup of old root-only
 maintenance directories/backups is an explicit retention task, never broad
 recursive deletion.
 
+## Controller hostname resolution for native health checks
+
+The controller-owned recovery guard must resolve the approved application
+probe hostnames and verify their HTTPS certificates from the controller itself.
+Workstation DNS/HTTPS success is not proof of this native prerequisite.
+Verify it before stopping applications; do not rewrite an issued run's probe
+URLs, bypass its checks or disable certificate verification after a failure.
+
+`node-config\maintenance\controller-health-hosts` contains the approved
+controller-only mappings for `plex.homelab`, `sure.homelab` and `vault.homelab`.
+Before installation, verify that all three actual Traefik Ingresses still
+advertise the recorded address. Merge missing entries into `/etc/hosts` without
+replacing other entries or overriding conflicting mappings. Preserve file
+ownership/mode and a root-only host-local backup; do not export the complete
+hosts file. These mappings do not change public DNS servers, Pod DNS or TLS
+verification.
+
+The repository fragment is node-configuration source, not a Kubernetes
+manifest or an automatic Flux host-file deployment. Revalidate it whenever
+the ingress address changes and record the actual installed mapping receipt.
+
 ## Verification
 
 ```powershell

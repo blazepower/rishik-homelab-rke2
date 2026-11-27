@@ -1,0 +1,4 @@
+# Controller-only entries for native HTTPS maintenance health probes.
+# Merge into /etc/hosts; never replace existing entries or override conflicts.
+# The Traefik Ingress addresses must still match before installing.
+192.168.1.150 plex.homelab sure.homelab vault.homelab
