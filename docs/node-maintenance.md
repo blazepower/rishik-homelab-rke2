@@ -291,6 +291,36 @@ the temporary Certificate, then confirm garbage collection removed only its
 owner reference and preserved the original CA Secret UID. Do not use ordinary
 cascading deletion: it could delete the signing key.
 
+## Worker2 inotify capacity for native peer cleanup
+
+`node-config\maintenance\worker2-inotify.conf` is a **worker2-only** host
+configuration fragment, installed as
+`/etc/sysctl.d/90-node-maintenance-inotify.conf`. It raises only
+`fs.inotify.max_user_instances` to 1024. It is not a Kubernetes manifest or an
+automatic Flux host-file deployment; do not install it on other nodes.
+
+During November 2026 cleanup, worker2's root processes exhausted all 128
+inotify instances. The native SSH reload failed with
+`Failed to allocate directory watch: Too many open files` even though its
+process file-descriptor limit and the global file table had capacity.
+Legitimate systemd, kubelet and containerd-shim instances consumed the limit.
+Raising the inotify instance limit does not allocate all that capacity eagerly.
+The watch limit and process file-descriptor limits are unchanged.
+
+Before installation, check node identity, conflicting persistent settings,
+file ownership and the approved fragment hash. Preserve a node-local record
+of the previous value and do not overwrite an unrelated configuration file.
+Apply only this parameter, not `sysctl --system`, which could change other
+settings. Verify the live value, matching persistent bytes and successful
+allocation/closure of an inotify instance. No reboot or service restart is
+required.
+
+Retry the unchanged native peer cleanup afterward, worker2 before controller.
+An earlier cleanup attempt can revoke authorization and remove its owned
+SSH key/drop-in before the reload checkpoint fails. That is **incomplete
+cleanup**, not permission to skip reload, discard the remaining identity,
+replace the issued source or close the controller channel first.
+
 ## Verification
 
 ```powershell
