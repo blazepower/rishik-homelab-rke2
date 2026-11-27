@@ -568,6 +568,7 @@ class API:
 
 def build_plan(policy, api=None):
     api = api or API()
+    snapshot_attachment_gate(policy, api)
     inventory = m.cold_inventory(policy)
     old_advisory = ("Inventory only:", "Durable restoration", "Autoscaler/operator", "Worker2 router DNS")
     require(not [b for b in inventory["blockers"] if not b.startswith(old_advisory)],
@@ -812,6 +813,20 @@ def storage_snapshot(policy, api):
                                                                                     "upgradedReplicaAddressMap")}))}
                                          for e in engine_rows], key=lambda r: r["name"])})
     return sorted(result, key=lambda r: r["name"])
+
+
+def snapshot_attachment_gate(policy, api):
+    ns = policy["storage_namespace"]
+    regular = {volume["metadata"]["name"] for volume in api.items("volumes.longhorn.io", ns)}
+    regular -= set(policy.get("quarantined_volumes", []))
+    holds = sorted(
+        attachment["metadata"]["name"] + "/" + identifier
+        for attachment in api.items("volumeattachments.longhorn.io", ns)
+        if attachment["metadata"]["name"] in regular
+        for identifier, ticket in attachment["spec"].get("attachmentTickets", {}).items()
+        if ticket.get("type") == "snapshot-controller"
+    )
+    require(not holds, "Snapshot-controller attachment holds must clear BEFORE first pause: " + ", ".join(holds))
 
 
 def cold_storage(plan, policy, api, detached=False):
@@ -1296,12 +1311,14 @@ class Coordinator:
                 assert_binding(self.api.get(RESOURCES[row["kind"]], row["namespace"], row["name"]), row)
             cold_storage(self.plan, self.policy, self.api)
             native_gate(self.plan, self.policy, self.api)
+            snapshot_attachment_gate(self.policy, self.api)
             require(admission_preflight(
                 self.plan, self.api,
                 lambda: self.journal.transaction(lambda state: self.gate(state, True))) == self.plan["admission"],
                 "Admission preflight drifted BEFORE first pause")
             state = self.journal.read()
             worker_ready(self.api.worker_status(self.policy, state["run_id"]), state["worker_contract"], self.now())
+            snapshot_attachment_gate(self.policy, self.api)
             for row in sorted(self.plan["reconciliation"], key=lambda r: (
                     (r["kind"], r["namespace"], r["name"]) != ("Kustomization", "flux-system", "flux-system"),
                     r["kind"] != "Kustomization", key(r))):

@@ -793,6 +793,75 @@ class ColdTests(unittest.TestCase):
         self.assertTrue(all(call.kwargs == {"dry_run": True} for call in preview.call_args_list))
         self.assertEqual({entry["field"] for entry in proof.values()}, {"replicas", "suspend", "pause", "budget"})
 
+    def test_snapshot_hold_rejects_fresh_planning_before_inventory_or_admission(self):
+        attachment = self.api.get("volumeattachments.longhorn.io", "storage", "regular-fixture")
+        attachment["spec"]["attachmentTickets"]["snapshot-controller-backup-test"] = {
+            "type": "snapshot-controller", "nodeID": c.PEER}
+        resources = copy.deepcopy(self.api.resources)
+        with patch.object(c.m, "cold_inventory") as inventory, \
+                patch.object(c, "admission_preflight") as admission, \
+                self.assertRaisesRegex(RuntimeError, "regular-fixture/snapshot-controller-backup-test"):
+            c.build_plan(self.policy, self.api)
+        inventory.assert_not_called()
+        admission.assert_not_called()
+        self.assertEqual(self.api.resources, resources)
+        self.assertEqual(self.api.events, [])
+
+    def test_snapshot_hold_created_after_approval_stops_before_any_shutdown(self):
+        attachment = self.api.get("volumeattachments.longhorn.io", "storage", "regular-fixture")
+        attachment["spec"]["attachmentTickets"]["snapshot-controller-backup-test"] = {
+            "type": "snapshot-controller", "nodeID": c.PEER}
+        with patch.object(self.coordinator, "recover") as recover, \
+                patch.object(c, "admission_preflight") as admission, \
+                self.assertRaisesRegex(RuntimeError, "Snapshot-controller attachment holds"):
+            self.coordinator.execute()
+        admission.assert_not_called()
+        self.assertEqual(self.api.events, [])
+        self.assertEqual(self.journal.read()["mutations"], {})
+        self.assertFalse(self.journal.read()["host_started"])
+        recover.assert_called_once()
+
+    def test_snapshot_hold_gate_preserves_csi_and_allows_native_ticket_cleanup(self):
+        attachment = self.api.get("volumeattachments.longhorn.io", "storage", "regular-fixture")
+        tickets = attachment["spec"]["attachmentTickets"]
+        tickets["csi-test"] = {"type": "csi-attacher", "nodeID": c.PEER}
+        c.snapshot_attachment_gate(self.policy, self.api)
+        tickets["snapshot-controller-backup-test"] = {"type": "snapshot-controller", "nodeID": c.PEER}
+        with self.assertRaisesRegex(RuntimeError, "BEFORE first pause"):
+            c.snapshot_attachment_gate(self.policy, self.api)
+        self.assertEqual(set(tickets), {"csi-test", "snapshot-controller-backup-test"})
+        del tickets["snapshot-controller-backup-test"]
+        c.snapshot_attachment_gate(self.policy, self.api)
+        self.assertEqual(set(tickets), {"csi-test"})
+        self.assertEqual(self.api.events, [])
+
+    def test_snapshot_hold_created_during_admission_stops_before_first_write(self):
+        preview = c.admission_preflight
+        def attach_during_preview(*args, **kwargs):
+            proof = preview(*args, **kwargs)
+            attachment = self.api.get("volumeattachments.longhorn.io", "storage", "regular-fixture")
+            attachment["spec"]["attachmentTickets"]["snapshot-controller-backup-test"] = {
+                "type": "snapshot-controller", "nodeID": c.PEER}
+            return proof
+        with patch.object(c, "admission_preflight", side_effect=attach_during_preview), \
+                patch.object(self.coordinator, "recover") as recover, \
+                self.assertRaisesRegex(RuntimeError, "Snapshot-controller attachment holds"):
+            self.coordinator.execute()
+        self.assertEqual(self.api.events, [])
+        self.assertEqual(self.journal.read()["mutations"], {})
+        self.assertFalse(self.journal.read()["host_started"])
+        recover.assert_called_once()
+
+    def test_snapshot_hold_gate_retains_existing_quarantine_exclusion(self):
+        name = self.policy["quarantined_volumes"][0]
+        attachment = self.api.get("volumeattachments.longhorn.io", "storage", name)
+        attachment["spec"]["attachmentTickets"]["snapshot-controller-backup-test"] = {
+            "type": "snapshot-controller", "nodeID": c.PEER}
+        resources = copy.deepcopy(self.api.resources)
+        c.snapshot_attachment_gate(self.policy, self.api)
+        self.assertEqual(self.api.resources, resources)
+        self.assertEqual(self.api.events, [])
+
     def test_admission_added_template_field_stops_before_any_shutdown(self):
         native = self.api.patch
         def mutate(row, value, changes, dry_run=False):

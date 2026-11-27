@@ -141,6 +141,16 @@ fleet and ordinary worker2-only behavior is unchanged. This is **held source
 only**. No merge, deployment, drain, sudo execution, reboot or native acceptance
 is implied by its local tests.
 
+Planning rejects snapshot-controller attachment tickets on regular Longhorn
+volumes before producing an approval, and execution repeats this read-only
+gate both before admission preview and immediately before the first pause.
+An already-deleting backup snapshot can still
+hold a healthy volume attached; stopping its consumers does not clear that
+native ticket. Wait for Longhorn to finish its own operation or obtain a
+separately scoped remediation approval. This gate never edits snapshots,
+tickets, finalizers or backups; ordinary CSI attachments and existing
+quarantine protections are unchanged.
+
 Planning server-dry-runs every controller scale, reconciler/CronJob suspension,
 selected autoscaler annotation and allowed temporary budget change. The complete
 resource specification must contain only the requested change; original restore
