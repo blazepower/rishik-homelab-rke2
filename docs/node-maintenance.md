@@ -189,6 +189,37 @@ retained without reading the key, backup or Secret.
 The operator attests that **AdGuard is unused**. No router inspection or DNS
 change is performed or claimed.
 
+**Version-bound AppArmor signal correction**
+
+Ubuntu kernel `7.0.0-44-generic` can stack the container profile with
+`unconfined`, causing the old containerd profile to deny sibling-thread and
+container self-signals. PostgreSQL's `gosu` can livelock before the database
+starts; longer startup probes do not repair this failure.
+
+`node-config/apparmor/cri-containerd.apparmor.d` is an operator-installed host
+policy, not a Flux Kubernetes manifest. It is an interim correction for
+`v2.2.10-k3s1`, commit `203605655a9ab5f95ef12485464f9b0ec78f634d`, with
+the unconfined daemon and no RootlessKit. Only the exact same-profile stacked
+peer signal rule from upstream containerd commit
+`8969e6a9859218383ac4636645e5344654e5cd38` is added. It does not disable
+AppArmor, add wildcard peers, change ptrace rules, or remove existing denies.
+
+Do not install it on another node or version by assumption. Compile its
+baseline without that one added rule and compare the resulting binary with
+the kernel's currently loaded `raw_data`; a mismatch stops installation.
+Then validate separate enforced baseline/fixed canary profiles with the same
+pinned image, no credentials, no persistent storage and bounded lifetimes.
+The baseline must reproduce the failure, the fixed profile must restore
+user-switching and self-signals, and protected-file access must remain denied.
+Retain the original binary and remove the UID-bound canary Pods and temporary
+profiles. Only this proof authorizes the corresponding live replacement.
+
+If installed in `/etc/apparmor.d/cri-containerd.apparmor.d` for boot persistence,
+keep it version-bound: before a later RKE2/containerd upgrade, review and
+validate the new upstream default policy and replace/retire this interim file.
+Do not let it silently shadow newer default security restrictions. Preserve
+issued maintenance sources, journals and exhausted host grants throughout.
+
 The source execution ordering is:
 
 1. Rebuild the exact plan and recheck host/packages, code/client and metadata.
