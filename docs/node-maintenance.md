@@ -131,6 +131,29 @@ Resolve every blocker before approval. In particular:
 - APT metadata must be recent. The host refreshes APT again before upgrading;
   changed package candidates abort, requiring a new reviewed plan.
 
+## Worker2 preservation capacity reservation
+
+`infrastructure/storage/longhorn/node-worker2-reservation.yaml` reserves
+70,726,920,437 bytes on worker2's existing Longhorn disk, or 29% of its current
+243,885,932,544-byte filesystem. This separately approved, worker2-only change
+provides scheduling room for second copies of the two protected historical
+volumes without changing global over-provisioning, the 15% minimum-free-space
+floor, replica anti-affinity, PDBs or strict last-copy drain protection.
+
+The manifest manages only that disk's reservation. SSA `Merge` preserves
+Longhorn-managed fields; pruning is disabled so removing this capacity
+exception cannot delete the Longhorn Node. It requires the existing Longhorn
+CRD, node and disk; do not force-create or recreate them. Recalculate and review
+the reservation if the disk identity or filesystem capacity changes.
+
+This is not an attachment or maintenance authorization. Historical-volume
+preservation requires a verified, decryptable current-data backup with complete
+source-file coverage and an independently verified private off-node copy,
+followed by the separately approved frontend-disabled, serial native rebuild.
+The issued maintenance quarantine contract remains unchanged. A changed
+replica topology requires a fresh bound baseline and compatible future
+maintenance source, not reuse or relaxation of an issued run.
+
 ## Controller recovery prerequisite
 
 Provision a **trusted off-node NFS/CIFS recovery mount on the controller**,

@@ -8,3 +8,4 @@ resources:
   - storageclass-longhorn-retain.yaml
   - ingress-longhorn-tailscale.yaml
   - networkpolicy-longhorn-metrics.yaml
+  - node-worker2-reservation.yaml

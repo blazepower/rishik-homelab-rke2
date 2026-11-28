@@ -1,0 +1,12 @@
+apiVersion: longhorn.io/v1beta2
+kind: Node
+metadata:
+  name: rishik-worker2
+  namespace: storage
+  annotations:
+    kustomize.toolkit.fluxcd.io/ssa: Merge
+    kustomize.toolkit.fluxcd.io/prune: Disabled
+spec:
+  disks:
+    default-disk-d6378b23b69ae6a0:
+      storageReserved: 70726920437
