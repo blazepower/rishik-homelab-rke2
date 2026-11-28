@@ -1082,6 +1082,8 @@ class Journal:
         status["host_slot_cancelled"] = state.get("host_slot_cancelled", False)
         status["host_packages_complete"] = state.get("host_packages_complete", False)
         status["host_reboot_authorized"] = state.get("host_reboot_authorized", False)
+        status["host_return_verified"] = state.get("verified_host_return") is not None
+        status["recovery_cancelled"] = state.get("recovery_cancelled", False)
         for name in ("last_epoch", "guard_verified_epoch", "worker_contract", "worker_contract_sha256",
                      "live_source_bindings", "host_native_gate_epoch"):
             status[name] = state.get(name)
@@ -1498,13 +1500,29 @@ class Coordinator:
                 "Worker2 did not boot approved OS/kernel")
         def finish(s):
             self.gate(s, True)
-            s.update(host_complete=True, host_reboot_authorized=False)
+            s.update(host_complete=True, host_reboot_authorized=False,
+                     verified_host_return=self.host_return_proof(s, host))
         self.journal.transaction(finish)
         return True
 
-    def request_recovery(self, reason):
+    def host_return_proof(self, state, host):
+        require(state.get("host_started") and state.get("host_packages_complete")
+                and state["host_receipt"]["contract_sha256"] == state["worker_contract_sha256"],
+                "Verified host return requires the bound native package receipt")
+        require(host["boot_id"] != self.plan["bindings"][WORKER]["boot_id"]
+                and host["kernel"] == self.policy["kernel"]
+                and host["default_target"] == "multi-user.target",
+                "Verified host return requires the actual approved new OS boot")
+        return {"run_id": state["run_id"], "host_step_id": state["host_step_id"],
+                "plan_sha256": state["plan_sha256"], "boot_id": host["boot_id"],
+                "receipt_sha256": sha(canonical(state["host_receipt"]))}
+
+    def request_recovery(self, reason, cancel=False):
         def request(state):
             if not state.get("completed"):
+                if cancel:
+                    state["recovery_cancelled"] = True
+                    state["verified_host_return"] = None
                 state["mode"] = "recovering"
                 state["failure"] = reason
                 state["host_reboot_authorized"] = False
@@ -1566,6 +1584,9 @@ class Coordinator:
                 require(host["kernel"] == self.policy["kernel"] and host["default_target"] == "multi-user.target",
                         "Worker2 did not boot approved OS/kernel; retain recovery lock")
             require(not state.get("host_complete") or rebooted, "Verified worker2 boot identity regressed")
+            if state.get("verified_host_return") is not None:
+                require(state["verified_host_return"] == self.host_return_proof(state, host),
+                        "Verified host return proof drift; retain recovery protection")
             self.journal.transaction(lambda s: s.update(host_complete=rebooted,
                                                        host_reboot_outcome="verified" if rebooted else "not-rebooted"))
         require(not success or self.journal.read().get("host_complete"),
@@ -1704,8 +1725,19 @@ class Coordinator:
                 "Restoration exceeded 12h: report failure, keep protection/lock")
         self.original_state()
         self.full_health()
+        # Derive the result from the fresh mutex-held record, not an executor's
+        # local hint that can be lost on retries or race explicit cancellation.
+        accepted = state.get("verified_host_return") is not None and not state.get("recovery_cancelled")
+        require(not success or accepted or state.get("recovery_cancelled"),
+                "Maintenance success requires a verified native host return")
+        if accepted:
+            require(state.get("host_complete"), "Verified host completion regressed")
+            self.api.host_idle(self.policy, state["host_step_id"], state["run_id"])
+            require(state["verified_host_return"] == self.host_return_proof(
+                state, self.api.host_audit(self.policy, WORKER)),
+                "Verified host return proof drift at completion; retain recovery protection")
         self.api.kube("-n", "kube-system", "delete", "configmap", m.LOCK)
-        state.update(completed=True, phase="accepted" if success else "recovered-after-failure",
+        state.update(completed=True, phase="accepted" if accepted else "recovered-after-failure",
                      mode="complete", completed_epoch=self.now())
 
 
@@ -1793,7 +1825,7 @@ def guard(directory, force=False):
     problem = None if force or state["mode"] == "recovering" or reserve_reached else executor_problem(state, time.time())
     due = force or state["mode"] == "recovering" or reserve_reached or problem is not None
     if due:
-        c.request_recovery("explicit-recovery" if force else problem or "reserve-or-executor-loss")
+        c.request_recovery("explicit-recovery" if force else problem or "reserve-or-executor-loss", cancel=force)
         try:
             c.recover()
         except Exception as error:

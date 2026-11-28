@@ -834,7 +834,7 @@ def cold_control(payload):
             raise
     else:
         require(operation == "cold-recover", "Unsupported cold control")
-        c.request_recovery("explicit-safe-recovery-command")
+        c.request_recovery("explicit-safe-recovery-command", cancel=True)
         command(["systemctl", "start", "--no-block", "node-maintenance-cold-" + payload["run_id"] + "-guard.service"])
 
 

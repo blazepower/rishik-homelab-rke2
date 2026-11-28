@@ -314,6 +314,17 @@ The source execution ordering is:
    Transient `systemd-run` units disappear at reboot. A verified new boot can
    therefore complete with those units absent; their absence alone never
    proves the reboot happened or waives the kernel/boot checks during recovery.
+   Persist the verified new boot together with its run/step/approval and exact
+   native package-receipt hash. Ordinary restoration retries and independent
+   guard continuation retain that proof; package/host-complete flags alone do
+   not establish success. Explicit `cold-recover` cancels acceptance and revokes
+   the proof, even after a verified reboot. Derive the final outcome from the
+   current mutex-held journal and recheck the exact boot, kernel, headless target
+   and idle host before releasing the lock. Never relabel previously issued runs
+   or reboot again merely to change an outcome.
+   The original executor exception remains reported even if an independent
+   retry later completes successfully; the terminal journal outcome is separate
+   from that executor unit's failed status.
 7. Require clean two-copy storage and the native returned worker2 IM/PDB before
    warming. Restore backend readiness first, then consumers, original autoscaler
    annotations/HPA specs/UIDs and operators, then exact original schedules and

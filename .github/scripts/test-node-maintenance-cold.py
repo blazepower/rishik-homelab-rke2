@@ -3444,6 +3444,102 @@ class ColdTests(unittest.TestCase):
             self.coordinator.recover(success=True)
         self.assertTrue(self.api.items("configmap"))
         self.assertFalse(self.journal.read()["completed"])
+        self.assertIsNone(self.journal.read().get("verified_host_return"))
+
+    def prepare_verified_host_return(self):
+        self.record_package_receipt()
+        self.api.host_boot = "rebooted-worker2"
+        self.coordinator.host_completed()
+        return copy.deepcopy(self.journal.read().get("verified_host_return"))
+
+    def test_verified_host_return_survives_native_return_and_storage_retries(self):
+        for gate in ("native_gate", "cold_storage"):
+            with self.subTest(gate=gate):
+                self.setUp_fixture_for_reboot_case()
+                proof = self.prepare_verified_host_return()
+                with patch.object(c, gate, side_effect=RuntimeError("transient warmup")), \
+                        self.assertRaisesRegex(RuntimeError, "transient warmup"):
+                    self.coordinator.recover(success=True)
+                self.assertEqual(self.journal.read()["verified_host_return"], proof)
+                self.assertFalse(self.journal.read()["completed"])
+                self.assertTrue(self.api.items("configmap"))
+                with patch.object(c.m, "health", return_value={}), \
+                        patch.object(c.m.urllib.request, "urlopen") as url, patch.object(c.time, "sleep"):
+                    url.return_value.__enter__.return_value.status = 200
+                    self.recover_with_live_worker()
+                self.assertEqual(self.journal.read()["phase"], "accepted")
+
+    def test_independent_guard_preserves_verified_return_after_executor_loss(self):
+        proof = self.prepare_verified_host_return()
+        coordinator = c.Coordinator(self.plan, self.approval, self.policy, self.journal, self.api)
+        coordinator.wait = lambda fn, **kwargs: fn()
+        with patch.object(c, "load_runtime", return_value=coordinator), \
+                patch.object(c, "executor_problem", return_value="executor-loss"), \
+                patch.object(c.m, "health", return_value={}), \
+                patch.object(c.m.urllib.request, "urlopen") as url, patch.object(c.time, "sleep"):
+            url.return_value.__enter__.return_value.status = 200
+            c.guard("not-a-host-directory")
+        self.assertEqual(self.journal.read()["verified_host_return"], proof)
+        self.assertEqual(self.journal.read()["phase"], "accepted")
+
+    def test_explicit_guard_recovery_revokes_verified_return(self):
+        for entrypoint in ("forced-guard", "cold-recover"):
+            with self.subTest(entrypoint=entrypoint):
+                self.setUp_fixture_for_reboot_case()
+                self.prepare_verified_host_return()
+                with patch.object(c, "load_runtime", return_value=self.coordinator), \
+                        patch.object(c.m, "health", return_value={}), \
+                        patch.object(c.m.urllib.request, "urlopen") as url, patch.object(c.time, "sleep"):
+                    url.return_value.__enter__.return_value.status = 200
+                    if entrypoint == "cold-recover":
+                        with patch.object(h, "load_cold", return_value=c), patch.object(h, "command"):
+                            h.cold_control({"operation": "cold-recover",
+                                            "run_id": self.journal.read()["run_id"]})
+                        c.guard("not-a-host-directory")
+                    else:
+                        c.guard("not-a-host-directory", force=True)
+                self.assertTrue(self.journal.read()["recovery_cancelled"])
+                self.assertIsNone(self.journal.read()["verified_host_return"])
+                self.assertEqual(self.journal.read()["phase"], "recovered-after-failure")
+
+    def test_cancellation_before_final_mutex_overrides_executor_success_hint(self):
+        self.prepare_verified_host_return()
+        transaction = self.journal.transaction
+        cancelled = []
+
+        def cancel_before_completion(callback):
+            if "complete" in callback.__code__.co_names and not cancelled:
+                cancelled.append(True)
+                self.coordinator.request_recovery("explicit-recovery", cancel=True)
+            return transaction(callback)
+
+        with patch.object(self.journal, "transaction", side_effect=cancel_before_completion), \
+                patch.object(c.m, "health", return_value={}), \
+                patch.object(c.m.urllib.request, "urlopen") as url, patch.object(c.time, "sleep"):
+            url.return_value.__enter__.return_value.status = 200
+            self.recover_with_live_worker(success=True)
+        self.assertTrue(cancelled)
+        self.assertEqual(self.journal.read()["phase"], "recovered-after-failure")
+        self.assertTrue(self.journal.read()["recovery_cancelled"])
+
+    def test_completion_rechecks_the_exact_verified_boot_before_unlocking(self):
+        self.prepare_verified_host_return()
+        native_audit = self.api.host_audit
+        calls = []
+
+        def changed_boot(*arguments):
+            host = native_audit(*arguments)
+            calls.append(True)
+            return host if len(calls) == 1 else {**host, "boot_id": "another-worker2-boot"}
+
+        with patch.object(self.api, "host_audit", side_effect=changed_boot), \
+                patch.object(c.m, "health", return_value={}), \
+                patch.object(c.m.urllib.request, "urlopen") as url, patch.object(c.time, "sleep"), \
+                self.assertRaisesRegex(RuntimeError, "proof drift at completion"):
+            url.return_value.__enter__.return_value.status = 200
+            self.recover_with_live_worker()
+        self.assertFalse(self.journal.read()["completed"])
+        self.assertTrue(self.api.items("configmap"))
 
     def test_native_shutdown_job_blocks_warmup_even_after_reboot_service_becomes_idle(self):
         states = [{"ActiveState": "inactive", "LoadState": "loaded", "Job": "0"} for _ in range(6)]
