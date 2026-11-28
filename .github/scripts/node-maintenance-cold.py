@@ -64,10 +64,12 @@ BACKENDS = {
     ("paperless", "paperless-paperless-ngx-postgresql"), ("paperless", "paperless-paperless-ngx-redis"),
     ("sure-finance", "sure-finance-maybe-finance-redis"), ("sure-finance", "sure-finance-maybe-finance-postgresql"),
 }
+COREDNS_AUTOSCALER = ("kube-system", "rke2-coredns-rke2-coredns-autoscaler")
 OPERATORS = {
     ("keda", "keda-operator"), ("keda", "keda-add-ons-http-controller-manager"),
     ("keda", "keda-add-ons-http-external-scaler"), ("keda", "keda-add-ons-http-interceptor"),
     ("monitoring", "kube-prometheus-stack-operator"),
+    COREDNS_AUTOSCALER,
 }
 HA = {
     ("csi-driver-nfs", "csi-nfs-controller"), ("kube-system", "rke2-coredns-rke2-coredns"),
@@ -147,6 +149,25 @@ def replica_binding(obj):
 def suspend_binding(obj):
     return binding(obj, {"suspend_present": "suspend" in obj["spec"],
                          "suspend": obj["spec"].get("suspend", False)})
+
+
+def coredns_autoscaler_binding(obj):
+    require(obj["kind"] == "Deployment" and identity(obj) == COREDNS_AUTOSCALER
+            and obj["spec"].get("replicas") == 1 and not owners(obj),
+            "Exact single-replica unowned CoreDNS autoscaler required")
+    containers = obj["spec"]["template"]["spec"]["containers"]
+    require(len(containers) == 1, "CoreDNS autoscaler container scope drift")
+    command, arguments = containers[0].get("command", []), containers[0].get("args", [])
+    require(isinstance(command, list) and isinstance(arguments, list)
+            and command and command[0] == "/cluster-proportional-autoscaler"
+            and all(isinstance(arg, str) for arg in command + arguments),
+            "CoreDNS autoscaler command drift")
+    argv = command + arguments
+    for flag, value in (("namespace", "kube-system"), ("configmap", COREDNS_AUTOSCALER[1]),
+                        ("target", "Deployment/rke2-coredns-rke2-coredns")):
+        require([arg for arg in argv if arg == "--" + flag or arg.startswith("--" + flag + "=")]
+                == ["--" + flag + "=" + value], "CoreDNS autoscaler " + flag + " scope drift")
+    return replica_binding(obj)
 
 
 def mount_handler_contract(obj):
@@ -569,6 +590,7 @@ class API:
 def build_plan(policy, api=None):
     api = api or API()
     snapshot_attachment_gate(policy, api)
+    dns_autoscaler = coredns_autoscaler_binding(api.get("deployments", *COREDNS_AUTOSCALER))
     inventory = m.cold_inventory(policy)
     old_advisory = ("Inventory only:", "Durable restoration", "Autoscaler/operator", "Worker2 router DNS")
     require(not [b for b in inventory["blockers"] if not b.startswith(old_advisory)],
@@ -584,7 +606,7 @@ def build_plan(policy, api=None):
     cmap = {identity(d): d for d in objects}
     controllers = [replica_binding(cmap[(r["namespace"], r["name"])]) for r in inventory["controllers"]]
     extra = [replica_binding(dmap[k]) for k in sorted(OPERATORS) if k[0] == "keda"]
-    controllers += extra
+    controllers += extra + [dns_autoscaler]
     require(all(not r["controllers"] for r in controllers if (r["namespace"], r["name"]) in OPERATORS),
             "Operator controller is controlled by an uncaptured parent")
     # Bind exact operator image pins to repository provenance, never accept a tag-only substitute.
@@ -766,7 +788,7 @@ def check_plan(plan, approval, policy, api=None, age=True):
                        (plan["outage_budget"]["maximum_seconds"] is None
                         or time.time() - plan["created_epoch"] < 4 * 3600)), "Expired/future cold approval")
     require({(r["namespace"], r["name"]) for r in plan["controllers"]}
-            == {(ns, name) for ns, names in ALLOWED.items() for name in names} | {k for k in OPERATORS if k[0] == "keda"},
+            == {(ns, name) for ns, names in ALLOWED.items() for name in names} | OPERATORS,
             "Malformed cold controller scope")
     require({(r["kind"], r["namespace"], r["name"]) for r in plan["reconciliation"]} == RECONCILIATION,
             "Malformed cold reconciliation scope")
@@ -1283,6 +1305,8 @@ class Coordinator:
         self.api.kube("get", "--raw=/readyz")
         m.check_nodes(self.policy, self.api.items("nodes"), WORKER if drained else None)
         require(self.api.get("helmrelease", "monitoring", "kured")["spec"].get("suspend") is True, "Kured protection drift")
+        self.controllers_stopped([r for r in self.plan["controllers"]
+                                  if (r["namespace"], r["name"]) == COREDNS_AUTOSCALER])
         self.producers_gated()
         self.hpas_paused()
         cold_storage(self.plan, self.policy, self.api, detached=True)

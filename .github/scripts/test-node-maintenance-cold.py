@@ -159,6 +159,9 @@ class FakeAPI:
         self.events.append(("kube", args))
         if args[:1] == ("cordon",):
             self.get("nodes", name=c.WORKER)["spec"]["unschedulable"] = True
+            scaler = self.get("deployments", "kube-system", "rke2-coredns-rke2-coredns-autoscaler")
+            if scaler["spec"]["replicas"]:
+                self.get("deployments", "kube-system", "rke2-coredns-rke2-coredns")["spec"]["replicas"] = 1
             # Mock the native controller only after its actual contract has been met.
             c.cold_storage(self.plan, self.policy, self, detached=True)
             for r in self.items("replicas.longhorn.io"):
@@ -173,6 +176,9 @@ class FakeAPI:
                 if r["metadata"]["name"] != c.IM_NAMES[c.WORKER]]
         elif args[:1] == ("uncordon",):
             self.get("nodes", name=c.WORKER)["spec"]["unschedulable"] = False
+            scaler = self.get("deployments", "kube-system", "rke2-coredns-rke2-coredns-autoscaler")
+            if scaler["spec"]["replicas"]:
+                self.get("deployments", "kube-system", "rke2-coredns-rke2-coredns")["spec"]["replicas"] = 2
             old = self.plan["native"][c.WORKER]
             if not any(p["metadata"]["name"] == old["name"] for p in self.items("pods", "storage")):
                 original = copy.deepcopy(self.original_im_pod)
@@ -344,6 +350,17 @@ def fixture(hpa_behavior=None, handler_suspend=False, timing="bounded"):
         p, rs = pod_for(d, c.PEER, "-original")
         api.add("pods", p)
         api.add("replicasets", rs)
+    dns_scaler = controller("kube-system", "rke2-coredns-rke2-coredns-autoscaler")
+    dns_scaler["spec"]["template"]["spec"]["containers"] = [{
+        "name": "autoscaler", "image": "rancher/hardened-cluster-autoscaler:v1.11.0-build20261020",
+        "command": ["/cluster-proportional-autoscaler", "--namespace=kube-system",
+                    "--configmap=rke2-coredns-rke2-coredns-autoscaler",
+                    "--target=Deployment/rke2-coredns-rke2-coredns", "--logtostderr=true", "--v=2"],
+    }]
+    api.add("deployments", dns_scaler)
+    p, rs = pod_for(dns_scaler, c.PEER, "-original")
+    api.add("pods", p)
+    api.add("replicasets", rs)
     for ns, name in sorted(c.HA):
         d = controller(ns, name, replicas=2)
         d["spec"]["template"]["spec"]["affinity"] = {"podAntiAffinity": {
@@ -3198,6 +3215,66 @@ class ColdTests(unittest.TestCase):
         self.assertEqual(cordons, [("kube", ("cordon", c.WORKER)), ("kube", ("uncordon", c.WORKER))])
         self.assertFalse(any(e[0] == "patch" and "storage/" in e[1] for e in self.api.events))
         self.assertEqual(len([e for e in self.api.events if e[0] == "kube" and c.m.LOCK in e[1] and "delete" in e[1]]), 1)
+
+    def test_coredns_autoscaler_scope_drift_blocks_planning_before_inventory(self):
+        scaler = self.api.get("deployments", *c.COREDNS_AUTOSCALER)
+        original = copy.deepcopy(scaler["spec"])
+        for flag in ("namespace", "configmap", "target"):
+            with self.subTest(flag=flag):
+                scaler["spec"] = copy.deepcopy(original)
+                command = scaler["spec"]["template"]["spec"]["containers"][0]["command"]
+                command[:] = ["--" + flag + "=other" if arg.startswith("--" + flag + "=") else arg
+                              for arg in command]
+                with patch.object(c.m, "cold_inventory") as inventory, \
+                        self.assertRaisesRegex(RuntimeError, "CoreDNS autoscaler " + flag + " scope drift"):
+                    c.build_plan(self.policy, self.api)
+                inventory.assert_not_called()
+        scaler["spec"] = original
+        self.api.resources["deployments"].remove(scaler)
+        with patch.object(c.m, "cold_inventory") as inventory, self.assertRaisesRegex(RuntimeError, "Missing"):
+            c.build_plan(self.policy, self.api)
+        inventory.assert_not_called()
+
+    def test_coredns_autoscaler_is_paused_through_drain_and_worker_return(self):
+        self.successful_hooks()
+        scaler = self.api.get("deployments", *c.COREDNS_AUTOSCALER)
+        dns = self.api.get("deployments", "kube-system", "rke2-coredns-rke2-coredns")
+        original_dns = copy.deepcopy(dns["spec"])
+        native_kube = self.api.kube
+        observed = []
+        def kube(*args):
+            if args[:1] in (("cordon",), ("uncordon",)):
+                observed.append(args[0])
+                self.assertEqual(scaler["spec"]["replicas"], 0)
+                self.assertEqual(dns["spec"], original_dns)
+            return native_kube(*args)
+        self.api.kube = kube
+        with patch.object(c.m, "health", return_value={}), patch.object(c.m.urllib.request, "urlopen") as url, \
+                patch.object(c.time, "sleep"):
+            url.return_value.__enter__.return_value.status = 200
+            self.coordinator.execute()
+        self.assertEqual(observed, ["cordon", "uncordon"])
+        self.assertEqual(scaler["spec"]["replicas"], 1)
+        self.assertEqual(dns["spec"], original_dns)
+        self.assertEqual(self.journal.read()["phase"], "accepted")
+
+    def test_reactivated_coredns_autoscaler_blocks_host_authorization_and_recovers(self):
+        self.successful_hooks()
+        scaler = self.api.get("deployments", *c.COREDNS_AUTOSCALER)
+        native_authorize = self.coordinator.authorize_host
+        def authorize():
+            scaler["spec"]["replicas"] = 1
+            scaler["status"].update(replicas=1, readyReplicas=1)
+            native_authorize()
+        self.coordinator.authorize_host = authorize
+        with patch.object(c.m, "health", return_value={}), patch.object(c.m.urllib.request, "urlopen") as url, \
+                patch.object(c.time, "sleep"), self.assertRaisesRegex(RuntimeError, "controller has not observed zero"):
+            url.return_value.__enter__.return_value.status = 200
+            self.coordinator.execute()
+        self.assertFalse(self.journal.read()["host_started"])
+        self.assertTrue(self.journal.read()["host_slot_cancelled"])
+        self.assertEqual(self.journal.read()["phase"], "recovered-after-failure")
+        self.assertEqual(scaler["spec"]["replicas"], 1)
 
     def test_failed_drain_and_interruption_restore_instead_of_resuming_upgrade(self):
         for error in (RuntimeError("normal drain failed"), KeyboardInterrupt()):

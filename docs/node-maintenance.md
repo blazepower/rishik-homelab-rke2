@@ -167,7 +167,17 @@ updated by this future-source improvement.
 
 The only application cohort is the 32 reviewed controllers in AdGuard, Homebox,
 Kaneo, media, monitoring, Paperless, Siloarr and Sure. Four exact KEDA/HTTP
-operator/scaler/interceptor Deployments are additionally bound. Claims,
+operator/scaler/interceptor Deployments and the exact single-replica
+`kube-system/rke2-coredns-rke2-coredns-autoscaler` Deployment are additionally bound.
+The CoreDNS autoscaler's command, namespace, ConfigMap and sole Deployment target
+are verified before inventory. It is paused with the other operators before
+application shutdown or cordon, and its observed zero count and actual Pod
+disappearance are rechecked by infrastructure and host-authorization gates.
+DNS itself remains at its original two replicas with the unchanged HA/spec
+guards. Otherwise, the default proportional autoscaler can reduce DNS to one
+replica when cordon leaves only one schedulable worker. Original autoscaler
+replicas are restored only during recovery after worker2 returns; no permanent
+DNS configuration or DNS Deployment scale patch is introduced. Claims,
 volume/engine/replica UIDs, data-directory and specification hashes, original
 zero counts, selected pause annotations, five exact CronJob suspensions, 25 inventory
 reconcilers and the two KEDA HelmReleases are captured. Unknown writers,
